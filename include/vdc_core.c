@@ -99,18 +99,30 @@ struct VDCModeSet vdc_modes[13] =
         // line 78), minus its DISP_ADDR/ATTR_ADDR/CHAR_ADDR register pairs --
         // this project sets those from base_text/base_attr via
         // vdc_set_disp_address() instead (see vdc_set_mode()), and skips
-        // charset addressing entirely for bitmap modes. CSIZE=0x00 (char
-        // height 1 -- confirmed by VTOTAL=255: (255+1)*1 = 256 total
-        // scanlines, matching ~252 displayed; a height-8 guess tried first
-        // gave (255+1)*8 = 2048, badly wrong -- garbled/stretched in VICE).
-        // "8x1" in the mode's name means this literally: 8 pixels wide by
-        // 1 scanline tall per colour cell, true per-scanline colour
-        // resolution, not "1 char row" as first assumed. This also means
-        // the bitmap is plain row-major (no 8-line interleaving), which is
-        // exactly what tools/vdc_convert.py already produces. LACE
-        // explicitly 0x00 (rather than omitted) so a previously active
-        // interlaced mode can't leave stale interlace state behind.
-        {480, 252, 1, 8, 1, 0x0000, 0x4000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7e, VDCR_HDISPLAY, 0x3c, VDCR_HSYNC, 0x5c, VDCR_VTOTAL, 0xff, VDCR_VDISPLAY, 0xfe, VDCR_VSYNC, 0x02, VDCR_LACE, 0x00, VDCR_CSIZE, 0x00, VDCR_REFRESH, 0x00, 255}},
+        // charset addressing entirely for bitmap modes. "8x1" in the mode's
+        // name means 8 pixels wide by 1 scanline tall per colour cell --
+        // true per-scanline colour resolution -- so the bitmap is plain
+        // row-major (no 8-line interleaving), matching what
+        // tools/vdc_convert.py already produces. LACE explicitly 0x00
+        // (rather than omitted) so a previously active interlaced mode
+        // can't leave stale interlace state behind.
+        //
+        // CSIZE (register 9) is deliberately NOT set here -- Tokra's own
+        // DATA statement for this mode omits it too, with the comment
+        // "register 9 set by assembler loop". Disassembling that routine
+        // (sys4864 in vdcmodemania.bas, POKEd from DATA at line 4) shows
+        // it's not a static value at all: every frame, while idle, it
+        // writes CSIZE=$e0 (char height 1) right as the VDC's status bit 5
+        // (see raster_synch()'s identical wait pattern) clears (start of
+        // active display), then writes CSIZE=$e7 (char height 8) right as
+        // bit 5 sets again (start of the next vblank) -- i.e. the real
+        // 8563/8568 hardware needs char-height toggled every single frame
+        // to hold this resolution's addressing stable; a static value
+        // (either one) works for a few lines then drifts, which is exactly
+        // the tiled/repeating corruption seen when this was first tried as
+        // a fixed 0x00 or 0xe7 in this table. See fli_color_demo() in
+        // main.c for the per-frame toggle that replaces the missing entry.
+        {480, 252, 1, 8, 1, 0x0000, 0x4000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7e, VDCR_HDISPLAY, 0x3c, VDCR_HSYNC, 0x5c, VDCR_VTOTAL, 0xff, VDCR_VDISPLAY, 0xfe, VDCR_VSYNC, 0x02, VDCR_LACE, 0x00, VDCR_REFRESH, 0x00, 255}},
         // VDC-IMONO: 720x700, interlace, monochrome. Timing values from
         // Tokra's original demo (vdcmodemania.bas line 110), same
         // DISP_ADDR/ATTR_ADDR/CHAR_ADDR omission as above. Bitmap alone is

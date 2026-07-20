@@ -720,49 +720,6 @@ void mono_colorize_demo()
 	vdc_cls();
 }
 
-void fli_geometry_test()
-// TEMPORARY diagnostic -- fills VDC_HIRES_480x252_Color_PAL's bitmap/
-// attribute planes with a trivial synthetic pattern (not loaded from disk)
-// to check whether the mode's geometry/addressing is right, independent of
-// tools/vdc_convert.py's output. Remove once fli_color_demo() is confirmed
-// correct.
-{
-	unsigned addr;
-	char row, col;
-
-	vdc_init(VDC_HIRES_480x252_Color_PAL, 1);
-	if (!vdc_state.bitmap)
-	{
-		return;
-	}
-
-	// Bitmap: solid white (all bits set) so only colour drives the pattern.
-	vdc_mem_addr(vdc_state.base_text);
-	for (addr = 0; addr < 15120; addr++)
-	{
-		vdc_write(0xff);
-	}
-
-	// Attribute: a distinct colour per 8-pixel column within each row, and
-	// a distinct colour per row, so both axes are checkable at a glance.
-	vdc_mem_addr(vdc_state.base_attr);
-	for (row = 0; row < 252; row++)
-	{
-		for (col = 0; col < 60; col++)
-		{
-			vdc_write(((row & 0xf) << 4) | (col % 15) | 1);
-		}
-	}
-
-	while (vdcwin_checkch())
-	{
-	}
-	while (!vdcwin_checkch())
-	{
-	}
-	vdc_cls();
-}
-
 void fli_color_demo()
 // Showcases VDC-FLI (480x252, 8x1 colour cells, non-interlace) -- the
 // simplest of Tokra's colour modes to add ("VDC Mode Mania", see
@@ -789,9 +746,34 @@ void fli_color_demo()
 	{
 	}
 
-	while (!vdcwin_checkch())
+	// VDC-FLI's per-frame CSIZE (register 9) toggle -- see the long comment
+	// on this mode's vdc_modes[] row in vdc_core.c for why this is here
+	// instead of a static register value: reverse-engineered from Tokra's
+	// sys4864 (vdcmodemania.bas). $d600 bit 5 is the same VBlank-adjacent
+	// status bit raster_synch() already waits on. Runs with interrupts off
+	// for the toggle itself (matching the original), re-enabled only to
+	// let vdcwin_checkch() see a keypress between frames.
+	do
 	{
-	}
+		__asm
+		{
+			sei
+			ldx #9
+			lda #$20
+			ldy #$e0
+		fw1:
+			bit $d600
+			bne fw1
+			stx $d600
+			sty $d601
+			ldy #$e7
+		fw2:
+			bit $d600
+			beq fw2
+			sty $d601
+			cli
+		}
+	} while (!vdcwin_checkch());
 
 	vdc_cls();
 }
@@ -824,7 +806,11 @@ void mono_hires_xl_demo()
 
 	// Recalibrate for this mode -- see title_screen()/mono_colorize_demo()'s
 	// comments: calibration is mode-specific and must be redone after every
-	// vdc_init() switch that a raster-timed effect depends on.
+	// vdc_init() switch that a raster-timed effect depends on. This mode is
+	// also genuinely interlaced (LACE=3), which raster_calibrate() now
+	// accounts for -- see its comment on the 2x mismatch that was found and
+	// fixed here (confirmed live: calibration was reading half the true
+	// cycles/line before that fix).
 	raster_calibrate();
 
 	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 31500);
@@ -840,6 +826,18 @@ void mono_hires_xl_demo()
 	while (vdcwin_checkch())
 	{
 	}
+
+	// Unlike mono_colorize_demo() (a procedural placeholder, no disk access
+	// at all before its raster_music_irq_start() call), this function does
+	// two bnk_load() calls first -- KERNAL LOAD activity that, per cia_init()'s
+	// own comment in main(), can leave CIA1's interrupt-control register with
+	// stale pending state. Re-running cia_init() here (cheap, and everything
+	// it resets gets fully reprogrammed by raster_music_irq_start() anyway)
+	// guards against the picture rendering correctly but the colour IRQ never
+	// actually firing -- observed once as a flat default-yellow picture with
+	// no per-line gradient at all, consistent with the IRQ silently not
+	// starting rather than a colourtable/timing bug.
+	cia_init();
 
 	// linespertick=4 as a starting point, same as mono_colorize_demo() --
 	// this mode's interlace flag (LACE=3) driving a 700-line table is new

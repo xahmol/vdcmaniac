@@ -41,6 +41,17 @@ is never called, but real hardware/emulator sessions should always call it —
 see `raster_place_test()` in `src/main.c` for a tool that lets you eyeball
 whether the calibrated value holds a bar steady at a given line.
 
+**Interlaced modes** (LACE register bits 0-1 = `11`, e.g.
+`VDC_HIRES_720x700_Mono_PAL`): the VBlank status bit this function times
+against toggles once per *field*, not once per full frame, so
+`raster_calibrate()` halves its line-count formula for those modes to match
+— confirmed live: without this, a genuinely interlaced mode calibrated to
+exactly half the correct cycles/line value (e.g. measured 31.4 instead of
+the expected ~63), which silently broke `raster_music_irq_start()`'s timing
+for that mode (the picture displayed fine, since VDC addressing doesn't
+depend on this value, but the colour gradient wouldn't advance visibly).
+Non-interlaced modes are unaffected.
+
 ---
 
 ## Mechanism 1: CIA2 busy-wait bars

@@ -27,6 +27,15 @@ Code and resources from others used:
 
     http://www.zimmers.net/anonftp/pub/cbm/manuals/c128/C128_Programmers_Reference_Guide.pdf
 
+-   Peter Hulstede, "VDC-Intromaker: Perfektes Rasterzeilen-Timing",
+    64'er Sonderheft 95, p.45 (also the author of that issue's V.I.P./V.S.P.
+    VDC intro/demo editor tools, built on the same technique):
+    raster_synch()/raster_waitline() below are a C translation of this
+    article's example CIA-timer VDC raster sync routine (SYNC/WAITLINE/
+    WAITJUMP/LINEND in the original 6502 listing) -- same $D600 bit 5 sync
+    point, same CIA Timer A/B chaining, same self-modifying NOP-jump-table
+    for sub-line precision.
+
 -   Tokra: For the optimal VDC registry settings for 80x50 and 80x70 textmodes
 
 -   Scott Hutter - VDC Core functions inspiration:

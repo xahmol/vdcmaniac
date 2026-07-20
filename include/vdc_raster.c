@@ -11,6 +11,13 @@
 __zeropage char raster_timer_reload = 62;
 unsigned raster_cycles_per_line_x1000 = 63056;
 
+// raster_waitline()/raster_synch() (below): C translation of the CIA-timer
+// VDC raster sync routine from "64'er Sonderheft 95", "VDC-Intromaker:
+// Perfektes Rasterzeilen-Timing" (p.45) -- see the credits at the top of
+// vdc_raster.h. Adapted: C function boundaries/calling convention instead
+// of the article's plain 6502 subroutine labels; register/variable choices
+// otherwise unchanged (same CIA2 Timer A/B chaining, same $D600 bit 5 sync
+// point, same self-modifying NOP-jump-table for sub-line precision).
 void raster_waitline(char rasterline)
 {
     __asm
@@ -253,6 +260,20 @@ void raster_calibrate()
     vtotal = vdc_reg_read(VDCR_VTOTAL);
     csize = vdc_reg_read(VDCR_CSIZE);
     linesperframe = (unsigned long)(vtotal + 1) * (unsigned long)((csize & 0x1f) + 1);
+
+    // Genuinely interlaced modes (LACE bits 0-1 = 11, sync+video interlace --
+    // see e.g. VDC_HIRES_720x700_Mono_PAL) toggle the VBlank status bit once
+    // per FIELD, not once per full (VTOTAL+1)*(CHEIGHT+1)-line frame -- the
+    // 64-VBlank sample loop above therefore measures 64 fields' worth of
+    // elapsed cycles, not 64 frames, while linesperframe above still counts
+    // a full frame. Left uncorrected this halves the computed cycles/line
+    // (confirmed live: measured 31.393 instead of the ~62-63 every other
+    // mode calibrates to). Halve linesperframe to match what was actually
+    // measured. (Non-interlaced modes, LACE bits 0-1 = 00, are unaffected.)
+    if ((vdc_reg_read(VDCR_LACE) & 0x03) == 0x03)
+    {
+        linesperframe /= 2;
+    }
 
     cpl_x1000 = (elapsed * 1000UL) / (64UL * linesperframe);
 
