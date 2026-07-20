@@ -741,6 +741,26 @@ int main(void)
 
 	vdc_init(VDC_TEXT_80x25_PAL, 1);
 
+	// This demo's hires effects (title_screen(), mono_colorize_demo(),
+	// plasma_demo(), rotate_demo()) all use bitmap modes whose framebuffer
+	// alone exceeds the VDC's base 16KB (640x400 mono is 32000 bytes by
+	// itself) -- they need the extended 64KB VDC memory to exist at all.
+	// vdc_set_mode() silently no-ops when a mode needs more memory than is
+	// present, so without this check the demo would just show a blank/
+	// stuck screen on a 16KB VDC instead of a clear reason why. memsize is
+	// populated by vdc_detect_mem_size(), called from the vdc_init() above.
+	if (vdc_state.memsize != 64)
+	{
+		vdc_prints(5, 5, "This demo requires a VDC with 64 KB RAM.");
+		vdc_prints(5, 6, "Your VDC only has 16 KB -- exiting.");
+		vdc_prints(5, 8, "Press a key to continue.");
+		while (!vdcwin_checkch())
+		{
+		}
+		vdc_exit();
+		return 0;
+	}
+
 	raster_calibrate();
 
 	raster_place_test();
