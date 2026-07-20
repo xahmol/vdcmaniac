@@ -81,7 +81,7 @@ struct VDCStatus vdc_state;
 unsigned multab[72];
 
 // VDC mode settings. Credits to Tokra.
-struct VDCModeSet vdc_modes[11] =
+struct VDCModeSet vdc_modes[13] =
     {
         {80, 25, 0, 8, 0, 0x0000, 0x0800, 0x1000, 0x1800, 0x2000, 0x3000, 0x4000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x26, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x20, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0x7e, 255}},
         {80, 50, 0, 8, 0, 0x0000, 0x1000, 0x4000, 0x5000, 0x2000, 0x3000, 0x6000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x4d, VDCR_VADJUST, 0x00, VDCR_VDISPLAY, 0x32, VDCR_VSYNC, 0x40, VDCR_LACE, 0x03, VDCR_CSIZE, 0x07, VDCR_REFRESH, 0x00, 255}},
@@ -93,7 +93,31 @@ struct VDCModeSet vdc_modes[11] =
         {640, 200, 1, 0, 1, 0x0000, 0x4000, 0x4800, 0x8800, 0x9000, 0xa000, 0xb000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x26, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x20, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0x7e, 255}},
         {640, 400, 1, 8, 1, 0x0000, 0x8000, 0x9000, 0xd000, 0xe000, 0xf000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x4d, VDCR_VADJUST, 0x00, VDCR_VDISPLAY, 0x32, VDCR_VSYNC, 0x40, VDCR_LACE, 0x03, VDCR_CSIZE, 0x07, VDCR_REFRESH, 0x00, 255}},
         {640, 400, 1, 0, 1, 0x0000, 0x0000, 0x8000, 0x0000, 0x9000, 0xa000, 0xb000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x4d, VDCR_VADJUST, 0x00, VDCR_VDISPLAY, 0x31, VDCR_VSYNC, 0x40, VDCR_LACE, 0x03, VDCR_CSIZE, 0x07, VDCR_REFRESH, 0x00, 255}},
-        {640, 480, 1, 0, 1, 0x0000, 0x0000, 0x9600, 0x0000, 0xa000, 0xb000, 0xc000, {VDCR_HTOTAL, 0x7e, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x84, VDCR_VADJUST, 0x03, VDCR_VDISPLAY, 0x84, VDCR_LACE, 0x03, VDCR_CSIZE, 0x03, VDCR_REFRESH, 0x02, 255}}};
+        {640, 480, 1, 0, 1, 0x0000, 0x0000, 0x9600, 0x0000, 0xa000, 0xb000, 0xc000, {VDCR_HTOTAL, 0x7e, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x84, VDCR_VADJUST, 0x03, VDCR_VDISPLAY, 0x84, VDCR_LACE, 0x03, VDCR_CSIZE, 0x03, VDCR_REFRESH, 0x02, 255}},
+        // VDC-FLI: 480x252, non-interlace, 8x1 colour cells. Timing values
+        // from Tokra's "VDC Mode Mania" (original/v12/source/vdcmodemania.bas
+        // line 78), minus its DISP_ADDR/ATTR_ADDR/CHAR_ADDR register pairs --
+        // this project sets those from base_text/base_attr via
+        // vdc_set_disp_address() instead (see vdc_set_mode()), and skips
+        // charset addressing entirely for bitmap modes. CSIZE=0x00 (char
+        // height 1 -- confirmed by VTOTAL=255: (255+1)*1 = 256 total
+        // scanlines, matching ~252 displayed; a height-8 guess tried first
+        // gave (255+1)*8 = 2048, badly wrong -- garbled/stretched in VICE).
+        // "8x1" in the mode's name means this literally: 8 pixels wide by
+        // 1 scanline tall per colour cell, true per-scanline colour
+        // resolution, not "1 char row" as first assumed. This also means
+        // the bitmap is plain row-major (no 8-line interleaving), which is
+        // exactly what tools/vdc_convert.py already produces. LACE
+        // explicitly 0x00 (rather than omitted) so a previously active
+        // interlaced mode can't leave stale interlace state behind.
+        {480, 252, 1, 8, 1, 0x0000, 0x4000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7e, VDCR_HDISPLAY, 0x3c, VDCR_HSYNC, 0x5c, VDCR_VTOTAL, 0xff, VDCR_VDISPLAY, 0xfe, VDCR_VSYNC, 0x02, VDCR_LACE, 0x00, VDCR_CSIZE, 0x00, VDCR_REFRESH, 0x00, 255}},
+        // VDC-IMONO: 720x700, interlace, monochrome. Timing values from
+        // Tokra's original demo (vdcmodemania.bas line 110), same
+        // DISP_ADDR/ATTR_ADDR/CHAR_ADDR omission as above. Bitmap alone is
+        // 720/8*700 = 63000 bytes -- only ~2.5KB spare in the 64KB VDC, which
+        // is exactly why bitmap modes now skip the charset copy (see
+        // vdc_set_mode()); there is no room for one here.
+        {720, 700, 1, 0, 1, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_HDISPLAY, 0x5a, VDCR_HSYNC, 0x6b, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x6a, VDCR_VADJUST, 0x06, VDCR_VDISPLAY, 0x6a, VDCR_VSYNC, 0x65, VDCR_LACE, 0x03, VDCR_CSIZE, 0x06, 255}}};
 
 char screen_width()
 // Return screenwidth 40 or 80
@@ -222,8 +246,15 @@ char vdc_set_mode(char mode)
     // Set VDC addresses
     vdc_disable_display();
     vdc_set_disp_address(vdc_modes[mode].base_text, vdc_modes[mode].base_attr);
-    vdc_set_charset_address(vdc_modes[mode].char_std);
-    vdc_restore_charsets();
+    // Bitmap modes never render text glyphs, so skip reserving/populating a
+    // charset here -- this matters for high-res bitmap modes whose bitmap
+    // alone nearly fills the 64KB VDC address space (e.g. 720x700 mono is
+    // 63000 bytes), leaving no room for a spare 4KB charset copy.
+    if (!vdc_state.bitmap)
+    {
+        vdc_set_charset_address(vdc_modes[mode].char_std);
+        vdc_restore_charsets();
+    }
 
     index = 0;
     do

@@ -156,7 +156,9 @@ enum VDCMode
     VDC_HIRES_640x200_Mono_PAL,
     VDC_HIRES_640x400_Color_PAL,
     VDC_HIRES_640x400_Mono_PAL,
-    VDC_HIRES_640x480_Mono_NTSC
+    VDC_HIRES_640x480_Mono_NTSC,
+    VDC_HIRES_480x252_Color_PAL,
+    VDC_HIRES_720x700_Mono_PAL
 };
 struct VDCModeSet
 {
@@ -172,9 +174,9 @@ struct VDCModeSet
     unsigned char_std;
     unsigned char_alt;
     unsigned extended;
-    char regset[17];
+    char regset[29]; // largest mode so far (VDC_HIRES_480x252_Color_PAL) needs 14 reg/value pairs + terminator
 };
-extern struct VDCModeSet vdc_modes[11];
+extern struct VDCModeSet vdc_modes[13];
 struct VDCStatus
 {
     char memsize;

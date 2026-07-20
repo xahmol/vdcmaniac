@@ -720,6 +720,148 @@ void mono_colorize_demo()
 	vdc_cls();
 }
 
+void fli_geometry_test()
+// TEMPORARY diagnostic -- fills VDC_HIRES_480x252_Color_PAL's bitmap/
+// attribute planes with a trivial synthetic pattern (not loaded from disk)
+// to check whether the mode's geometry/addressing is right, independent of
+// tools/vdc_convert.py's output. Remove once fli_color_demo() is confirmed
+// correct.
+{
+	unsigned addr;
+	char row, col;
+
+	vdc_init(VDC_HIRES_480x252_Color_PAL, 1);
+	if (!vdc_state.bitmap)
+	{
+		return;
+	}
+
+	// Bitmap: solid white (all bits set) so only colour drives the pattern.
+	vdc_mem_addr(vdc_state.base_text);
+	for (addr = 0; addr < 15120; addr++)
+	{
+		vdc_write(0xff);
+	}
+
+	// Attribute: a distinct colour per 8-pixel column within each row, and
+	// a distinct colour per row, so both axes are checkable at a glance.
+	vdc_mem_addr(vdc_state.base_attr);
+	for (row = 0; row < 252; row++)
+	{
+		for (col = 0; col < 60; col++)
+		{
+			vdc_write(((row & 0xf) << 4) | (col % 15) | 1);
+		}
+	}
+
+	while (vdcwin_checkch())
+	{
+	}
+	while (!vdcwin_checkch())
+	{
+	}
+	vdc_cls();
+}
+
+void fli_color_demo()
+// Showcases VDC-FLI (480x252, 8x1 colour cells, non-interlace) -- the
+// simplest of Tokra's colour modes to add ("VDC Mode Mania", see
+// original/v12/ and the credits in defines.h), since it needs no genuine
+// interlaced dual-field encoding: just a static bitmap plane plus a static
+// attribute plane, the same mechanism plasma_demo()/rotate_demo() already
+// use for VDC_HIRES_640x200_Color_PAL (procedural content there; a loaded
+// picture here). Picture converted from a CC0 photograph by
+// tools/vdc_convert.py -- see defines.h for the source/license.
+{
+	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdcfli.bit");
+	bnk_load(bootdevice, 1, (char *)MEM_SCREEN + 15120, "vdcfli.col");
+
+	vdc_init(VDC_HIRES_480x252_Color_PAL, 1);
+	if (!vdc_state.bitmap)
+	{
+		return;
+	}
+
+	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 15120);
+	bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN + 15120, 15120);
+
+	while (vdcwin_checkch())
+	{
+	}
+
+	while (!vdcwin_checkch())
+	{
+	}
+
+	vdc_cls();
+}
+
+void mono_hires_xl_demo()
+// Showcases VDC-IMONO (720x700, interlace monochrome -- see original/v12/)
+// combined with the CIA1 raster+music IRQ colourizer
+// (raster_music_irq_start()): the mechanism doesn't hardcode any particular
+// resolution (see mono_colorize_demo()), so this is mostly a matter of
+// pointing it at a bigger picture and a taller colour table. Picture
+// converted from a CC-BY-SA photograph by tools/vdc_convert.py -- see
+// defines.h for the source/license.
+//
+// The 720x700 bitmap is 63000 bytes -- bigger than the 32KB CPU RAM staging
+// area (MEM_SCREEN..MEM_CHARSET, see defines.h) used to load a picture into
+// VDC memory in one piece, so unlike title_screen()'s top+bot (which both
+// fit in that 32KB together), each half here is loaded and copied to VDC
+// memory before the next half is loaded into the same buffer.
+{
+	static char colortable[700];
+	unsigned i;
+
+	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdcimono.top");
+
+	vdc_init(VDC_HIRES_720x700_Mono_PAL, 1);
+	if (!vdc_state.bitmap)
+	{
+		return;
+	}
+
+	// Recalibrate for this mode -- see title_screen()/mono_colorize_demo()'s
+	// comments: calibration is mode-specific and must be redone after every
+	// vdc_init() switch that a raster-timed effect depends on.
+	raster_calibrate();
+
+	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 31500);
+
+	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdcimono.bot");
+	bnk_cpytovdc(vdc_state.base_text + 31500, BNK_1_FULL, (char *)MEM_SCREEN, 31500);
+
+	for (i = 0; i < 700; i++)
+	{
+		colortable[i] = VDC_BLACK | 16 * rasterbar[i % 13];
+	}
+
+	while (vdcwin_checkch())
+	{
+	}
+
+	// linespertick=4 as a starting point, same as mono_colorize_demo() --
+	// this mode's interlace flag (LACE=3) driving a 700-line table is new
+	// territory for this mechanism this session (previously only proven at
+	// 400 lines, progressive-looking geometry) -- watch for the picture
+	// wrapping/shifting in VICE and adjust tablelength/linespertick if 700
+	// doesn't match what the hardware is actually scanning per real frame.
+	raster_music_irq_start(colortable, 700, 4, 0);
+
+	// KERNAL/BASIC ROM is banked out while the IRQ is active (see
+	// raster_music_irq_start()), so GETIN-based vdcwin_checkch() can't be
+	// used here -- direct keyboard matrix scan instead.
+	do
+	{
+		keyb_poll();
+	} while (keyb_key == KSCAN_MAX);
+
+	raster_music_irq_stop();
+
+	vdc_cls();
+}
+
 // Main routine
 int main(void)
 {
@@ -768,6 +910,10 @@ int main(void)
 	title_screen();
 
 	mono_colorize_demo();
+
+	fli_color_demo();
+
+	mono_hires_xl_demo();
 
 	plasma_demo(VDC_HIRES_640x200_Color_PAL);
 

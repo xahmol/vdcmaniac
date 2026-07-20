@@ -27,7 +27,29 @@ Code and resources from others used:
 
     http://www.zimmers.net/anonftp/pub/cbm/manuals/c128/C128_Programmers_Reference_Guide.pdf
 
--   Tokra: For the optimal VDC registry settings for 80x50 and 80x70 textmodes
+-   Tokra: For the optimal VDC registry settings for 80x50 and 80x70 textmodes,
+    and for the VDC-FLI (480x252, 8x1 colour cells) and VDC-IMONO (720x700,
+    interlace monochrome) register settings, from "VDC Mode Mania":
+
+    https://github.com/xahmol/vdcmodemania-oscar64/tree/main/original/v12
+
+-   Michael Kircher: dithering/colour-cell technique (per-8-pixel-cell
+    brute-force background/foreground search with Floyd-Steinberg error
+    diffusion) studied from his 2011 vdc_quant.c/hfli_quant.c converters,
+    bundled unmodified in this repo at original/v12/converters/source/ for
+    reference. tools/vdc_convert.py is an independent reimplementation of
+    the same published technique (those files carry no license permitting
+    reuse of the code itself).
+
+-   "Aegina sunset" photograph by Jebulon, CC0 1.0 Universal (public domain
+    dedication), used as the source picture for the VDC-FLI demo section:
+
+    https://commons.wikimedia.org/wiki/File:Aegina_sunset.jpg
+
+-   "Eurasian Eagle Owl" photograph by Peter K Burian, CC BY-SA 4.0, used as
+    the source picture for the VDC-IMONO demo section:
+
+    https://commons.wikimedia.org/wiki/File:Eurasian_Eagle_Owl.jpg
 
 -   Scott Hutter - VDC Core functions inspiration:
 

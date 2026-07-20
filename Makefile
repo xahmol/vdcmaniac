@@ -85,7 +85,14 @@ README = README.pdf
 ZIPLIST = build/flossiec/*.* build/krill/*.* build/standard/*.* $(README)
 PRGLIST = -write $(MAIN).prg $(MAIN) -write $(LMC).prg $(LMC)
 KRILLLIST = -write install-c128.prg install-c128 -write loader-c128.prg loader-c128
-ASSETS = -write vdce-scrtit.top vdce-scrtit.top -write vdce-scrtit.bot vdce-scrtit.bot
+ASSETS = -write vdce-scrtit.top vdce-scrtit.top -write vdce-scrtit.bot vdce-scrtit.bot \
+         -write vdcfli.bit vdcfli.bit -write vdcfli.col vdcfli.col \
+         -write vdcimono.top vdcimono.top -write vdcimono.bot vdcimono.bot
+
+# Generated picture assets (see tools/vdc_convert.py) -- regenerated from
+# assets/source/*.png automatically when python3 is available; if not, the
+# build proceeds with a warning and whatever converted files already exist.
+GENERATED_ASSETS = assets/vdcfli.bit assets/vdcfli.col assets/vdcimono.top assets/vdcimono.bot
 
 ########################################
 
@@ -101,12 +108,13 @@ $(MAIN).prg: $(MAIN_SRCS)
 #	$(CC) $(CFLAGS) -dKRILL -n -o=build/krill/$(MAIN).prg $(MAINSRC)
 	$(CC) $(CFLAGS) -n -o=build/standard/$(MAIN).prg $(MAINSRC)
 
-bootsect.bin: $(MAIN).prg
+bootsect.bin: $(MAIN).prg $(GENERATED_ASSETS)
 	@$(MKDIR) build/standard 2>$(NULLDEV) ; true
 	$(CC) -tf=bin -rt=src/bootsect.c -o=build/standard/bootsect.bin
 #	cp build/standard/bootsect.bin build/krill
 #	cp build/standard/bootsect.bin build/flossiec
 	cp assets/vdce-scr*.* build/standard
+	cp assets/vdcfli.* assets/vdcimono.* build/standard
 #	cp assets/music*.prg build/standard
 #	cp assets/chars*.prg build/standard
 #	cp assets/vdce-scr*.prg build/krill
@@ -170,6 +178,22 @@ d81:
 #$(ZIP):
 #	zip -j $(ZIP) build/flossiec/*.d* build/krill/*.d* build/standard/*.d* $(README)
 #
+
+# Converted picture assets (requires python3 + Pillow: pip install Pillow).
+# See tools/vdc_convert.py for the conversion technique (credited there).
+assets/vdcfli.bit assets/vdcfli.col: assets/source/vdcfli-source.png tools/vdc_convert.py
+	@if which python3 >/dev/null 2>&1; then \
+		python3 tools/vdc_convert.py --mode fli --input assets/source/vdcfli-source.png --out-prefix assets/vdcfli; \
+	else \
+		echo "WARNING: python3 not found -- assets/vdcfli.bit/.col not regenerated"; \
+	fi
+
+assets/vdcimono.top assets/vdcimono.bot: assets/source/vdcimono-source.png tools/vdc_convert.py
+	@if which python3 >/dev/null 2>&1; then \
+		python3 tools/vdc_convert.py --mode imono --input assets/source/vdcimono-source.png --out-prefix assets/vdcimono; \
+	else \
+		echo "WARNING: python3 not found -- assets/vdcimono.top/.bot not regenerated"; \
+	fi
 
 # Regenerate README.pdf from README.md (requires pandoc).
 # Install: sudo apt install pandoc texlive-xetex
