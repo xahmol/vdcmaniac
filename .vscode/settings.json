@@ -1,21 +1,5 @@
 {
     "files.associations": {
-        "array": "c",
-        "string_view": "c",
-        "initializer_list": "c",
-        "utility": "c",
-        "vdc_softscroll.h": "c",
-        "vdc.h": "c",
-        "mmu.h": "c",
-        "conio.h": "c",
-        "petscii.h": "c",
-        "stdlib.h": "c",
-        "vdc_core.h": "c",
-        "peekpoke.h": "c",
-        "defines.h": "c",
-        "string.h": "c",
-        "system_error": "c",
-        "cia.h": "c",
-        "kernalio.h": "c"
+        "**/*.h": "c"
     }
 }

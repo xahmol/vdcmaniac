@@ -1,3 +1,18 @@
+# Local deployment config -- never commit
+.env
+
+# Build outputs
+build/
+
+# Release ZIPs generated in project root
+vdcexp_*.zip
+
+# Generated docs (make docs)
+README.pdf
+
+# VICE snapshots (debugging artifacts)
+*.vsf
+
 # Prerequisites
 *.d
 

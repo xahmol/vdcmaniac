@@ -1,4 +1,8 @@
 
+# vdcmodemania-oscar64
+# Remake of VDC Mode Mania for the Commodore 128 VDC (80-column) chip
+# Written by Xander Mol
+
 # Target
 SYS = c128e
 
@@ -10,12 +14,14 @@ endif
 
 ifdef CMD_EXE
   NULLDEV = nul:
-  DEL = -del /f
-  RMDIR = rmdir /s /q
+  DEL     = -del /f
+  RMDIR   = rmdir /s /q
+  MKDIR   = mkdir
 else
   NULLDEV = /dev/null
-  DEL = $(RM)
-  RMDIR = $(RM) -r
+  DEL     = $(RM)
+  RMDIR   = $(RM) -r
+  MKDIR   = mkdir -p
 endif
 
 # Tooling paths
@@ -23,48 +29,80 @@ CC = /home/xahmol/oscar64/bin/oscar64
 
 # Application names
 MAIN = vdcexp
-LMC = vdcelmc
+LMC  = vdcelmc
 
 # Build versioning
-VERSION_MAJOR = 0
-VERSION_MINOR = 1
+VERSION_MAJOR     = 0
+VERSION_MINOR     = 1
 VERSION_TIMESTAMP = $(shell date "+%Y%m%d-%H%M")
-VERSION = v$(VERSION_MAJOR)$(VERSION_MINOR)-$(VERSION_TIMESTAMP)
+VERSION           = v$(VERSION_MAJOR)$(VERSION_MINOR)-$(VERSION_TIMESTAMP)
 
 # Common compile flags
-CFLAGS  = -i=include -tm=$(SYS) -O2 -dNOFLOAT -dVERSION="\"$(VERSION)\""
+#   -i=include       : add include/ to header search path
+#   -tm=c128e        : target Commodore 128 80-column mode
+#   -O2              : optimise
+#   -dNOFLOAT        : disable float support (saves space)
+#   -dVERSION        : pass version string to source
+CFLAGS  = -i=include \
+          -tm=$(SYS) \
+          -O2 \
+          -dNOFLOAT \
+          -dVERSION="\"$(VERSION)\""
 
-# Fastload compile flag definitoons
+# Fastload compile flag definitions (not yet wired into `all` -- see commented
+# d64/d71/krill/flossiec targets below, which are a work in progress)
 FLOSSIECFLAGS = -dFLOSSIEC -dFLOSSIEC_BORDER=1 -dFLOSSIEC_NODISPLAY=1 -dFLOSSIEC_NOIRQ=0 -dFLOSSIEC_CODE=bcode1 -dFLOSSIEC_BSS=bbss1
 
 # Sources
 MAINSRC = src/main.c
 
-# Hostname of Ultimate II+ target for deployment. Edit for proper IP and usb number
-ULTHOST = ftp://192.168.1.19/usb1/temp/
-ULTHOST2 = ftp://192.168.1.31/usb1/temp/
+# All sources reachable via #pragma compile chains from src/main.c.
+# Listed here so make rebuilds when any header or library changes.
+# NB: include/vdc_menu.c, vdc_softscroll.c, vdc_textscroller.c and krill.c
+# are present in include/ but not yet #include-d from main.c -- add them
+# here once main.c starts pulling them in.
+MAIN_SRCS = src/main.c \
+            include/banking.c include/vdc_core.c \
+            include/vdc_win.c include/vdc_raster.c \
+            include/defines.h include/banking.h \
+            include/vdc_core.h include/vdc_win.h \
+            include/vdc_raster.h include/peekpoke.h
+
+# Deployment to Ultimate II+
+# Set ULTIP1 (and optionally ULTIP2) in .env -- see README "Building from source"
+-include .env
+ULTIP1  ?= <set_ULTIP1_in_.env>
+ULTUSB  ?= usb1
+ULTPATH  = /$(ULTUSB)/temp/
+ULTFTP1  = ftp://$(ULTIP1)$(ULTPATH)
+ifdef ULTIP2
+ULTFTP2  = ftp://$(ULTIP2)$(ULTPATH)
+endif
 
 # ZIP file contents
-ZIP = $(MAIN)_$(VERSION).zip
+ZIP = build/$(MAIN)_$(VERSION).zip
 README = README.pdf
 ZIPLIST = build/flossiec/*.* build/krill/*.* build/standard/*.* $(README)
 PRGLIST = -write $(MAIN).prg $(MAIN) -write $(LMC).prg $(LMC)
-KRILLLIST = -write install-c128.prg install-c128 -write loader-c128.prg loader-c128 
+KRILLLIST = -write install-c128.prg install-c128 -write loader-c128.prg loader-c128
 ASSETS = -write vdce-scrtit.top vdce-scrtit.top -write vdce-scrtit.bot vdce-scrtit.bot
 
 ########################################
 
 .SUFFIXES:
-.PHONY: all clean deploy vice
-all: $(MAIN).prg bootsect.bin d81
+.PHONY: all clean deploy deploy2 check-deploy check-deploy2 docs vice
+
+all: $(MAIN).prg bootsect.bin d81 README.pdf
 #all: $(MAIN).prg bootsect.bin loader-c128.prg d64 d71 d81 $(ZIP)
 
-$(MAIN).prg: $(MAINSRC)
-#	$(CC) $(CFLAGS) $(FLOSSIECFLAGS) -n -o=build/flossiec/$(MAIN).prg $<
-#	$(CC) $(CFLAGS) -dKRILL -n -o=build/krill/$(MAIN).prg $<
-	$(CC) $(CFLAGS) -n -o=build/standard/$(MAIN).prg $<
+$(MAIN).prg: $(MAIN_SRCS)
+	@$(MKDIR) build/standard 2>$(NULLDEV) ; true
+#	$(CC) $(CFLAGS) $(FLOSSIECFLAGS) -n -o=build/flossiec/$(MAIN).prg $(MAINSRC)
+#	$(CC) $(CFLAGS) -dKRILL -n -o=build/krill/$(MAIN).prg $(MAINSRC)
+	$(CC) $(CFLAGS) -n -o=build/standard/$(MAIN).prg $(MAINSRC)
 
 bootsect.bin: $(MAIN).prg
+	@$(MKDIR) build/standard 2>$(NULLDEV) ; true
 	$(CC) -tf=bin -rt=src/bootsect.c -o=build/standard/bootsect.bin
 #	cp build/standard/bootsect.bin build/krill
 #	cp build/standard/bootsect.bin build/flossiec
@@ -132,6 +170,18 @@ d81:
 #$(ZIP):
 #	zip -j $(ZIP) build/flossiec/*.d* build/krill/*.d* build/standard/*.d* $(README)
 #
+
+# Regenerate README.pdf from README.md (requires pandoc).
+# Install: sudo apt install pandoc texlive-xetex
+docs: README.pdf
+
+README.pdf: README.md pandoc-defaults.yaml pandoc-header.tex
+	@if which pandoc >/dev/null 2>&1; then \
+		pandoc --defaults=pandoc-defaults.yaml README.md -o README.pdf; \
+	else \
+		echo "WARNING: pandoc not found -- README.pdf not updated (install: sudo apt install pandoc texlive-xetex)"; \
+	fi
+
 # Cleaning repo of build files
 clean:
 	$(DEL) build/*.* 2>$(NULLDEV)
@@ -140,12 +190,26 @@ clean:
 	$(DEL) build/standard/*.* 2>$(NULLDEV)
 #	$(DEL) krill/loader/build/*.* 2>$(NULLDEV)
 
-# To deploy software to UII+ enter make deploy. Obviously C128 needs to powered on with UII+ and USB drive connected.
-deploy:
-	wput -u build/standard/*.prg build/standard/$(MAIN)-stnd.d* $(ULTHOST)
-#	wput -u build/standard/*.prg build/standard/$(MAIN)-stnd.d* build/flossiec/$(MAIN)-fl.d* build/krill/$(MAIN)-krill.d* $(ULTHOST)
-##	wput -u build/standard/*.prg build/standard/$(MAIN).d* build/flossiec/$(MAIN).d* build/krill/$(MAIN).d*  $(ULTHOST2)
+# Check Ultimate II+ is reachable before deploying
+check-deploy:
+	@curl -s --connect-timeout 3 $(ULTFTP1)/ >/dev/null 2>&1 || \
+		(echo "ERROR: Cannot reach U64 at $(ULTIP1) -- check ULTIP1 in .env" && false)
+
+check-deploy2:
+ifndef ULTIP2
+	$(error ULTIP2 is not set in .env -- cannot deploy to second machine)
+endif
+	@curl -s --connect-timeout 3 $(ULTFTP2)/ >/dev/null 2>&1 || \
+		(echo "ERROR: Cannot reach U64 at $(ULTIP2) -- check ULTIP2 in .env" && false)
+
+# To deploy software to UII+ enter make deploy. Obviously C128 needs to be powered on with UII+ and USB drive connected.
+deploy: check-deploy $(MAIN).prg
+	wput -u build/standard/*.prg build/standard/$(MAIN)-stnd.d* $(ULTFTP1)
+#	wput -u build/standard/*.prg build/standard/$(MAIN)-stnd.d* build/flossiec/$(MAIN)-fl.d* build/krill/$(MAIN)-krill.d* $(ULTFTP1)
+
+deploy2: check-deploy2 $(MAIN).prg
+	wput -u build/standard/*.prg build/standard/$(MAIN)-stnd.d* $(ULTFTP2)
 
 ## To run software using VICE x128
 vice: $(MAIN).d81
-	x128 build/standard/$(MAIN).d81
+	x128 build/standard/$(MAIN)-stnd.d81

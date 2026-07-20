@@ -155,7 +155,8 @@ enum VDCMode
     VDC_HIRES_640x200_Color_PAL,
     VDC_HIRES_640x200_Mono_PAL,
     VDC_HIRES_640x400_Color_PAL,
-    VDC_HIRES_640x400_Mono_PAL
+    VDC_HIRES_640x400_Mono_PAL,
+    VDC_HIRES_640x480_Mono_NTSC
 };
 struct VDCModeSet
 {
@@ -173,7 +174,7 @@ struct VDCModeSet
     unsigned extended;
     char regset[17];
 };
-extern struct VDCModeSet vdc_modes[10];
+extern struct VDCModeSet vdc_modes[11];
 struct VDCStatus
 {
     char memsize;

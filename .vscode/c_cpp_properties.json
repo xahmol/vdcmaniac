@@ -3,14 +3,19 @@
         {
             "name": "Linux",
             "includePath": [
-                "${default}",
                 "/home/xahmol/oscar64/include/",
-                "${workspaceFolder}/include"
+                "${workspaceFolder}/include",
+                "${workspaceFolder}/src"
             ],
-            "defines": [],
+            "defines": [
+                "NOFLOAT",
+                "VERSION=\"dev\"",
+                "__noinline=",
+                "__native=",
+                "__export="
+            ],
             "cStandard": "c23",
-            "cppStandard": "c++14",
-            "intelliSenseMode": "linux-clang-x64"
+            "intelliSenseMode": "linux-gcc-x64"
         }
     ],
     "version": 4

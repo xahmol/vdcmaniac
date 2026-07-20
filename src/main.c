@@ -5,6 +5,8 @@
 #include <conio.h>
 #include <c128/vdc.h>
 #include <c128/mmu.h>
+#include <c64/cia.h>
+#include <c64/keyboard.h>
 #include "defines.h"
 #include "banking.h"
 #include "vdc_core.h"
@@ -366,6 +368,7 @@ void rotate_demo(char mode)
 // Raster
 void raster_place_test()
 {
+	static const char gradient16[16] = {15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0};
 	char rasterline = 100;
 	char line;
 	char keypress = 0;
@@ -378,6 +381,9 @@ void raster_place_test()
 	}
 
 	vdc_prints(5, 0, "Rasterline placement test.");
+	sprintf(linebuffer, "Measured: VDC rasterline takes %2u.%03u cycles (timer reload %2u).",
+			raster_cycles_per_line_x1000 / 1000, raster_cycles_per_line_x1000 % 1000, raster_timer_reload);
+	vdc_prints(5, 1, linebuffer);
 	vdc_prints(5, 2, "Move bar with CURSOR UP and CURSOR DOWN.");
 	vdc_prints(5, 3, "Press ESC to exit.");
 	vdc_prints(5, 5, "Present rasterline:");
@@ -396,21 +402,9 @@ void raster_place_test()
 
 		// Draw raster line
 		line = rasterline;
-		vdc.addr = VDCR_COLOR;
-		raster_synch();
-		for (char color = 0; color < 16; color++)
-		{
-			raster_waitline(line);
-			line--;
-			vdc.data = 15 - color;
-		}
-		vdc_wait_vblank();
-
-		__asm
-			{
-        	cli
-			}
-		;
+		raster_bar_begin();
+		line = raster_bar_segment(line, gradient16, 16);
+		raster_bar_end();
 
 		// Check keys
 		keypress = vdcwin_checkch();
@@ -451,27 +445,11 @@ void raster_bar(char upper, char lower, char length)
 	do
 	{
 		line = position;
-		vdc_reg(VDCR_COLOR);
-		raster_synch();
-		for (count = 0; count < length; count++)
-		{
-			raster_waitline(line);
-			line--;
-			vdc.data = rasterbar[count];
-		}
-		vdc_wait_vblank();
+		raster_bar_begin();
+		line = raster_bar_segment(line, rasterbar, length);
+		raster_bar_end();
 
-		__asm
-			{
-        cli
-			}
-		;
-
-		position += direction;
-		if (position == upper || position == lower)
-		{
-			direction = -direction;
-		}
+		position = raster_bar_bounce(position, upper, lower, &direction);
 
 	} while (!vdcwin_checkch());
 }
@@ -588,16 +566,24 @@ void raster_bar(char upper, char lower, char length)
 
 void title_screen()
 {
-	char color[8] = {
-		VDC_LGREY * 16 + VDC_DGREY,
-		VDC_WHITE * 16 + VDC_DGREY,
-		VDC_LYELLOW * 16 + VDC_DGREY,
-		VDC_DYELLOW * 16 + VDC_DGREY,
-		VDC_DYELLOW * 16 + VDC_DGREY,
-		VDC_LYELLOW * 16 + VDC_DGREY,
-		VDC_WHITE * 16 + VDC_DGREY,
-		VDC_LGREY * 16 + VDC_DGREY};
-	char rastercolors[68];
+	char color[16] = {
+			VDC_DGREY | 16 * VDC_DPURPLE,
+			VDC_DGREY | 16 * VDC_LPURPLE,
+			VDC_DGREY | 16 * VDC_LBLUE,
+			VDC_DGREY | 16 * VDC_DBLUE,
+			VDC_DGREY | 16 * VDC_LBLUE,
+			VDC_DGREY | 16 * VDC_DCYAN,
+			VDC_DGREY | 16 * VDC_LCYAN,
+			VDC_DGREY | 16 * VDC_DCYAN,
+			VDC_DGREY | 16 * VDC_LGREEN,
+			VDC_DGREY | 16 * VDC_DGREEN,
+			VDC_DGREY | 16 * VDC_LGREEN,
+			VDC_DGREY | 16 * VDC_DYELLOW,			
+			VDC_DGREY | 16 * VDC_LYELLOW,
+			VDC_DGREY | 16 * VDC_DYELLOW,
+			VDC_DGREY | 16 * VDC_LRED,
+			VDC_DGREY | 16 * VDC_DRED};
+	char rastercolors[76];
 	char start = 0;
 	char i;
 	char line,count;
@@ -607,7 +593,29 @@ void title_screen()
 	bnk_load(bootdevice, 1, (char *)MEM_SCREEN + 16000, "vdce-scrtit.bot");
 
 	// Init proper hires mode
+	// Must match the resolution the vdce-scrtit.top/.bot assets were
+	// exported for: 640x400 mono (32000 bytes total, 16000/half). An
+	// in-session experiment switched this to VDC_HIRES_640x480_Mono_NTSC
+	// (with the load offset bumped to 19200 to match that taller mode's
+	// framebuffer) without regenerating the assets for the new height --
+	// that left a stale/garbage gap between the top and bottom halves in
+	// VRAM (19200-16000 unfilled bytes) and reinterpreted 400-line bitmap
+	// data as a 480-line layout (VDC bitmap memory is organized in
+	// per-character-row blocks, so the row layout differs by height),
+	// which is what caused the corruption/instability seen in VICE.
 	vdc_init(VDC_HIRES_640x400_Mono_PAL, 1);
+
+	// Deliberately NOT recalibrating here: this function's bar-position
+	// constants (182, 181, 176..117, 114, 85, 84 below) were hand-tuned
+	// against the static default raster_timer_reload (62, see
+	// vdc_raster.c), long before raster_calibrate() existed -- not against
+	// a live measurement. A recalibration pass was tried here and made the
+	// bars unstable, most likely because this mode's interlace flag (the
+	// "1" above) throws off raster_calibrate()'s VTOTAL/CSIZE-based
+	// lines-per-frame math, producing a value that no longer matches what
+	// these constants assume. main()'s one-time text-mode calibration
+	// (62.218, confirmed via raster_place_test()) stays close enough to
+	// the hand-tuned default not to matter here.
 
 	// Copy data to VDC
 	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 0x8000);
@@ -619,50 +627,97 @@ void title_screen()
 	}
 
 	count=0;
-	for (i = 0; i < 68; i++)
+	for (i = 0; i < 76; i++)
 	{
 		rastercolors[i] = color[count];
 		count++;
-		count &= 0x7;
+		count &= 0x0f;
 	}
 
 	do
 	{
-		line = 176;
 		start++;
-		start &= 0x7;
-		count=start;
+		start &= 0xf;
 
-		vdc_reg(VDCR_COLOR);
-		raster_synch();
-		raster_waitline(182);
-		vdc.data = VDC_DRED;
-		raster_waitline(181);
-		vdc.data = 16 * VDC_LYELLOW + VDC_DGREY;
-
-		for (i = 0; i < 60; i++)
-		{
-			raster_waitline(line);
-			line--;
-			vdc.data = rastercolors[count];
-			count++;
-		}
-
-		raster_waitline(114);
-		vdc.data = 16 * VDC_LCYAN + VDC_DGREY;
-
-		raster_waitline(84);
-		vdc.data = VDC_DRED;
-		raster_waitline(83);
-		vdc.data = 16 * VDC_WHITE + VDC_BLACK;
-		vdc_wait_vblank();
-
-		__asm
-			{
-        cli
-			}
-		;
+		raster_bar_begin();
+		raster_bar_line(182, VDC_DRED);
+		raster_bar_line(181, 16 * VDC_LYELLOW + VDC_DGREY);
+		line = 176;
+		line = raster_bar_segment(line, &rastercolors[start], 60);
+		raster_bar_line(114, 16 * VDC_LCYAN + VDC_DGREY);
+		raster_bar_line(85, VDC_DRED);
+		raster_bar_line(84, 16 * VDC_WHITE + VDC_BLACK);
+		raster_bar_end();
 	} while (!vdcwin_checkch());
+}
+
+void mono_colorize_demo()
+// Demonstrates the CIA1 raster+music IRQ (raster_music_irq_start()):
+// colours a monochrome hires picture with a per-line ink/paper gradient,
+// via a real interrupt rather than raster_synch()/raster_waitline()'s
+// busy-wait, so the CPU is free between colour writes. No real picture
+// asset is wired into this project yet (see ARCHITECTURE.md), so a plain
+// filled placeholder bitmap stands in for one -- the point here is proving
+// the per-line colouring mechanism, not the picture content. No SID tune
+// is loaded either, so music is left disabled (see raster_music_irq_start()).
+{
+	static char colortable[400];
+	unsigned i;
+	unsigned dp;
+	char pattern[8] = {0xff, 0x81, 0x81, 0x81, 0x81, 0x81, 0x81, 0xff};
+	char y, line;
+
+	vdc_init(VDC_HIRES_640x400_Mono_PAL, 0);
+	if (!vdc_state.bitmap)
+	{
+		return;
+	}
+
+	// Recalibrate for this mode -- see the comment in title_screen(); this
+	// mode's VTOTAL/CSIZE (and PAL clock) differ from both text mode and
+	// title_screen()'s NTSC hires mode, so raster_music_irq_start()'s reload
+	// math (which reads raster_cycles_per_line_x1000) needs a fresh value.
+	raster_calibrate();
+
+	// Placeholder bitmap: a repeated box pattern.
+	dp = vdc_state.base_text;
+	for (y = 0; y < vdc_state.charheight; y++)
+	{
+		for (line = 0; line < 8; line++)
+		{
+			vdc_block_fill(dp, pattern[line], vdc_state.charwidth);
+			dp += vdc_state.charwidth;
+		}
+	}
+
+	// Per-line colour gradient across the picture height, reusing the
+	// existing rasterbar[] palette.
+	for (i = 0; i < 400; i++)
+	{
+		colortable[i] = VDC_BLACK | 16 * rasterbar[i % 13];
+	}
+
+	while (vdcwin_checkch())
+	{
+	}
+
+	// linespertick=4 as a starting point (see the plan's cycle-budget
+	// note); the tick offset between vblank-end and row 0 of the bitmap
+	// isn't calibrated yet -- watch the top of the picture in VICE and
+	// adjust raster_music_irq_start()'s internals if it doesn't line up.
+	raster_music_irq_start(colortable, 400, 4, 0);
+
+	// KERNAL/BASIC ROM is banked out while the IRQ is active (see
+	// raster_music_irq_start()), so GETIN-based vdcwin_checkch() can't be
+	// used here -- direct keyboard matrix scan instead.
+	do
+	{
+		keyb_poll();
+	} while (keyb_key == KSCAN_MAX);
+
+	raster_music_irq_stop();
+
+	vdc_cls();
 }
 
 // Main routine
@@ -673,13 +728,26 @@ int main(void)
 	unsigned screen1, screen2;
 
 	// Init
+	// cia_init() must run first: resets both CIA chips to a known-clean
+	// state and explicitly acks their interrupt-control registers. Without
+	// it, whatever CIA1 interrupt-pending state the boot-sector/disk-load
+	// process left behind stuck around, and later corrupted $314/$315 by
+	// the time raster_music_irq_start() tried to save it (confirmed live
+	// in VICE: it read back as $ffff, garbage). Oscar64Test's main.c calls
+	// this first for the same reason and its IRQ-driven music works there.
+	cia_init();
+
 	bnk_init();
 
 	vdc_init(VDC_TEXT_80x25_PAL, 1);
 
+	raster_calibrate();
+
 	raster_place_test();
 
 	title_screen();
+
+	mono_colorize_demo();
 
 	plasma_demo(VDC_HIRES_640x200_Color_PAL);
 
