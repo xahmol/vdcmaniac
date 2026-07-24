@@ -122,6 +122,15 @@ void vdc_block_copy_page(unsigned dest, unsigned src, char length);
 void vdc_block_copy(unsigned dest, unsigned src, unsigned length);
 void vdc_scroll_copy(unsigned dest, unsigned src, char lines, char length);
 void vdc_wipe_mem();
+// Wipes VDC memory as a visible flash-to-black section transition -- hides
+// the raw block-fill mechanics behind a disabled display and holds the
+// resulting blank screen for a short, fixed pause. Use this (not the bare
+// vdc_wipe_mem() above) at the start of any demo section that wants the
+// wipe itself to be a visible transition, called before vdc_init() so the
+// black flash reads as "leaving the old section", not "loading the new
+// one broken then fixed" -- see title_screen()/fli_color_demo()/
+// mono_hires_xl_demo() in src/main.c.
+void vdc_wipe_transition();
 void vdc_set_extended_memsize();
 void vdc_set_default_memsize();
 void vdc_bgcolor(char color);
@@ -158,7 +167,13 @@ enum VDCMode
     VDC_HIRES_640x400_Mono_PAL,
     VDC_HIRES_640x480_Mono_NTSC,
     VDC_HIRES_480x252_Color_PAL,
-    VDC_HIRES_720x700_Mono_PAL
+    VDC_HIRES_720x700_Mono_PAL,
+    VDC_HIRES_640x480_IHFLI_NTSC,
+    VDC_HIRES_640x576_ITFLI_PAL,
+    VDC_HIRES_640x400_HFLI_PAL,
+    VDC_HIRES_800x600_IM800_PAL,
+    VDC_HIRES_960x540_IM960_PAL,
+    VDC_TEXT_80x25_Mono_PAL
 };
 struct VDCModeSet
 {
@@ -174,9 +189,9 @@ struct VDCModeSet
     unsigned char_std;
     unsigned char_alt;
     unsigned extended;
-    char regset[29]; // largest mode so far (VDC_HIRES_480x252_Color_PAL) needs 14 reg/value pairs + terminator
+    char regset[31]; // largest mode so far (VDC_HIRES_960x540_IM960_PAL) needs 15 reg/value pairs + terminator
 };
-extern struct VDCModeSet vdc_modes[13];
+extern struct VDCModeSet vdc_modes[19];
 struct VDCStatus
 {
     char memsize;

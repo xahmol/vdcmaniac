@@ -261,20 +261,6 @@ void raster_calibrate()
     csize = vdc_reg_read(VDCR_CSIZE);
     linesperframe = (unsigned long)(vtotal + 1) * (unsigned long)((csize & 0x1f) + 1);
 
-    // Genuinely interlaced modes (LACE bits 0-1 = 11, sync+video interlace --
-    // see e.g. VDC_HIRES_720x700_Mono_PAL) toggle the VBlank status bit once
-    // per FIELD, not once per full (VTOTAL+1)*(CHEIGHT+1)-line frame -- the
-    // 64-VBlank sample loop above therefore measures 64 fields' worth of
-    // elapsed cycles, not 64 frames, while linesperframe above still counts
-    // a full frame. Left uncorrected this halves the computed cycles/line
-    // (confirmed live: measured 31.393 instead of the ~62-63 every other
-    // mode calibrates to). Halve linesperframe to match what was actually
-    // measured. (Non-interlaced modes, LACE bits 0-1 = 00, are unaffected.)
-    if ((vdc_reg_read(VDCR_LACE) & 0x03) == 0x03)
-    {
-        linesperframe /= 2;
-    }
-
     cpl_x1000 = (elapsed * 1000UL) / (64UL * linesperframe);
 
     raster_cycles_per_line_x1000 = (unsigned)cpl_x1000;
@@ -303,6 +289,37 @@ unsigned raster_irq_next_reload;
 char raster_irq_musicenabled;
 char raster_irq_oldmmu; // MMU config saved/restored around the active effect
 
+// Incremented once per frame (at the colourtable wrap point in
+// raster_irq_tick()) while the effect is active -- a counter foreground code
+// can poll to run this mechanism for a fixed duration, since waiting for a
+// keypress while it's active does not work (see raster_irq_tick()'s comment
+// at the increment site). Reset to 0 by raster_music_irq_start(). Declared
+// volatile -- written only by the ISR, read by a foreground spin loop with
+// no call inside its body (the same shape as the keyb_key bug documented
+// elsewhere in this project: without volatile, the compiler could legally
+// cache one read and loop forever, since nothing in the loop's own visible
+// body ever changes it).
+volatile unsigned raster_irq_framecount;
+
+// BSS, zero-initialized at startup (no other code needs to touch this).
+// Guards raster_irq_entry() against running its real logic -- and, critically,
+// rearming CIA1's timer -- if it's ever reached before raster_music_irq_start()
+// has genuinely installed it, or after raster_music_irq_stop() has torn it
+// down. Confirmed live in VICE: Oscar64's C128E startup (crt.c, part of the
+// toolchain, not this project) banks out KERNAL ROM as literally the first
+// instruction of the compiled program, before main() ever runs and long
+// before this project's own cia_init()/raster_music_irq_start() calls -- if
+// the KERNAL's own still-active jiffy-clock interrupt fires during that
+// window, it lands on whatever happens to be sitting at $fffe in the now-
+// exposed, uninitialized RAM there. That's a one-off event outside this
+// program's control, but raster_irq_entry() itself rearms CIA1's timer on
+// every call, so a single spurious hit was turning into a *permanent* hang --
+// the handler kept re-triggering itself forever regardless of what caused
+// the first one. Checking this flag breaks that self-sustaining loop: a
+// spurious/premature call just acks CIA1 and returns without touching
+// anything else.
+char raster_irq_active;
+
 void raster_irq_playframe()
 // Play one SID music frame. Same $2003 call and Bank 1 + I/O convention as
 // banking.c's sid_startmusic()/sid_interrupt() -- assumes music was already
@@ -314,7 +331,7 @@ void raster_irq_playframe()
     mmu.cr = old;
 }
 
-void raster_irq_tick()
+__interrupt void raster_irq_tick()
 // Runs once per raster_irq_linespertick VDC rasterlines: writes that many
 // colour bytes from raster_irq_colortable to the VDC colour register
 // (selecting it once, then relying on the VDC keeping that register
@@ -323,9 +340,24 @@ void raster_irq_tick()
 // When the table is exhausted, plays one SID frame and restarts from the
 // top for the next frame's redraw.
 //
-// Plain function, not __interrupt/__hwinterrupt: called via an ordinary C
-// function call from raster_irq_entry (itself __hwinterrupt), not reached
-// directly from a raw asm stub, so no special attribute is needed here.
+// __interrupt: kept for correctness (any __hwinterrupt-reachable function
+// that does ordinary C computation should be __interrupt, per
+// oscar64manual.md's "Interrupt handlers" note), but NOT the fix for a
+// zero-page scratch corruption theory once suspected here -- checked
+// directly against the compiler's generated assembly and disproved:
+// Oscar64 automatically excludes every function reachable from a
+// __hwinterrupt/__interrupt root (propagated transitively through the whole
+// call chain) from its normal call-graph-based local-variable/scratch reuse
+// analysis, specifically to prevent this class of bug. Separately, this
+// handler is deliberately paced to consume close to its entire own reload
+// period doing VDC-ready busy-waits (see the loop below), leaving
+// foreground code almost no CPU time regardless of raster_irq_linespertick
+// (which scales the work done per call and the reload period together, so
+// the starvation ratio doesn't change) -- keypress polling was tried both
+// from foreground code and from inside this function and neither reliably
+// detected anything (root cause never found, see memory:
+// mono_colorize_keypress_bug); callers must use raster_irq_framecount for a
+// fixed-duration exit instead of waiting for a key while this is active.
 {
     char n;
 
@@ -354,12 +386,59 @@ void raster_irq_tick()
         if (raster_irq_pos >= raster_irq_tablelength)
         {
             raster_irq_pos = 0;
+
+            // Keypress detection under this mechanism was tried both from
+            // foreground code and from here (once per frame, where CPU time
+            // is guaranteed) -- neither ever reliably detected a real
+            // keypress, root cause never found despite extensive live
+            // diagnosis (see memory: mono_colorize_keypress_bug). Given
+            // that, callers must not wait for a keypress while this is
+            // active at all -- use raster_irq_framecount (below) to run for
+            // a fixed duration instead, then call raster_music_irq_stop()
+            // and check for a keypress afterwards via the normal
+            // vdcwin_checkch() path, once KERNAL banking is back.
+            raster_irq_framecount++;
+
             if (raster_irq_musicenabled)
             {
                 raster_irq_playframe();
             }
             return;
         }
+    }
+}
+
+__interrupt void raster_irq_worker(void)
+// All of this handler's real C-level logic lives here, not in
+// raster_irq_entry() (below) -- __interrupt gives this function its own
+// zero-page save/restore prologue/epilogue, protecting the shared
+// compiler-register scratch space ("accu"/"tmp"/"ip"/"addr" etc.) that
+// this code's own expression evaluation and 16-bit arithmetic (the cia1.ta
+// assignment included) needs, from whatever foreground C code this
+// interrupt happens to preempt mid-computation. raster_irq_entry() being
+// __hwinterrupt does NOT provide this protection -- __hwinterrupt only
+// saves CPU registers -- so nothing that touches shared zero-page scratch
+// can safely live directly in that function's own body; it has to be
+// isolated in a proper __interrupt worker like this one instead. See
+// raster_irq_tick()'s comment for the live-confirmed failure this fixes
+// (previously, only raster_irq_tick() itself had this attribute, but
+// this active-check and the CIA1 rearm, sitting directly in
+// raster_irq_entry()'s own body, were still unprotected and still
+// corrupted foreground code on every firing).
+//
+// raster_irq_active is checked with a single exit point (if/no-else),
+// never an early `return` -- the same class of epilogue-skipping bug this
+// whole restructure fixes applies here too (oscar64manual.md's "Interrupt
+// handlers" note): an early `return` was tried first and, on its own,
+// also broke things (confirmed live) before this deeper zero-page issue
+// was found underneath it. Don't reintroduce one.
+{
+    if (raster_irq_active)
+    {
+        raster_irq_tick(); // also computes raster_irq_next_reload for below
+
+        cia1.ta = raster_irq_next_reload;
+        cia1.cra = 0x19; // one-shot, force-load, start
     }
 }
 
@@ -375,9 +454,14 @@ __hwinterrupt void raster_irq_entry(void)
 // directly on the CPU's own hardware vector while ROM is banked out (see
 // raster_music_irq_start()), so there's nothing to save or chain to --
 // __hwinterrupt generates the full register save/restore + RTI itself,
-// correct for a function that IS the hardware entry point (unlike
-// __interrupt, which is for a worker reached via JSR from a $314 chain --
-// see oscar64manual.md's "Interrupt handlers" note).
+// correct for a function that IS the hardware entry point.
+//
+// Deliberately minimal: an inline-asm ack (pure asm, no C expression
+// evaluation, so no zero-page usage at all) plus a single no-argument,
+// no-return-value call into raster_irq_worker() (needs no zero-page
+// scratch for the call mechanism itself, just a plain JSR/RTS). All real
+// logic belongs in that __interrupt-attributed worker, never directly
+// here -- see its comment for why.
 //
 // LDA $dc0d acks CIA1's ICR (it's read-to-clear; without reading it the
 // chip's IRQ line stays asserted and this handler re-enters itself
@@ -387,10 +471,7 @@ __hwinterrupt void raster_irq_entry(void)
 {
     __asm { lda $dc0d }
 
-    raster_irq_tick(); // also computes raster_irq_next_reload for below
-
-    cia1.ta = raster_irq_next_reload;
-    cia1.cra = 0x19; // one-shot, force-load, start
+    raster_irq_worker();
 }
 
 void raster_music_irq_start(const char *colortable, unsigned tablelength, char linespertick, char musicenabled)
@@ -399,9 +480,10 @@ void raster_music_irq_start(const char *colortable, unsigned tablelength, char l
 // mode are ready. Supersedes sid_startmusic() while active, and banks out
 // the KERNAL/BASIC/character ROM for the duration (I/O stays visible) --
 // KERNAL calls (GETIN, file loading, etc.) will not work until
-// raster_music_irq_stop() restores normal banking. Use keyb_poll()/
-// key_pressed() (<c64/keyboard.h>, direct matrix scan) instead of
-// vdcwin_checkch() for input while this is active.
+// raster_music_irq_stop() restores normal banking. Do not wait for a
+// keypress while this is active (see raster_irq_framecount's comment) --
+// run it for a fixed number of frames instead, then stop it and check for a
+// keypress via vdcwin_checkch() afterwards.
 {
     unsigned long truereload_x1000;
 
@@ -410,6 +492,7 @@ void raster_music_irq_start(const char *colortable, unsigned tablelength, char l
     raster_irq_pos = 0;
     raster_irq_linespertick = linespertick;
     raster_irq_musicenabled = musicenabled;
+    raster_irq_framecount = 0;
 
     // Split the true (fractional) reload for this many lines into an
     // integer part (armed every tick) and a x1000-scaled remainder (diffused
@@ -433,6 +516,8 @@ void raster_music_irq_start(const char *colortable, unsigned tablelength, char l
     cia1.icr = 0x81; // enable CIA1 Timer A interrupts
     cia1.cra = 0x19; // one-shot, force-load, start
 
+    raster_irq_active = 1; // before cli: must be set before interrupts can fire
+
     __asm { cli }
 }
 
@@ -446,6 +531,8 @@ void raster_music_irq_stop()
 // following vdc_exit()/reset (or the next effect calling
 // raster_music_irq_start() or sid_startmusic() again) reprograms it anyway.
 {
+    raster_irq_active = 0; // first: any in-flight/pending interrupt now bails out safely
+
     __asm { sei }
 
     cia1.cra = 0x00; // stop Timer A

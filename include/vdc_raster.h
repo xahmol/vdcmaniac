@@ -141,7 +141,21 @@ extern unsigned raster_cycles_per_line_x1000; // measured cycles/line, fixed-poi
 // banking.c's sid_startmusic() while active -- do not run both at once,
 // they both drive CIA1. While active:
 //   - KERNAL calls (GETIN/vdcwin_checkch(), file loading, etc.) will not
-//     work -- use keyb_poll()/key_pressed() (<c64/keyboard.h>) for input.
+//     work at all.
+//   - Do NOT wait for a keypress while this is active, in any form --
+//     neither a foreground keyb_poll()/key_pressed() loop (starved of CPU:
+//     this mechanism is deliberately paced to consume close to its entire
+//     own reload period doing VDC-ready busy-waits, see raster_irq_tick()
+//     in vdc_raster.c) nor polling from inside the ISR itself (also tried;
+//     neither approach ever reliably detected a real keypress, root cause
+//     never found despite extensive live diagnosis -- see memory:
+//     mono_colorize_keypress_bug). Use `raster_irq_framecount` (extern,
+//     incremented once per frame) instead: run the effect for a fixed
+//     number of frames, call raster_music_irq_stop(), then check for a
+//     keypress via the normal vdcwin_checkch() path once KERNAL banking is
+//     back. See mono_hires_xl_demo() (src/main.c) for an example that
+//     sidesteps this differently, by using raster_bar_*() instead of this
+//     mechanism entirely, when animation isn't actually required.
 //   - Don't touch any VDC register ($d600/$d601, or the vdc_prints()/
 //     vdc_write() family that use them) from foreground code: the IRQ also
 //     writes them, and racing it can leave the VDC's addressing in a state
@@ -160,6 +174,13 @@ extern unsigned raster_cycles_per_line_x1000; // measured cycles/line, fixed-poi
 // garbage memory. Pass 0 to drive the colour table alone.
 void raster_music_irq_start(const char *colortable, unsigned tablelength, char linespertick, char musicenabled);
 void raster_music_irq_stop();
+
+// Frames elapsed since the last raster_music_irq_start() call (incremented
+// once per colourtable wrap, i.e. once per frame). Poll this from
+// foreground code for a fixed-duration exit instead of waiting for a
+// keypress -- see raster_music_irq_start()'s comment above. volatile: safe
+// to spin on directly with no function call inside the loop body.
+extern volatile unsigned raster_irq_framecount;
 
 #pragma compile("vdc_raster.c")
 

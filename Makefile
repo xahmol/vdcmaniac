@@ -58,15 +58,20 @@ MAINSRC = src/main.c
 
 # All sources reachable via #pragma compile chains from src/main.c.
 # Listed here so make rebuilds when any header or library changes.
-# NB: include/vdc_menu.c, vdc_softscroll.c, vdc_textscroller.c and krill.c
-# are present in include/ but not yet #include-d from main.c -- add them
-# here once main.c starts pulling them in.
+# NB: include/vdc_menu.c, vdc_softscroll.c and vdc_textscroller.c are
+# present in include/ but not yet #include-d from main.c -- add them here
+# once main.c starts pulling them in. krill.c/.h are listed below even
+# though main.c doesn't #include krill.h yet either (asset-loading-roadmap.md
+# Phase 0: infrastructure only, no demo behaviour change) -- harmless now,
+# and already in place for when Phase 1 wires krill_load() into a demo
+# function's asset loading.
 MAIN_SRCS = src/main.c \
             include/banking.c include/vdc_core.c \
             include/vdc_win.c include/vdc_raster.c \
             include/defines.h include/banking.h \
             include/vdc_core.h include/vdc_win.h \
-            include/vdc_raster.h include/peekpoke.h
+            include/vdc_raster.h include/peekpoke.h \
+            include/krill.c include/krill.h
 
 # Deployment to Ultimate II+
 # Set ULTIP1 (and optionally ULTIP2) in .env -- see README "Building from source"
@@ -85,9 +90,23 @@ README = README.pdf
 ZIPLIST = build/flossiec/*.* build/krill/*.* build/standard/*.* $(README)
 PRGLIST = -write $(MAIN).prg $(MAIN) -write $(LMC).prg $(LMC)
 KRILLLIST = -write install-c128.prg install-c128 -write loader-c128.prg loader-c128
+# vdcfli-orig.*/vdcimono-orig.*: temporary diagnostic pictures (Tokra's own
+# "merida"/"avril", copied verbatim from original/v12/sd2iec-version/) --
+# remove once fli_color_demo()/mono_hires_xl_demo() are switched back to
+# vdcfli.*/vdcimono.* (see the "DIAGNOSTIC SWAP" comments in src/main.c).
 ASSETS = -write vdce-scrtit.top vdce-scrtit.top -write vdce-scrtit.bot vdce-scrtit.bot \
          -write vdcfli.bit vdcfli.bit -write vdcfli.col vdcfli.col \
-         -write vdcimono.top vdcimono.top -write vdcimono.bot vdcimono.bot
+         -write vdcimono.top vdcimono.top -write vdcimono.bot vdcimono.bot \
+         -write vdcfli-orig.bit vdcfli-orig.bit -write vdcfli-orig.col vdcfli-orig.col \
+         -write vdcimono-orig.top vdcimono-orig.top -write vdcimono-orig.bot vdcimono-orig.bot \
+         -write vdcihfli.ct vdcihfli.ct -write vdcihfli.cb vdcihfli.cb \
+         -write vdcihfli.bt vdcihfli.bt -write vdcihfli.bb vdcihfli.bb \
+         -write vdcitfli.ct vdcitfli.ct -write vdcitfli.cb vdcitfli.cb \
+         -write vdcitfli.bt vdcitfli.bt -write vdcitfli.bb vdcitfli.bb \
+         -write vdchfli.bit vdchfli.bit -write vdchfli.col vdchfli.col \
+         -write vdcim800.bt vdcim800.bt -write vdcim800.bb vdcim800.bb \
+         -write vdcim960.bt vdcim960.bt -write vdcim960.bb vdcim960.bb \
+         -write idi8blogo.scrn idi8blogo.scrn
 
 # Generated picture assets (see tools/vdc_convert.py) -- regenerated from
 # assets/source/*.png automatically when python3 is available; if not, the
@@ -97,7 +116,7 @@ GENERATED_ASSETS = assets/vdcfli.bit assets/vdcfli.col assets/vdcimono.top asset
 ########################################
 
 .SUFFIXES:
-.PHONY: all clean deploy deploy2 check-deploy check-deploy2 docs vice
+.PHONY: all clean deploy deploy2 check-deploy check-deploy2 docs vice krill
 
 all: $(MAIN).prg bootsect.bin d81 README.pdf
 #all: $(MAIN).prg bootsect.bin loader-c128.prg d64 d71 d81 $(ZIP)
@@ -105,31 +124,55 @@ all: $(MAIN).prg bootsect.bin d81 README.pdf
 $(MAIN).prg: $(MAIN_SRCS)
 	@$(MKDIR) build/standard 2>$(NULLDEV) ; true
 #	$(CC) $(CFLAGS) $(FLOSSIECFLAGS) -n -o=build/flossiec/$(MAIN).prg $(MAINSRC)
-#	$(CC) $(CFLAGS) -dKRILL -n -o=build/krill/$(MAIN).prg $(MAINSRC)
+	@$(MKDIR) build/krill 2>$(NULLDEV) ; true
+	$(CC) $(CFLAGS) -dKRILL -n -o=build/krill/$(MAIN).prg $(MAINSRC)
 	$(CC) $(CFLAGS) -n -o=build/standard/$(MAIN).prg $(MAINSRC)
 
 bootsect.bin: $(MAIN).prg $(GENERATED_ASSETS)
 	@$(MKDIR) build/standard 2>$(NULLDEV) ; true
+	@$(MKDIR) build/krill 2>$(NULLDEV) ; true
 	$(CC) -tf=bin -rt=src/bootsect.c -o=build/standard/bootsect.bin
-#	cp build/standard/bootsect.bin build/krill
+	cp build/standard/bootsect.bin build/krill
 #	cp build/standard/bootsect.bin build/flossiec
 	cp assets/vdce-scr*.* build/standard
-	cp assets/vdcfli.* assets/vdcimono.* build/standard
+	cp assets/vdcfli*.* assets/vdcimono*.* build/standard
+	cp assets/vdcihfli.* assets/vdcitfli.* assets/vdchfli.* assets/vdcim800.* assets/vdcim960.* build/standard
+	cp assets/idi8blogo.scrn build/standard
+	cp assets/vdce-scr*.* build/krill
+	cp assets/vdcfli*.* assets/vdcimono*.* build/krill
+	cp assets/vdcihfli.* assets/vdcitfli.* assets/vdchfli.* assets/vdcim800.* assets/vdcim960.* build/krill
+	cp assets/idi8blogo.scrn build/krill
 #	cp assets/music*.prg build/standard
 #	cp assets/chars*.prg build/standard
-#	cp assets/vdce-scr*.prg build/krill
 #	cp assets/music*.prg build/krill
 #	cp assets/chars*.prg build/krill
 #	cp assets/vdce-scr*.prg build/flossiec
 #	cp assets/music*.prg build/flossiec
 #	cp assets/chars*.prg build/flossiec
 
-#loader-c128.prg:
-#	cd krill/loader/; $(DEL) build/*.* 2>$(NULLDEV)
-#	cd krill/loader/; make PLATFORM=c128 prg INSTALL=A000 RESIDENT=0b00 ZP=f5 PROJECT=
-#	cd krill/loader/; $(RMDIR) build/intermediate 2>$(NULLDEV)
-#	cd krill/loader/; $(DEL) build/transient*.* 2>$(NULLDEV)
-#	cp krill/loader/build/*.prg build/krill
+loader-c128.prg:
+	@$(MKDIR) build/krill 2>$(NULLDEV) ; true
+	cd krill/loader/; $(DEL) build/*.* 2>$(NULLDEV)
+	cd krill/loader/; make PLATFORM=c128 prg INSTALL=A000 RESIDENT=0b00 ZP=f5 PROJECT=
+	cd krill/loader/; $(RMDIR) build/intermediate 2>$(NULLDEV)
+	cd krill/loader/; $(DEL) build/transient*.* 2>$(NULLDEV)
+	cp krill/loader/build/*.prg build/krill
+
+# asset-loading-roadmap.md Phase 1: builds a full testable krill-variant d81
+# (build/krill/$(MAIN)-krill.d81) -- the -dKRILL-compiled binary (which
+# routes title_screen()'s picture load through krill_load() instead of
+# bnk_load(), see that function's own comment), Krill's own install/loader
+# prgs, and every asset the full demo needs (every *other* section's
+# bnk_load() calls are unchanged, so this image needs the same full asset
+# set as the standard build). Deliberately does NOT touch all/d81/vice --
+# those keep building/running only the standard (non-KRILL) variant, so the
+# existing day-to-day workflow is unaffected.
+krill: $(MAIN).prg bootsect.bin loader-c128.prg
+	c1541 -cd build/krill -format "$(MAIN),xm" d81 $(MAIN)-krill.d81
+	c1541 -cd build/krill -attach $(MAIN)-krill.d81 -bwrite bootsect.bin 1 0
+	c1541 -cd build/krill -attach $(MAIN)-krill.d81 -bpoke 40 1 16 $$27 %11111110
+	c1541 -cd build/krill -attach $(MAIN)-krill.d81 -bam 1 1
+	c1541 -cd build/krill -attach $(MAIN)-krill.d81 $(PRGLIST) $(KRILLLIST) $(ASSETS)
 #
 #d64:	bootsect.bin loader-c128.prg
 #	c1541 -cd build/krill -format "$(MAIN),xm" d64 $(MAIN)-krill.d64
@@ -161,7 +204,7 @@ bootsect.bin: $(MAIN).prg $(GENERATED_ASSETS)
 #	c1541 -cd build/standard -attach $(MAIN)-stnd.d71 -bam 1 1
 #	c1541 -cd build/standard -attach $(MAIN)-stnd.d71 $(PRGLIST) $(ASSETS)
 #
-d81:
+d81: $(MAIN).prg bootsect.bin
 #	c1541 -cd build -attach $(PLASMA).d81 -write $(PLASMA).prg $(PLASMA) -write vdctestlmc.prg vdctestlmc
 #	c1541 -cd build/krill -format "$(MAIN),xm" d81 $(MAIN)-krill.d81
 #	c1541 -cd build/krill -attach $(MAIN)-krill.d81 -bwrite bootsect.bin 1 0
@@ -209,10 +252,10 @@ README.pdf: README.md pandoc-defaults.yaml pandoc-header.tex
 # Cleaning repo of build files
 clean:
 	$(DEL) build/*.* 2>$(NULLDEV)
-#	$(DEL) build/krill/*.* 2>$(NULLDEV)
+	$(DEL) build/krill/*.* 2>$(NULLDEV)
 #	$(DEL) build/flossiec/*.* 2>$(NULLDEV)
 	$(DEL) build/standard/*.* 2>$(NULLDEV)
-#	$(DEL) krill/loader/build/*.* 2>$(NULLDEV)
+	$(DEL) krill/loader/build/*.* 2>$(NULLDEV)
 
 # Check Ultimate II+ is reachable before deploying
 check-deploy:
@@ -235,5 +278,5 @@ deploy2: check-deploy2 $(MAIN).prg
 	wput -u build/standard/*.prg build/standard/$(MAIN)-stnd.d* $(ULTFTP2)
 
 ## To run software using VICE x128
-vice: $(MAIN).d81
+vice: d81
 	x128 build/standard/$(MAIN)-stnd.d81
