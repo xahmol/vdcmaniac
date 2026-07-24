@@ -68,7 +68,7 @@ void krill_loadcode()
 }
 
 char krill_load(char cr, const unsigned start, const char *fname)
-// Load a file with Krill's loader, decompress if needed
+// Load a raw (uncompressed) file with Krill's loader
 {
     krillvar.oldcr = mmu.cr;
     krillvar.cr = cr;
@@ -76,6 +76,25 @@ char krill_load(char cr, const unsigned start, const char *fname)
     krillzp.loadaddr = start;
     strcpy(krillvar.filename,fname);
     krill_load_core();
+    return krillvar.error;
+}
+
+char krill_loadcompd(char cr, const char *fname)
+// Load and depack a TSCrunch-compressed file with Krill's loader.
+// Unlike krill_load(), the destination is NOT passed here: loadcompd's
+// LOAD_TO_API only supports a relative OFFSET added to the file's own
+// embedded depack address (see krill.h's KRILLZP comment), so the
+// destination must instead be baked into the asset at conversion time --
+// give the uncompressed source .prg the desired destination as its own
+// 2-byte load-address header before running it through TSCrunch -i and
+// krill/loader/tools/compressedfileconverter.pl. This call loads to
+// exactly that baked-in address (carry cleared -> no offset override).
+{
+    krillvar.oldcr = mmu.cr;
+    krillvar.cr = cr;
+    krillvar.error = 0;
+    strcpy(krillvar.filename,fname);
+    krill_loadcompd_core();
     return krillvar.error;
 }
 
@@ -137,7 +156,7 @@ void krill_done()
 }
 
 void krill_load_core()
-// Load a file with Krill's loader
+// Load a raw file with Krill's loader
 {
     char filelo = (unsigned)krillvar.filename;
     char filehi = ((unsigned)krillvar.filename) >> 8;
@@ -152,6 +171,32 @@ void krill_load_core()
         bcs krill_load_error
         lda #$00
 krill_load_error:
+        sta error
+         }
+    krillvar.error = error;
+    mmu.cr = krillvar.oldcr;
+}
+
+void krill_loadcompd_core()
+// Load and depack a compressed file with Krill's loader. Carry is cleared,
+// not set, before the call: per loader.inc's loadcompd contract, c=0 means
+// "depack to the address stored in the file" (the baked-in destination --
+// see krill_loadcompd()'s comment), c=1 would mean "add loadaddroffslo/hi
+// as an offset", which this project does not use.
+{
+    char filelo = (unsigned)krillvar.filename;
+    char filehi = ((unsigned)krillvar.filename) >> 8;
+    char error = 0;
+    mmu.cr = krillvar.cr;
+    __asm
+        {
+        ldx filelo
+        ldy filehi
+        clc
+        jsr KRILL_LOADCOMPD
+        bcs krill_loadcompd_error
+        lda #$00
+krill_loadcompd_error:
         sta error
          }
     krillvar.error = error;

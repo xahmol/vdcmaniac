@@ -224,9 +224,9 @@ same compile invocation.
 
 | Target | Builds |
 |---|---|
-| `make krill` | Full bootable `build/krill/vdcexp-krill.d81` — the `-dKRILL` binary, `install-c128.prg`/`loader-c128.prg`, and every asset the demo needs (every non-Krill-converted section still needs its own assets too, since only *some* call sites are on the fast-load path is not the case here — all of them are, but the disk image still needs every file regardless of loader). |
+| `make krill` | Full bootable `build/krill/vdcmaniac-krill.d81` — the `-dKRILL` binary, `install-c128.prg`/`loader-c128.prg`, and every asset the demo needs (every non-Krill-converted section still needs its own assets too, since only *some* call sites are on the fast-load path is not the case here — all of them are, but the disk image still needs every file regardless of loader). |
 | `make d81` / `make all` | Standard (non-Krill) build only — unaffected by any of the above. |
-| `make vice` | Runs the **Krill** build by default (`x128 build/krill/vdcexp-krill.d81`) — this is the variant actually meant to be tested/deployed going forward. |
+| `make vice` | Runs the **Krill** build by default (`x128 build/krill/vdcmaniac-krill.d81`) — this is the variant actually meant to be tested/deployed going forward. |
 | `make vice-stnd` | Runs the plain `bnk_load()`-based build instead, for comparison. |
 
 ---

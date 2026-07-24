@@ -1,6 +1,7 @@
 
-# vdcmodemania-oscar64
-# Remake of VDC Mode Mania for the Commodore 128 VDC (80-column) chip
+# vdcmaniac
+# A modern Oscar64/C128 remake inspired by VDC Mode Mania (Tokra/Mike,
+# Akronyme Analogiker, 2012) -- see README.md
 # Written by Xander Mol
 
 # Target
@@ -28,7 +29,7 @@ endif
 CC = /home/xahmol/oscar64/bin/oscar64
 
 # Application names
-MAIN = vdcexp
+MAIN = vdcmaniac
 LMC  = vdcelmc
 
 # Build versioning
@@ -48,10 +49,6 @@ CFLAGS  = -i=include \
           -O2 \
           -dNOFLOAT \
           -dVERSION="\"$(VERSION)\""
-
-# Fastload compile flag definitions (not yet wired into `all` -- see commented
-# d64/d71/krill/flossiec targets below, which are a work in progress)
-FLOSSIECFLAGS = -dFLOSSIEC -dFLOSSIEC_BORDER=1 -dFLOSSIEC_NODISPLAY=1 -dFLOSSIEC_NOIRQ=0 -dFLOSSIEC_CODE=bcode1 -dFLOSSIEC_BSS=bbss1
 
 # Sources
 MAINSRC = src/main.c
@@ -87,7 +84,7 @@ endif
 # ZIP file contents
 ZIP = build/$(MAIN)_$(VERSION).zip
 README = README.pdf
-ZIPLIST = build/flossiec/*.* build/krill/*.* build/standard/*.* $(README)
+ZIPLIST = build/krill/*.* build/standard/*.* $(README)
 PRGLIST = -write $(MAIN).prg $(MAIN) -write $(LMC).prg $(LMC)
 KRILLLIST = -write install-c128.prg install-c128 -write loader-c128.prg loader-c128
 # vdcfli-orig.*/vdcimono-orig.*: temporary diagnostic pictures (Tokra's own
@@ -120,11 +117,9 @@ GENERATED_ASSETS = assets/vdcfli.bit assets/vdcfli.col assets/vdcimono.top asset
 .PHONY: all clean deploy deploy2 check-deploy check-deploy2 docs vice vice-stnd krill
 
 all: $(MAIN).prg bootsect.bin d81 README.pdf
-#all: $(MAIN).prg bootsect.bin loader-c128.prg d64 d71 d81 $(ZIP)
 
 $(MAIN).prg: $(MAIN_SRCS)
 	@$(MKDIR) build/standard 2>$(NULLDEV) ; true
-#	$(CC) $(CFLAGS) $(FLOSSIECFLAGS) -n -o=build/flossiec/$(MAIN).prg $(MAINSRC)
 	@$(MKDIR) build/krill 2>$(NULLDEV) ; true
 	$(CC) $(CFLAGS) -dKRILL -n -o=build/krill/$(MAIN).prg $(MAINSRC)
 	$(CC) $(CFLAGS) -n -o=build/standard/$(MAIN).prg $(MAINSRC)
@@ -134,7 +129,6 @@ bootsect.bin: $(MAIN).prg $(GENERATED_ASSETS)
 	@$(MKDIR) build/krill 2>$(NULLDEV) ; true
 	$(CC) -tf=bin -rt=src/bootsect.c -o=build/standard/bootsect.bin
 	cp build/standard/bootsect.bin build/krill
-#	cp build/standard/bootsect.bin build/flossiec
 	cp assets/vdce-scr*.* build/standard
 	cp assets/vdcfli*.* assets/vdcimono*.* build/standard
 	cp assets/vdcihfli.* assets/vdcitfli.* assets/vdchfli.* assets/vdcim800.* assets/vdcim960.* build/standard
@@ -147,17 +141,27 @@ bootsect.bin: $(MAIN).prg $(GENERATED_ASSETS)
 #	cp assets/chars*.prg build/standard
 #	cp assets/music*.prg build/krill
 #	cp assets/chars*.prg build/krill
-#	cp assets/vdce-scr*.prg build/flossiec
-#	cp assets/music*.prg build/flossiec
-#	cp assets/chars*.prg build/flossiec
 
+# asset-loading-roadmap.md Phase 4: builds Krill's loader with both
+# LOAD_RAW_API and LOAD_COMPD_API (TSCrunch) enabled, via
+# krill-config/loaderconfig.inc (EXTCONFIGPATH -- keeps the vendored krill/
+# tree untouched). ZP=e0, not the original raw-only build's ZP=f5: the
+# compressed-load API needs a 22-byte zero-page window, and $e0-$f5 was
+# verified clear of Oscar64's own zero-page usage for the C128 target in
+# this project's (non -xz) build (Oscar64's own default __zeropage region is
+# $f7-$ff; its documented default compiler-register range for this target
+# tops out at $8f -- see krill_manual.md). include/krill.h's KRILL_ZPSTART
+# and the KRILLZP struct layout must match this build's ZP/config exactly.
+# This one binary now serves both raw and compressed loads -- there is no
+# separate raw-only loader build any more.
 loader-c128.prg:
 	@$(MKDIR) build/krill 2>$(NULLDEV) ; true
 	cd krill/loader/; $(DEL) build/*.* 2>$(NULLDEV)
-	cd krill/loader/; make PLATFORM=c128 prg INSTALL=A000 RESIDENT=0b00 ZP=f5 PROJECT=
+	cd krill/loader/; make PLATFORM=c128 prg INSTALL=A000 RESIDENT=0b00 ZP=e0 PROJECT= EXTCONFIGPATH=$(CURDIR)/krill-config
 	cd krill/loader/; $(RMDIR) build/intermediate 2>$(NULLDEV)
 	cd krill/loader/; $(DEL) build/transient*.* 2>$(NULLDEV)
 	cp krill/loader/build/*.prg build/krill
+	cp krill/loader/build/loadersymbols-c128.inc build/krill
 
 # asset-loading-roadmap.md Phase 1: builds a full testable krill-variant d81
 # (build/krill/$(MAIN)-krill.d81) -- the -dKRILL-compiled binary (which
@@ -174,44 +178,8 @@ krill: $(MAIN).prg bootsect.bin loader-c128.prg
 	c1541 -cd build/krill -attach $(MAIN)-krill.d81 -bpoke 40 1 16 $$27 %11111110
 	c1541 -cd build/krill -attach $(MAIN)-krill.d81 -bam 1 1
 	c1541 -cd build/krill -attach $(MAIN)-krill.d81 $(PRGLIST) $(KRILLLIST) $(ASSETS)
-#
-#d64:	bootsect.bin loader-c128.prg
-#	c1541 -cd build/krill -format "$(MAIN),xm" d64 $(MAIN)-krill.d64
-#	c1541 -cd build/krill -attach $(MAIN)-krill.d64 -bwrite bootsect.bin 1 0
-#	c1541 -cd build/krill -attach $(MAIN)-krill.d64 -bpoke 18 0 4 $14 %11111110
-#	c1541 -cd build/krill -attach $(MAIN)-krill.d64 -bam 1 1
-#	c1541 -cd build/krill -attach $(MAIN)-krill.d64 $(PRGLIST) $(KRILLLIST) $(ASSETS)
-#	c1541 -cd build/standard -format "$(MAIN),xm" d64 $(MAIN)-stnd.d64
-#	c1541 -cd build/standard -attach $(MAIN)-stnd.d64 -bwrite bootsect.bin 1 0
-#	c1541 -cd build/standard -attach $(MAIN)-stnd.d64 -bpoke 18 0 4 $14 %11111110
-#	c1541 -cd build/standard -attach $(MAIN)-stnd.d64 -bam 1 1
-#	c1541 -cd build/standard -attach $(MAIN)-stnd.d64 $(PRGLIST) $(ASSETS)
-#	c1541 -cd build/flossiec -format "$(MAIN),xm" d64 $(MAIN)-fl.d64
-#	c1541 -cd build/flossiec -attach $(MAIN)-fl.d64 -bwrite bootsect.bin 1 0
-#	c1541 -cd build/flossiec -attach $(MAIN)-fl.d64 -bpoke 18 0 4 $14 %11111110
-#	c1541 -cd build/flossiec -attach $(MAIN)-fl.d64 -bam 1 1
-#	c1541 -cd build/flossiec -attach $(MAIN)-fl.d64 $(PRGLIST) $(ASSETS)
-#
-#
-#d71:	bootsect.bin
-#	c1541 -cd build/krill -format "$(MAIN),xm" d71 $(MAIN)-krill.d71
-#	c1541 -cd build/krill -attach $(MAIN)-krill.d71 -bwrite bootsect.bin 1 0
-#	c1541 -cd build/krill -attach $(MAIN)-krill.d71 -bpoke 18 0 4 $14 %11111110
-#	c1541 -cd build/krill -attach $(MAIN)-krill.d71 -bam 1 1
-#	c1541 -cd build/krill -attach $(MAIN)-krill.d71 $(PRGLIST) $(KRILLLIST) $(ASSETS)
-#	c1541 -cd build/standard -format "$(MAIN),xm" d71 $(MAIN)-stnd.d71
-#	c1541 -cd build/standard -attach $(MAIN)-stnd.d71 -bwrite bootsect.bin 1 0
-#	c1541 -cd build/standard -attach $(MAIN)-stnd.d71 -bpoke 18 0 4 $14 %11111110
-#	c1541 -cd build/standard -attach $(MAIN)-stnd.d71 -bam 1 1
-#	c1541 -cd build/standard -attach $(MAIN)-stnd.d71 $(PRGLIST) $(ASSETS)
-#
+
 d81: $(MAIN).prg bootsect.bin
-#	c1541 -cd build -attach $(PLASMA).d81 -write $(PLASMA).prg $(PLASMA) -write vdctestlmc.prg vdctestlmc
-#	c1541 -cd build/krill -format "$(MAIN),xm" d81 $(MAIN)-krill.d81
-#	c1541 -cd build/krill -attach $(MAIN)-krill.d81 -bwrite bootsect.bin 1 0
-#	c1541 -cd build/krill -attach $(MAIN)-krill.d81 -bpoke 40 1 16 $27 %11111110
-#	c1541 -cd build/krill -attach $(MAIN)-krill.d81 -bam 1 1
-#	c1541 -cd build/krill -attach $(MAIN)-krill.d81 $(PRGLIST) $(KRILLLIST) $(ASSETS)
 	c1541 -cd build/standard -format "$(MAIN),xm" d81 $(MAIN)-stnd.d81
 	c1541 -cd build/standard -attach $(MAIN)-stnd.d81 -bwrite bootsect.bin 1 0
 	c1541 -cd build/standard -attach $(MAIN)-stnd.d81 -bpoke 40 1 16 $27 %11111110
@@ -220,7 +188,7 @@ d81: $(MAIN).prg bootsect.bin
 
 ## Creating ZIP file for distribution
 #$(ZIP):
-#	zip -j $(ZIP) build/flossiec/*.d* build/krill/*.d* build/standard/*.d* $(README)
+#	zip -j $(ZIP) build/krill/*.d* build/standard/*.d* $(README)
 #
 
 # Converted picture assets (requires python3 + Pillow: pip install Pillow).
@@ -261,7 +229,6 @@ README.pdf: README.md pandoc-defaults.yaml pandoc-header.tex
 clean:
 	$(DEL) build/*.* 2>$(NULLDEV)
 	$(DEL) build/krill/*.* 2>$(NULLDEV)
-#	$(DEL) build/flossiec/*.* 2>$(NULLDEV)
 	$(DEL) build/standard/*.* 2>$(NULLDEV)
 	$(DEL) krill/loader/build/*.* 2>$(NULLDEV)
 
@@ -280,7 +247,6 @@ endif
 # To deploy software to UII+ enter make deploy. Obviously C128 needs to be powered on with UII+ and USB drive connected.
 deploy: check-deploy $(MAIN).prg
 	wput -u build/standard/*.prg build/standard/$(MAIN)-stnd.d* $(ULTFTP1)
-#	wput -u build/standard/*.prg build/standard/$(MAIN)-stnd.d* build/flossiec/$(MAIN)-fl.d* build/krill/$(MAIN)-krill.d* $(ULTFTP1)
 
 deploy2: check-deploy2 $(MAIN).prg
 	wput -u build/standard/*.prg build/standard/$(MAIN)-stnd.d* $(ULTFTP2)

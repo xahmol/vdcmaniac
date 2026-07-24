@@ -65,6 +65,60 @@ void rle_decode_to_vdc(unsigned vdcdest, const char *src, unsigned srclen)
 	}
 }
 
+#if defined(KRILL)
+// TEMPORARY DIAGNOSTIC (asset-loading-roadmap.md Phase 4): proves Krill's
+// loadcompd() (TSCrunch-compressed load-in-place) produces byte-identical
+// output to the already-proven raw krill_load() path, for one real asset.
+// idi8blogo.scrn was compressed outside this repo (tools/tscrunch, then
+// krill/loader/tools/compressedfileconverter.pl -- see krill_manual.md) into
+// "idi8blkr", written to this build's d81 by hand, not via the Makefile --
+// this is a throwaway proof, not a real asset yet. Loads the same file two
+// ways: raw to MEM_SID (0x2000, unused this early in the boot sequence --
+// same reasoning as rle_test_diagnostic()'s 0xf000 scratch address) as
+// reference, and compressed via krill_loadcompd() to 0x5800 (the
+// destination baked into idi8blogo.scrn's own 2-byte header at compress
+// time -- loadcompd has no absolute-address override, unlike krill_load();
+// see krill.c's own comment on krill_loadcompd()). Writes its result to
+// krilltest_result/krilltest_mismatchoffset instead of printing, so it can
+// be read back via a VICE monitor memory dump without needing a human to
+// read the screen. Remove this whole block (globals, function, call site)
+// once loadcompd is proven and wired into a real asset's load path.
+volatile char krilltest_result = 0xaa;
+volatile unsigned krilltest_mismatchoffset = 0;
+
+void krill_loadcompd_test()
+{
+	enum
+	{
+		REFADDR = MEM_SID,
+		COMPDADDR = 0x5800,
+		TESTLEN = 4048
+	};
+	unsigned i;
+
+	if (krill_load(BNK_1_IO, REFADDR, "idi8blogo.scrn"))
+	{
+		krilltest_result = 1;
+		return;
+	}
+	if (krill_loadcompd(BNK_1_IO, "idi8blkr"))
+	{
+		krilltest_result = 2;
+		return;
+	}
+	for (i = 0; i < TESTLEN; i++)
+	{
+		if (bnk_readb(BNK_1_FULL, (char *)REFADDR + i) != bnk_readb(BNK_1_FULL, (char *)COMPDADDR + i))
+		{
+			krilltest_result = 3;
+			krilltest_mismatchoffset = i;
+			return;
+		}
+	}
+	krilltest_result = 0;
+}
+#endif
+
 void rle_test_diagnostic()
 // Throwaway test harness -- see the TEMPORARY DIAGNOSTIC comment above.
 {
@@ -1925,6 +1979,10 @@ int main(void)
 	// Runs here, before anything else has loaded a picture into VDC memory,
 	// so its scratch address (0xf000) is guaranteed unused.
 	rle_test_diagnostic();
+
+#if defined(KRILL)
+	krill_loadcompd_test();
+#endif
 
 	raster_calibrate();
 

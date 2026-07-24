@@ -94,7 +94,7 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 #pragma region( main, 0x0bff, 0x0c00, , , {code, bss, heap, data})
 #pragma heapsize(0)
 
-#define executable "vdcexp"
+#define executable "vdcmaniac"
 
 __export char pad[1] = {0};
 

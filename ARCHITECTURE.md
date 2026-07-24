@@ -115,7 +115,7 @@ is present but **not referenced from anywhere in `src/`**:
 | `vdc_menu.c/h` | staged, unused | Pulldown menu system — would be the natural driver for a real image-selection menu |
 | `vdc_softscroll.c/h` | staged, unused | Sub-character pixel scrolling |
 | `vdc_textscroller.c/h` | staged, unused | Text scroller |
-| `krill.c/h` | staged, unused | KRILL fastloader integration — matches the commented-out `krill`/`flossiec` build variants in the `Makefile` |
+| `krill.c/h` | staged, unused | KRILL fastloader integration — matches the `krill` build variant in the `Makefile` |
 | `peekpoke.h` | used transitively | Included by `vdc_core.c` and `banking.c` |
 
 `vdc_win.c/h` *is* included but nothing in `main.c` currently calls any
@@ -158,10 +158,9 @@ brought up to the same conventions used in `VDCScreenEditor2` /
 `UltimateDemo2026` (`.env`-based deploy IPs, `check-deploy`, `MAIN_SRCS`
 dependency tracking, a `docs`/pandoc pipeline) — those files are staged as
 untracked/modified changes alongside this doc and haven't been committed
-either. The Makefile's `krill`/`flossiec`/`d64`/`d71` alternate build targets
-remain commented out and untouched; only the `standard` D81 build path is
-active, matching that none of the krill/menu/scroller library code is wired
-into `main.c` yet.
+either. The `flossiec`/`d64`/`d71` alternate build targets have been dropped
+entirely (asset sizes need D81's larger capacity, and `flossiec` never had a
+D81 variant) -- only `standard` and `krill` D81 build paths exist now.
 
 ## Suggested pick-up order
 

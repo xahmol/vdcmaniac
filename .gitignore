@@ -5,7 +5,7 @@
 build/
 
 # Release ZIPs generated in project root
-vdcexp_*.zip
+vdcmaniac_*.zip
 
 # Generated docs (make docs)
 README.pdf
