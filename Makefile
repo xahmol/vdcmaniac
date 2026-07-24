@@ -111,12 +111,13 @@ ASSETS = -write vdce-scrtit.top vdce-scrtit.top -write vdce-scrtit.bot vdce-scrt
 # Generated picture assets (see tools/vdc_convert.py) -- regenerated from
 # assets/source/*.png automatically when python3 is available; if not, the
 # build proceeds with a warning and whatever converted files already exist.
-GENERATED_ASSETS = assets/vdcfli.bit assets/vdcfli.col assets/vdcimono.top assets/vdcimono.bot
+GENERATED_ASSETS = assets/vdcfli.bit assets/vdcfli.col assets/vdcimono.top assets/vdcimono.bot \
+                   assets/vdce-scrtit.top assets/vdce-scrtit.bot
 
 ########################################
 
 .SUFFIXES:
-.PHONY: all clean deploy deploy2 check-deploy check-deploy2 docs vice krill
+.PHONY: all clean deploy deploy2 check-deploy check-deploy2 docs vice vice-stnd krill
 
 all: $(MAIN).prg bootsect.bin d81 README.pdf
 #all: $(MAIN).prg bootsect.bin loader-c128.prg d64 d71 d81 $(ZIP)
@@ -238,6 +239,13 @@ assets/vdcimono.top assets/vdcimono.bot: assets/source/vdcimono-source.png tools
 		echo "WARNING: python3 not found -- assets/vdcimono.top/.bot not regenerated"; \
 	fi
 
+assets/vdce-scrtit.top assets/vdce-scrtit.bot: assets/original/vdc_maniac_title.png tools/vdc_convert.py
+	@if which python3 >/dev/null 2>&1; then \
+		python3 tools/vdc_convert.py --mode titlescreen --input assets/original/vdc_maniac_title.png --out-prefix assets/vdce-scrtit; \
+	else \
+		echo "WARNING: python3 not found -- assets/vdce-scrtit.top/.bot not regenerated"; \
+	fi
+
 # Regenerate README.pdf from README.md (requires pandoc).
 # Install: sudo apt install pandoc texlive-xetex
 docs: README.pdf
@@ -277,6 +285,11 @@ deploy: check-deploy $(MAIN).prg
 deploy2: check-deploy2 $(MAIN).prg
 	wput -u build/standard/*.prg build/standard/$(MAIN)-stnd.d* $(ULTFTP2)
 
-## To run software using VICE x128
-vice: d81
+## To run software using VICE x128 -- krill (fast loader) build by default,
+## since that's the variant actually meant to be tested/deployed going
+## forward; make vice-stnd runs the plain bnk_load()-based build instead.
+vice: krill
+	x128 build/krill/$(MAIN)-krill.d81
+
+vice-stnd: d81
 	x128 build/standard/$(MAIN)-stnd.d81

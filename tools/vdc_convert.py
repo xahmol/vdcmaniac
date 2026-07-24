@@ -6,8 +6,10 @@ Converts a source picture (any format Pillow can read) into the raw VDC
 bitmap(+attribute) byte layout this project's bnk_load()/bnk_cpytovdc()
 pipeline expects, for two modes:
 
-  fli   -- 480x252, 8x1 colour cells, non-interlace (VDC_HIRES_480x252_Color_PAL)
-  imono -- 720x700, monochrome, interlace (VDC_HIRES_720x700_Mono_PAL)
+  fli         -- 480x252, 8x1 colour cells, non-interlace (VDC_HIRES_480x252_Color_PAL)
+  imono       -- 720x700, monochrome, interlace (VDC_HIRES_720x700_Mono_PAL)
+  titlescreen -- 640x400, monochrome, non-interlace (VDC_HIRES_640x400_Mono_PAL),
+                 title_screen()'s own picture (vdce-scrtit.top/.bot)
 
 Dithering technique (per-cell brute-force background/foreground colour pair
 search with Floyd-Steinberg error diffusion, serpentine scan) is studied from
@@ -227,7 +229,7 @@ def fit_to_size(img, width, height):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--mode", choices=["fli", "imono"], required=True)
+    ap.add_argument("--mode", choices=["fli", "imono", "titlescreen"], required=True)
     ap.add_argument("--input", required=True, help="Source image (any Pillow-readable format, any size/aspect)")
     ap.add_argument("--out-prefix", required=True, help="Output path prefix; writes <prefix>.bit/.col or <prefix>.bit")
     args = ap.parse_args()
@@ -243,14 +245,19 @@ def main():
         with open(args.out_prefix + ".col", "wb") as f:
             f.write(HEADER + colour)
         print(f"wrote {args.out_prefix}.bit ({len(bitmap)} bytes) and .col ({len(colour)} bytes)")
-    else:
+    elif args.mode == "imono":
         width, height = 720, 700
         img = fit_to_size(img, width, height)
         bitmap = convert_imono(img, width, height)
-        # Split top/bottom, same convention as vdce-scrtit.top/.bot: the full
-        # 63000-byte bitmap doesn't fit in the 32KB CPU RAM staging area
-        # (MEM_SCREEN..MEM_CHARSET) used to load a picture into VDC memory in
-        # one piece, so it's loaded (and generated) in two halves instead.
+        # Split top/bottom by physical half (first half of rows, then second
+        # half) -- correct for VDC-IMONO's own addressing convention:
+        # mono_hires_xl_demo() (src/main.c) places the two halves at VDC
+        # addresses with a genuine ~1980-byte gap between them (0x0000 and
+        # 0x82c8, not simply base_text+31500), reverse-engineered from
+        # Tokra's own disassembly -- the VDC's own hardware interlace scan-out
+        # reassembles the two straightforwardly-ordered halves correctly
+        # *because* of that address gap, so the source data itself doesn't
+        # need to be pre-interleaved.
         bytes_per_row = width // 8
         half_row = height // 2
         split = bytes_per_row * half_row
@@ -259,6 +266,34 @@ def main():
             f.write(HEADER + top)
         with open(args.out_prefix + ".bot", "wb") as f:
             f.write(HEADER + bot)
+        print(f"wrote {args.out_prefix}.top ({len(top)} bytes) and .bot ({len(bot)} bytes)")
+    else:
+        width, height = 640, 400
+        img = fit_to_size(img, width, height)
+        bitmap = convert_imono(img, width, height)
+        # Split by EVEN/ODD row (interlace field), NOT physical half --
+        # different convention from VDC-IMONO above, and confirmed the hard
+        # way: title_screen() (src/main.c) copies both halves to VDC memory
+        # back-to-back with NO address gap (one bnk_cpytovdc() call over the
+        # whole concatenated buffer) into a genuinely interlaced mode
+        # (VDC_HIRES_640x400_Mono_PAL, LACE=3) -- decoding the original,
+        # confirmed-working vdce-scrtit.top/.bot with a naive physical-half
+        # split showed the whole picture duplicated top and bottom (each
+        # half independently spans the full image, just at half the row
+        # density) -- the unambiguous signature of even/odd interlace field
+        # data, not a physical-half split. Without an address gap to do the
+        # interleaving in hardware (unlike IMONO), the source data has to be
+        # pre-interleaved instead.
+        bytes_per_row = width // 8
+        top = bytearray()
+        bot = bytearray()
+        for y in range(height):
+            row = bitmap[y * bytes_per_row:(y + 1) * bytes_per_row]
+            (top if y % 2 == 0 else bot).extend(row)
+        with open(args.out_prefix + ".top", "wb") as f:
+            f.write(HEADER + bytes(top))
+        with open(args.out_prefix + ".bot", "wb") as f:
+            f.write(HEADER + bytes(bot))
         print(f"wrote {args.out_prefix}.top ({len(top)} bytes) and .bot ({len(bot)} bytes)")
 
 

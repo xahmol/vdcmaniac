@@ -16,6 +16,10 @@ README.pdf
 # Prerequisites
 *.d
 
+# Python bytecode cache (tools/vdc_convert.py, tools/rle_test.py)
+__pycache__/
+*.pyc
+
 # Object files
 *.o
 *.ko

@@ -175,12 +175,39 @@ extern unsigned raster_cycles_per_line_x1000; // measured cycles/line, fixed-poi
 void raster_music_irq_start(const char *colortable, unsigned tablelength, char linespertick, char musicenabled);
 void raster_music_irq_stop();
 
-// Frames elapsed since the last raster_music_irq_start() call (incremented
-// once per colourtable wrap, i.e. once per frame). Poll this from
-// foreground code for a fixed-duration exit instead of waiting for a
-// keypress -- see raster_music_irq_start()'s comment above. volatile: safe
-// to spin on directly with no function call inside the loop body.
-extern volatile unsigned raster_irq_framecount;
+// Mechanism 2's own scattered globals, bundled into one struct (same
+// treatment as vdc_core.c's struct VDCBootBaseline) -- colortable/
+// tablelength/pos/linespertick/musicenabled are set once by
+// raster_music_irq_start(); reload/fracpertick_x1000/fracaccum_x1000/
+// next_reload track the fractional CIA reload correction (see
+// raster_irq_tick()'s comment in vdc_raster.c); oldmmu saves the banking
+// state to restore in raster_music_irq_stop(); active guards raster_irq_
+// entry() against running before install/after teardown (see its own
+// comment). framecount is the one field callers touch directly: frames
+// elapsed since the last raster_music_irq_start() call (incremented once
+// per colourtable wrap, i.e. once per frame) -- poll it from foreground
+// code for a fixed-duration exit instead of waiting for a keypress (see
+// raster_music_irq_start()'s comment). Declared volatile *on this one
+// field* (not the whole struct) -- written only by the ISR, read by a
+// foreground spin loop with no call inside its body, so it needs to be
+// safe to spin on directly; the other fields don't need that and stay
+// normally optimizable.
+struct RasterIRQState
+{
+    const char *colortable;
+    unsigned tablelength;
+    unsigned pos;
+    char linespertick;
+    unsigned reload;
+    unsigned fracpertick_x1000;
+    unsigned fracaccum_x1000;
+    unsigned next_reload;
+    char musicenabled;
+    char oldmmu;
+    volatile unsigned framecount;
+    char active;
+};
+extern struct RasterIRQState raster_irq;
 
 #pragma compile("vdc_raster.c")
 

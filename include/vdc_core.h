@@ -189,7 +189,7 @@ struct VDCModeSet
     unsigned char_std;
     unsigned char_alt;
     unsigned extended;
-    char regset[31]; // largest mode so far (VDC_HIRES_960x540_IM960_PAL) needs 15 reg/value pairs + terminator
+    char regset[33]; // largest mode so far (VDC_HIRES_640x576_ITFLI_PAL) needs 16 reg/value pairs + terminator
 };
 extern struct VDCModeSet vdc_modes[19];
 struct VDCStatus

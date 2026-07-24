@@ -97,44 +97,70 @@ unsigned multab[72];
 // the very first vdc_init() call, before anything (including that first
 // call's own mode) has touched them -- restored by every later vdc_init()
 // call and by vdc_exit().
-static char vdc_boot_captured;
-static char vdc_boot_hdisplay;
-static char vdc_boot_hsync;
-static char vdc_boot_syncsize;
-static char vdc_boot_hscroll;
-static char vdc_boot_vscroll;
-static char vdc_boot_dispaddrh;
-static char vdc_boot_dispaddrl;
-static char vdc_boot_attraddrh;
-static char vdc_boot_attraddrl;
 // HSTART (register 34): vdc_disable_display()/vdc_enable_display() use this
 // to blank/unblank the screen by pushing the visible window off-screen and
 // back -- previously two bare hardcoded literals (0x80 disabled, 0x7d
 // enabled), with no link to any mode's own timing and no boot-time capture
 // at all. Captured/used the same way as the registers above so "enabled"
 // always restores the real baseline instead of an assumed-universal literal.
-static char vdc_boot_hstart;
+struct VDCBootBaseline
+{
+    char captured;
+    char hdisplay;
+    char hsync;
+    char syncsize;
+    char hscroll;
+    char vscroll;
+    char hend;
+    char dispaddrh;
+    char dispaddrl;
+    char attraddrh;
+    char attraddrl;
+    char hstart;
+};
+static struct VDCBootBaseline vdc_boot;
 
 // VDC mode settings. Credits to Tokra.
 struct VDCModeSet vdc_modes[19] =
     {
+        // VDC_TEXT_80x25_PAL: standard 80x25 text mode, PAL -- this
+        // project's default/baseline mode (main() switches here first,
+        // and vdc_exit() returns to it).
         {80, 25, 0, 8, 0, 0x0000, 0x0800, 0x1000, 0x1800, 0x2000, 0x3000, 0x4000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x26, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x20, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0x7e, 255}},
+        // VDC_TEXT_80x50_PAL: 80x50 text mode, PAL (double-height rows via
+        // a shorter char cell).
         {80, 50, 0, 8, 0, 0x0000, 0x1000, 0x4000, 0x5000, 0x2000, 0x3000, 0x6000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x4d, VDCR_VADJUST, 0x00, VDCR_VDISPLAY, 0x32, VDCR_VSYNC, 0x40, VDCR_LACE, 0x03, VDCR_CSIZE, 0x07, VDCR_REFRESH, 0x00, 255}},
+        // VDC_TEXT_80x70_PAL: 80x70 text mode, PAL -- extmem=1 (needs the
+        // full 64KB VDC).
         {80, 70, 0, 8, 1, 0x0000, 0x1800, 0x6000, 0x7800, 0x4000, 0x5000, 0x9000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x4d, VDCR_VADJUST, 0x00, VDCR_VDISPLAY, 0x46, VDCR_VSYNC, 0x48, VDCR_LACE, 0x03, VDCR_CSIZE, 0x07, VDCR_REFRESH, 0x00, 255}},
+        // VDC_TEXT_80x25_NTSC: 80x25 text mode, NTSC timing.
         {80, 25, 0, 8, 0, 0x0000, 0x0800, 0x1000, 0x1800, 0x2000, 0x3000, 0x4000, {VDCR_HTOTAL, 0x7e, VDCR_VTOTAL, 0x20, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x1d, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0xf5, 255}},
+        // VDC_TEXT_80x50_NTSC: 80x50 text mode, NTSC timing.
         {80, 50, 0, 8, 0, 0x0000, 0x1000, 0x4000, 0x5000, 0x2000, 0x3000, 0x6000, {VDCR_HTOTAL, 0x7e, VDCR_VTOTAL, 0x41, VDCR_VADJUST, 0x00, VDCR_VDISPLAY, 0x32, VDCR_VSYNC, 0x3b, VDCR_LACE, 0x03, VDCR_CSIZE, 0x07, VDCR_REFRESH, 0x00, 255}},
+        // VDC_TEXT_80x60_NTSC: 80x60 text mode, NTSC timing -- extmem=1.
         {80, 60, 0, 8, 1, 0x0000, 0x1800, 0x6000, 0x7800, 0x4000, 0x5000, 0x9000, {VDCR_HTOTAL, 0x7e, VDCR_VTOTAL, 0x41, VDCR_VADJUST, 0x00, VDCR_VDISPLAY, 0x3c, VDCR_VSYNC, 0x3d, VDCR_LACE, 0x03, VDCR_CSIZE, 0x07, VDCR_REFRESH, 0x00, 255}},
-        // HSCROLL (register 25) explicitly 0x00 (no horizontal smooth-scroll
-        // offset) below on both these rows -- previously omitted, which left
-        // this register's low nibble inherited from whatever mode ran
-        // before (harmless as long as every prior mode also left it at 0,
-        // but no longer true once VDC_HIRES_480x252_Color_PAL/
-        // VDC_HIRES_720x700_Mono_PAL -- which DO need a non-zero value, see
-        // their own rows below -- can run immediately before this one).
-        {640, 200, 1, 8, 1, 0x0000, 0x4000, 0x4800, 0x8800, 0x9000, 0xa000, 0xb000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x26, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x20, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0x7e, VDCR_HSCROLL, 0x00, 255}},
-        {640, 200, 1, 0, 1, 0x0000, 0x4000, 0x4800, 0x8800, 0x9000, 0xa000, 0xb000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x26, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x20, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0x7e, VDCR_HSCROLL, 0x00, 255}},
+        // VDC_HIRES_640x200_Color_PAL / VDC_HIRES_640x200_Mono_PAL (next
+        // two rows): 640x200 bitmap, PAL, colour (attribute mode on) and
+        // mono variants -- used by plasma_demo()/rotate_demo(). HSCROLL
+        // (register 25) explicitly set to 0x07 below on both these rows --
+        // previously omitted (leaving it inherited from whichever mode ran
+        // before) or wrongly set to 0x00 (an unverified assumption that
+        // briefly caused plasma_demo()/rotate_demo()'s "isolated shifted
+        // fragment" bug, see memory: rotate_demo_shift_bug). 0x07 matches
+        // Tokra's own convention seen on several other modes' HSCROLL
+        // values (0x87/0xc7 etc., always low-nibble 7), needed to
+        // correctly align this bitmap mode's scan start to its
+        // character-cell-based addressing. Live-confirmed working.
+        {640, 200, 1, 8, 1, 0x0000, 0x4000, 0x4800, 0x8800, 0x9000, 0xa000, 0xb000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x26, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x20, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0x7e, VDCR_HSCROLL, 0x07, 255}},
+        {640, 200, 1, 0, 1, 0x0000, 0x4000, 0x4800, 0x8800, 0x9000, 0xa000, 0xb000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x26, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x20, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0x7e, VDCR_HSCROLL, 0x07, 255}},
+        // VDC_HIRES_640x400_Color_PAL: 640x400 bitmap, PAL, colour
+        // (attribute mode on).
         {640, 400, 1, 8, 1, 0x0000, 0x8000, 0x9000, 0xd000, 0xe000, 0xf000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x4d, VDCR_VADJUST, 0x00, VDCR_VDISPLAY, 0x32, VDCR_VSYNC, 0x40, VDCR_LACE, 0x03, VDCR_CSIZE, 0x07, VDCR_REFRESH, 0x00, 255}},
+        // VDC_HIRES_640x400_Mono_PAL: 640x400 bitmap, PAL, monochrome --
+        // title_screen()'s own mode.
         {640, 400, 1, 0, 1, 0x0000, 0x0000, 0x8000, 0x0000, 0x9000, 0xa000, 0xb000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x4d, VDCR_VADJUST, 0x00, VDCR_VDISPLAY, 0x31, VDCR_VSYNC, 0x40, VDCR_LACE, 0x03, VDCR_CSIZE, 0x07, VDCR_REFRESH, 0x00, 255}},
+        // VDC_HIRES_640x480_Mono_NTSC: 640x480 bitmap, NTSC, monochrome,
+        // interlace.
         {640, 480, 1, 0, 1, 0x0000, 0x0000, 0x9600, 0x0000, 0xa000, 0xb000, 0xc000, {VDCR_HTOTAL, 0x7e, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x84, VDCR_VADJUST, 0x03, VDCR_VDISPLAY, 0x84, VDCR_LACE, 0x03, VDCR_CSIZE, 0x03, VDCR_REFRESH, 0x02, 255}},
         // VDC-FLI: 480x252, non-interlace, 8x1 colour cells. Timing values
         // from Tokra's "VDC Mode Mania" (original/v12/source/vdcmodemania.bas
@@ -188,10 +214,7 @@ struct VDCModeSet vdc_modes[19] =
         // apparently needs for its own sake. Given this mode's per-frame
         // CSIZE toggle (see fli_color_demo()) is documented as resetting an
         // "internal VDC addressing counter" every vblank, DISP_ADDR/
-        // ATTR_ADDR most likely seed that counter. Not yet confirmed live --
-        // untested when first added, since the title_screen() hang (unrelated
-        // to this row) blocked reaching this section before it got reverted
-        // along with everything else in that round.
+        // ATTR_ADDR most likely seed that counter. Live-confirmed working.
         {480, 252, 1, 8, 1, 0x0000, 0x4000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7e, VDCR_HDISPLAY, 0x3c, VDCR_HSYNC, 0x5c, VDCR_VTOTAL, 0xff, VDCR_VDISPLAY, 0xfe, VDCR_VSYNC, 0x02, VDCR_LACE, 0x00, VDCR_REFRESH, 0x00, VDCR_HSCROLL, 0xc7, VDCR_DISP_ADDRH, 248, VDCR_DISP_ADDRL, 8, VDCR_ATTR_ADDRH, 63, VDCR_ATTR_ADDRL, 196, 255}},
         // VDC-IMONO: 720x700, interlace, monochrome. Timing values from
         // Tokra's original demo (vdcmodemania.bas line 110), same
@@ -209,35 +232,31 @@ struct VDCModeSet vdc_modes[19] =
         // original/v12/source/vdcmodemania.bas line 42). Genuinely
         // interlaced dual-field encoding: separate top/bottom bitmap AND
         // separate top/bottom colour(attribute) data, four files per
-        // picture -- the most complex converter/loading work of the whole
-        // set (see plan). DISP_ADDR/ATTR_ADDR set to Tokra's own literal
-        // values (82,128 / 0,0 = 0x5280/0x0000) -- REVERTED back to this
-        // after trying base_text/base_attr instead (matching VDC-HFLI's
-        // working approach) made the live VICE result *worse* (garbled in
-        // a different, inconsistent way across sections), not better --
-        // so the base_text/base_attr theory is disproven, not just
-        // unconfirmed. Back to Tokra's literal values as the known
-        // baseline while this gets investigated further with live register
-        // diagnostics instead of another blind guess. base_text/base_attr
-        // below are still where this project's own bnk_cpytovdc() calls
-        // target (top bitmap/colour fields); bottom-field addresses (0x5780
-        // bitmap, 0x0230 colour) are literals in the demo function, same
+        // picture. DISP_ADDR/ATTR_ADDR are Tokra's own literal values
+        // (0x5280/0x0000); base_text/base_attr below are where this
+        // project's own bnk_cpytovdc() calls target instead (top
+        // bitmap/colour fields) -- bottom-field addresses (0x5780 bitmap,
+        // 0x0230 colour) are literals in the demo function, same
         // convention as VDC-IMONO's 0x82c8. char_std/char_alt left 0x0000
         // (no charset room -- picture data alone is 57600 of 65536 bytes).
-        // Still not working as of this revert -- see idi8b_logo_demo()-
-        // adjacent diagnostic instrumentation in main() for the next
-        // live-test round.
-        {640, 480, 1, 8, 1, 0xaa00, 0x2b70, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7e, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x84, VDCR_VADJUST, 0x03, VDCR_VDISPLAY, 0x84, VDCR_LACE, 0x03, VDCR_CSIZE, 0x03, VDCR_DISP_ADDRH, 0x52, VDCR_DISP_ADDRL, 0x80, VDCR_ATTR_ADDRH, 0x00, VDCR_ATTR_ADDRL, 0x00, VDCR_HSCROLL, 0xc7, VDCR_CHAR_ADDRH, 0xff, VDCR_REFRESH, 0x02, 255}},
+        // VDCR_VSYNC=0x81 found via live register comparison against
+        // Tokra's original demo: every other geometry register already
+        // matched exactly, VSYNC was the one difference (ours read a
+        // leftover boot-baseline value, neither program had ever
+        // explicitly set it for this mode) -- 0x81 = VTOTAL(0x84) -
+        // VADJUST(3), confirmed live. Live-confirmed working.
+        {640, 480, 1, 8, 1, 0xaa00, 0x2b70, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7e, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x84, VDCR_VADJUST, 0x03, VDCR_VDISPLAY, 0x84, VDCR_VSYNC, 0x81, VDCR_LACE, 0x03, VDCR_CSIZE, 0x03, VDCR_DISP_ADDRH, 0x52, VDCR_DISP_ADDRL, 0x80, VDCR_ATTR_ADDRH, 0x00, VDCR_ATTR_ADDRL, 0x00, VDCR_HSCROLL, 0xc7, VDCR_CHAR_ADDRH, 0xff, VDCR_REFRESH, 0x02, 255}},
         // VDC-ITFLI: 640x576, interlace, 8x3 colour cells, near-PAL (Tokra's
         // vdcmodemania.bas line 64) -- same dual-field structure as
         // VDC-IHFLI above, just PAL-tuned timing and taller (8x3 cells).
-        // Same revert as VDC-IHFLI applied here too (see its row comment):
-        // back to Tokra's own literal DISP_ADDR/ATTR_ADDR (0x4010/0x0000)
-        // after the base_text/base_attr theory was disproven live. Bottom-field
-        // literals (0x4100 bitmap, 0x0000 colour) belong in the demo
-        // function. Tightest fit of the whole set: picture data alone is
-        // 61440 of 65536 bytes, ~4KB spare -- no charset room either.
-        {640, 576, 1, 8, 1, 0xa280, 0x2080, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_HSYNC, 0x68, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x68, VDCR_VADJUST, 0x05, VDCR_VDISPLAY, 0x68, VDCR_LACE, 0x03, VDCR_CSIZE, 0x05, VDCR_DISP_ADDRH, 0x40, VDCR_DISP_ADDRL, 0x10, VDCR_ATTR_ADDRH, 0x00, VDCR_ATTR_ADDRL, 0x00, VDCR_HSCROLL, 0xc7, VDCR_CHAR_ADDRH, 0xff, VDCR_REFRESH, 0x02, 255}},
+        // DISP_ADDR/ATTR_ADDR are Tokra's own literals (0x4010/0x0000);
+        // bottom-field literals (0x4100 bitmap, 0x0000 colour) belong in
+        // the demo function. Tightest fit of the whole set: picture data
+        // alone is 61440 of 65536 bytes, ~4KB spare -- no charset room
+        // either. VDCR_VSYNC=0x63 extrapolated using the same VTOTAL-
+        // VADJUST relationship that matched IHFLI's live-confirmed value:
+        // VTOTAL(0x68=104) - VADJUST(5) = 99 = 0x63. Live-confirmed working.
+        {640, 576, 1, 8, 1, 0xa280, 0x2080, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_HSYNC, 0x68, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x68, VDCR_VADJUST, 0x05, VDCR_VDISPLAY, 0x68, VDCR_VSYNC, 0x63, VDCR_LACE, 0x03, VDCR_CSIZE, 0x05, VDCR_DISP_ADDRH, 0x40, VDCR_DISP_ADDRL, 0x10, VDCR_ATTR_ADDRH, 0x00, VDCR_ATTR_ADDRL, 0x00, VDCR_HSCROLL, 0xc7, VDCR_CHAR_ADDRH, 0xff, VDCR_REFRESH, 0x02, 255}},
         // VDC-HFLI: 640x400, non-interlace, 8x2 colour cells (Tokra's
         // vdcmodemania.bas line 89). Simplest of the three remaining colour
         // modes -- single static bitmap+colour plane, no dual-field
@@ -247,8 +266,8 @@ struct VDCModeSet vdc_modes[19] =
         // VDC-IHFLI/ITFLI above, base_text/base_attr here MUST exactly
         // match what the picture needs (0x0000 bitmap/0x8000 colour), since
         // vdc_set_disp_address() (driven by these two fields) is the only
-        // thing that sets those registers for this mode. Not yet
-        // live-tested.
+        // thing that sets those registers for this mode. Live-confirmed
+        // working.
         {640, 400, 1, 8, 1, 0x0000, 0x8000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7e, VDCR_VTOTAL, 0xd4, VDCR_VDISPLAY, 0xc9, VDCR_VSYNC, 0xc9, VDCR_CSIZE, 0x01, VDCR_ATTR_ADDRH, 0x80, VDCR_HSCROLL, 0xc7, VDCR_CHAR_ADDRH, 0xff, VDCR_REFRESH, 0x00, 255}},
         // VDC-IM800: 800x600, interlace, monochrome (Tokra's vdcmodemania.bas
         // line 158). Tokra's own readme note: needs a monitor that can
@@ -259,7 +278,7 @@ struct VDCModeSet vdc_modes[19] =
         // the demo function, same convention as VDC-IMONO. COLOR (register
         // 26) = 32 here is just Tokra's initial ink/paper default -- the
         // original lets the user retune it live with cursor keys, optional
-        // for a first pass. Not yet live-tested.
+        // for a first pass. Live-confirmed working.
         {800, 600, 1, 0, 1, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_HDISPLAY, 0x64, VDCR_HSYNC, 0x70, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x5c, VDCR_VADJUST, 0x06, VDCR_VDISPLAY, 0x5c, VDCR_VSYNC, 0x57, VDCR_LACE, 0x03, VDCR_CSIZE, 0x06, VDCR_HSCROLL, 0x87, VDCR_COLOR, 0x20, VDCR_CHAR_ADDRH, 0xff, VDCR_HEND, 0x6a, 255}},
         // VDC-IM960: 960x540, interlace, monochrome (Tokra's vdcmodemania.bas
         // line 181) -- Tokra's own readme note: "specifically designed for
@@ -498,49 +517,61 @@ char vdc_set_mode(char mode)
 }
 
 static void vdc_reset_boot_registers()
-// Resets HDISPLAY/HSYNC/SYNCSIZE/HSCROLL/VSCROLL/DISP_ADDR/ATTR_ADDR back to
-// their KERNAL boot-time baseline -- see vdc_boot_captured's comment above.
-// Called at the start of every vdc_init() (before that call's own
-// vdc_set_mode() applies its regset[] overrides on top) and by vdc_exit(),
-// so no transition -- including the final return to BASIC -- can inherit a
-// leaked value.
+// Resets HDISPLAY/HSYNC/SYNCSIZE/HSCROLL/VSCROLL/HEND/DISP_ADDR/ATTR_ADDR
+// back to their KERNAL boot-time baseline -- see struct VDCBootBaseline's
+// comment above. Called at the start of every vdc_init() (before that
+// call's own vdc_set_mode() applies its regset[] overrides on top) and by
+// vdc_exit(), so no transition -- including the final return to BASIC --
+// can inherit a leaked value.
+//
+// HEND added here after a live register-dump comparison against a known-
+// working build found VDC_HIRES_640x200_Color_PAL's plasma_demo()/
+// rotate_demo() reading HEND=0x6a (leaked from mono_im800_demo()'s own
+// explicit VDCR_HEND=0x6a, needed for its 100-column-wide display) instead
+// of the boot default 0x64 -- this was the "isolated shifted fragment" bug
+// (see memory: rotate_demo_shift_bug), same class of leaked-register issue
+// HDISPLAY/HSYNC/SYNCSIZE were already added here to prevent, just missed
+// for HEND until IM800 (the first mode to ever touch it) existed.
 {
-    if (!vdc_boot_captured)
+    if (!vdc_boot.captured)
     {
         return;
     }
 
-    vdc_reg_write(VDCR_HDISPLAY, vdc_boot_hdisplay);
-    vdc_reg_write(VDCR_HSYNC, vdc_boot_hsync);
-    vdc_reg_write(VDCR_SYNCSIZE, vdc_boot_syncsize);
-    vdc_reg_write(VDCR_HSCROLL, vdc_boot_hscroll);
-    vdc_reg_write(VDCR_VSCROLL, vdc_boot_vscroll);
-    vdc_reg_write(VDCR_DISP_ADDRH, vdc_boot_dispaddrh);
-    vdc_reg_write(VDCR_DISP_ADDRL, vdc_boot_dispaddrl);
-    vdc_reg_write(VDCR_ATTR_ADDRH, vdc_boot_attraddrh);
-    vdc_reg_write(VDCR_ATTR_ADDRL, vdc_boot_attraddrl);
+    vdc_reg_write(VDCR_HDISPLAY, vdc_boot.hdisplay);
+    vdc_reg_write(VDCR_HSYNC, vdc_boot.hsync);
+    vdc_reg_write(VDCR_SYNCSIZE, vdc_boot.syncsize);
+    vdc_reg_write(VDCR_HSCROLL, vdc_boot.hscroll);
+    vdc_reg_write(VDCR_VSCROLL, vdc_boot.vscroll);
+    vdc_reg_write(VDCR_HEND, vdc_boot.hend);
+    vdc_reg_write(VDCR_DISP_ADDRH, vdc_boot.dispaddrh);
+    vdc_reg_write(VDCR_DISP_ADDRL, vdc_boot.dispaddrl);
+    vdc_reg_write(VDCR_ATTR_ADDRH, vdc_boot.attraddrh);
+    vdc_reg_write(VDCR_ATTR_ADDRL, vdc_boot.attraddrl);
 }
 
 void vdc_init(char mode, char extmem)
 // Initialize VDC screen
 {
     // Capture boot-time register values once, before this (or any) call
-    // touches anything -- see vdc_boot_captured's comment above. On every
-    // later call, reset to that captured baseline instead (first call has
-    // nothing to reset yet -- it just captured the baseline itself).
-    if (!vdc_boot_captured)
+    // touches anything -- see struct VDCBootBaseline's comment above. On
+    // every later call, reset to that captured baseline instead (first
+    // call has nothing to reset yet -- it just captured the baseline
+    // itself).
+    if (!vdc_boot.captured)
     {
-        vdc_boot_hdisplay = vdc_reg_read(VDCR_HDISPLAY);
-        vdc_boot_hsync = vdc_reg_read(VDCR_HSYNC);
-        vdc_boot_syncsize = vdc_reg_read(VDCR_SYNCSIZE);
-        vdc_boot_hscroll = vdc_reg_read(VDCR_HSCROLL);
-        vdc_boot_vscroll = vdc_reg_read(VDCR_VSCROLL);
-        vdc_boot_dispaddrh = vdc_reg_read(VDCR_DISP_ADDRH);
-        vdc_boot_dispaddrl = vdc_reg_read(VDCR_DISP_ADDRL);
-        vdc_boot_attraddrh = vdc_reg_read(VDCR_ATTR_ADDRH);
-        vdc_boot_attraddrl = vdc_reg_read(VDCR_ATTR_ADDRL);
-        vdc_boot_hstart = vdc_reg_read(VDCR_HSTART);
-        vdc_boot_captured = 1;
+        vdc_boot.hdisplay = vdc_reg_read(VDCR_HDISPLAY);
+        vdc_boot.hsync = vdc_reg_read(VDCR_HSYNC);
+        vdc_boot.syncsize = vdc_reg_read(VDCR_SYNCSIZE);
+        vdc_boot.hscroll = vdc_reg_read(VDCR_HSCROLL);
+        vdc_boot.vscroll = vdc_reg_read(VDCR_VSCROLL);
+        vdc_boot.hend = vdc_reg_read(VDCR_HEND);
+        vdc_boot.dispaddrh = vdc_reg_read(VDCR_DISP_ADDRH);
+        vdc_boot.dispaddrl = vdc_reg_read(VDCR_DISP_ADDRL);
+        vdc_boot.attraddrh = vdc_reg_read(VDCR_ATTR_ADDRH);
+        vdc_boot.attraddrl = vdc_reg_read(VDCR_ATTR_ADDRL);
+        vdc_boot.hstart = vdc_reg_read(VDCR_HSTART);
+        vdc_boot.captured = 1;
     }
     else
     {
@@ -639,12 +670,12 @@ void vdc_disable_display()
 void vdc_enable_display()
 // Function to enable VDC display
 {
-    // Use the captured boot-time baseline (see vdc_boot_hstart's comment)
-    // instead of a bare literal -- falls back to the old hardcoded 0x7d
-    // only if this somehow runs before vdc_init() ever has (shouldn't
-    // happen in practice: vdc_init() captures HSTART before vdc_set_mode()
-    // ever calls this for the first time).
-    vdc_reg_write(VDCR_HSTART, vdc_boot_captured ? vdc_boot_hstart : 0x7d);
+    // Use the captured boot-time baseline (see struct VDCBootBaseline's
+    // comment) instead of a bare literal -- falls back to the old
+    // hardcoded 0x7d only if this somehow runs before vdc_init() ever has
+    // (shouldn't happen in practice: vdc_init() captures HSTART before
+    // vdc_set_mode() ever calls this for the first time).
+    vdc_reg_write(VDCR_HSTART, vdc_boot.captured ? vdc_boot.hstart : 0x7d);
 }
 
 void vdc_block_fill(unsigned address, char value, char length)
