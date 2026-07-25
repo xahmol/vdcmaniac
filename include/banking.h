@@ -69,6 +69,15 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 #ifndef BANKING_H
 #define BANKING_H
 
+// Needed so banking.c's own pragma-compiled body (below) can see SIDINIT --
+// #pragma compile() only sees a header's own local preprocessor state, not
+// whatever a sibling header included earlier in some other file's include
+// chain (confirmed empirically: krill.h's own KRILL_LOADRAW/KRILL_LOADCOMPD
+// work in krill.c because they're #defined in krill.h itself, but SIDINIT
+// living only in defines.h was invisible to banking.c until this include
+// was added).
+#include "defines.h"
+
 // Defines for using Oscar64 fast load functions
 #define FLOSSIEC_MAXFILES 10 // Maximum files of assets to map for fast loading
 
@@ -108,10 +117,8 @@ __noinline void bnk_cpyfromvdc(char dcr, volatile char *dp, unsigned vdcsrc, uns
 __noinline void bnk_redef_charset(unsigned vdcdest, char scr, volatile char *sp, unsigned size);
 __noinline bool bnk_load(char device, char bank, const char *start, const char *fname);
 __noinline bool bnk_save(char device, char bank, const char *start, const char *end, const char *fname);
-__noinline void sid_startmusic();
-__noinline void sid_stopmusic();
+__noinline void sid_music_init();
 __noinline void sid_resetsid();
-__noinline void sid_pausemusic();
 
 // Fastload
 __noinline bool fastload_mapdir(const char * fnames);

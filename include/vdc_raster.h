@@ -78,6 +78,10 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 #ifndef VDC_RASTER_H
 #define VDC_RASTER_H
 
+// Needed so vdc_raster.c's own pragma-compiled body (below) can see SIDPLAY
+// -- see banking.h's identical comment for why.
+#include "defines.h"
+
 void raster_waitline(char rasterline);
 void raster_synch();
 void raster_time();
@@ -94,6 +98,16 @@ void raster_bar_begin();
 void raster_bar_line(char line, char color);
 char raster_bar_segment(char line, const char *colors, unsigned char count);
 void raster_bar_end();
+
+// Phase 5 SID playback: called once per VIC raster interrupt (every frame)
+// from krill_interrupt (krill.c), NOT from foreground code -- this is what
+// keeps music playing during an active krill_loadcompd() call, not just
+// during sections with their own per-frame foreground loop. See the
+// function's own comment in vdc_raster.c. Assumes sid_music_init()
+// (banking.c) already ran. __interrupt: reachable from a hardware-interrupt
+// context (krill_interrupt, installed at $314), needs Oscar64's own
+// zero-page save/restore protection -- see the function's own comment.
+__interrupt void raster_irq_playframe();
 
 // Advances pos by *direction (flipping it at low/high) -- a reusable
 // position updater for a bar that bounces between two rasterlines.
@@ -137,9 +151,15 @@ extern unsigned raster_cycles_per_line_x1000; // measured cycles/line, fixed-poi
 // Installs directly on the hardware IRQ vector ($fffe/$ffff) while banking
 // out KERNAL/BASIC/character ROM (I/O stays visible) -- NOT chained through
 // the KERNAL's $314 soft vector, which was confirmed (live, in VICE) to not
-// reliably hold a valid address in this project's boot context. Supersedes
-// banking.c's sid_startmusic() while active -- do not run both at once,
-// they both drive CIA1. While active:
+// reliably hold a valid address in this project's boot context. This is
+// "Mechanism 2" per src/main.c's own terminology -- dead code today (its
+// only caller, mono_colorize_demo(), is commented out in main(), due to an
+// unfixed keypress-detection bug, see memory: mono_colorize_keypress_bug).
+// SID playback (Phase 5) deliberately does NOT revive this whole mechanism
+// -- raster_irq_playframe() (vdc_raster.c) is called from krill_interrupt
+// (krill.c) instead, once per VIC raster interrupt, so it keeps running
+// during an active krill_loadcompd() call too; see that function's own
+// comment for why. While active:
 //   - KERNAL calls (GETIN/vdcwin_checkch(), file loading, etc.) will not
 //     work at all.
 //   - Do NOT wait for a keypress while this is active, in any form --
@@ -168,10 +188,9 @@ extern unsigned raster_cycles_per_line_x1000; // measured cycles/line, fixed-poi
 // entry/exit cost is roughly fixed per call, so batching several lines
 // per tick matters a lot for how much spare CPU time is left over; start
 // around 4 and adjust based on what's actually needed/measured.
-// musicenabled: pass non-zero only once a tune has already been loaded and
-// initialized the same way sid_startmusic() expects (init call to $2000 in
-// Bank 1) -- with nothing loaded there, calling into $2003 would jump into
-// garbage memory. Pass 0 to drive the colour table alone.
+// musicenabled: unused by this project's actual SID integration (Phase 5
+// calls raster_irq_playframe() from krill_interrupt instead of through this
+// mechanism's own per-tick hook) -- pass 0.
 void raster_music_irq_start(const char *colortable, unsigned tablelength, char linespertick, char musicenabled);
 void raster_music_irq_stop();
 

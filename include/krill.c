@@ -178,6 +178,24 @@ __asm krill_interrupt
 // only on a WRITE of a 1 bit); only $c024 was ever actually clearing it.
 // Fix: restore the original chain unmodified (verified against this file's
 // own pre-Phase-4 git history) and stop masking the VIC raster interrupt.
+//
+// Phase 5 (SID): a `jsr raster_irq_playframe` was tried here directly,
+// reasoning that it just adds one more nested call inside this handler.
+// Confirmed live (both automated and by the user) that this crashes
+// immediately, every time, regardless of which SID tune was used --
+// something about the ADDED STACK DEPTH from nesting *inside* this
+// specific handler (already reached via the KERNAL's own dispatch chain,
+// itself several JSRs deep) conflicts with Krill's own protocol, which
+// this handler's comment above already flags as delicate/timing-sensitive.
+// Reverted, unmodified, back to its exact original form. SID playback is
+// instead chained in *ahead* of this handler via a separate trampoline
+// (sid_music_interrupt, banking.c) that REPLACES this at $314, plays one
+// SID frame via an ordinary JSR/RTS (fully unwound, no added depth here),
+// then JMPs (not JSRs -- no stack growth) to this function's own address,
+// saved at install time -- so krill_interrupt itself runs completely
+// unmodified, at its original call depth, exactly as before. Matches
+// Oscar64Test's own proven-working sid_interrupt/sid_startmusic() pattern
+// (banking.c there) rather than reinventing it.
 {
     jsr $c024
     bcc krillirq

@@ -288,16 +288,84 @@ void raster_calibrate()
 // call just acks CIA1 and returns without touching anything else.
 struct RasterIRQState raster_irq;
 
-void raster_irq_playframe()
-// Play one SID music frame. Same $2003 call and Bank 1 + I/O convention as
-// banking.c's sid_startmusic()/sid_interrupt() -- assumes music was already
-// initialized the same way (init call to $2000 in Bank 1).
+// Switch code generation to low memory (common-RAM, $0000-$1fff -- bnk_init()
+// sets xmmu.rcr=0x06, 8KB common at the bottom of memory, banking.c) for
+// raster_irq_playframe() below -- see its own comment for why this is
+// required, not optional.
+#pragma code(bcode1)
+#pragma data(bdata1)
+#pragma bss(bbss1)
+
+__interrupt void raster_irq_playframe()
+// Play one SID music frame (SIDPLAY, defines.h) -- Bank 1 + I/O, matching
+// sid_music_init()'s own bank-switch (banking.c). Assumes the tune was
+// already initialized via sid_music_init().
+//
+// Called from krill_interrupt (krill.c), once per VIC raster interrupt
+// (every frame, ~50/60Hz) -- NOT from foreground code any more. This is
+// what makes music keep playing *during* an active krill_loadcompd() call
+// (the whole point of using Krill in the first place: it keeps interrupts
+// enabled throughout a background load), not just during sections that
+// happen to have their own per-frame foreground loop. __interrupt (not
+// plain void) is required, matching raster_irq_tick()/raster_irq_worker()'s
+// own reasoning above: any function reachable from a hardware-interrupt
+// context that does ordinary C computation (the `char old = mmu.cr` local
+// here counts) needs Oscar64's own zero-page save/restore prologue/epilogue
+// to protect the shared compiler-register scratch space from whatever
+// foreground code this interrupt happens to preempt mid-computation.
+//
+// No sei/cli here (unlike this function's earlier, foreground-callable
+// version) -- the hardware already set the CPU's I-flag on IRQ entry, and
+// stays set until krill_interrupt's own RTI, so no nested interrupt can
+// land mid-call regardless. Deliberately minimal for the same reason
+// krill_interrupt's own callers care about timing: this runs inside
+// Krill's own interrupt window during an active load, so it should stay as
+// fast as the tune's own play routine allows, not add unnecessary overhead
+// on top.
+//
+// MUST live in low/common memory ($0000-$1fff, the bcode1 segment banking.c's
+// krill_init()/sid_music_init()/etc. already use), NOT the main program's
+// ordinary code segment -- confirmed live to be the actual root cause of a
+// crash on the very first call, independent of which SID tune was used
+// (ruled out both a sidreloc relocation bug in one tune and this project's
+// own zero-page choice for another, cleanly-compiled tune, before finding
+// this). BNK_1_IO (0x7e) switches to bank 1 -- a genuinely different
+// physical 64KB RAM chip, not just a different ROM/IO overlay within the
+// same bank (contrast raster_music_irq_start()'s BMK_0_IO, which stays
+// within bank 0 and is therefore safe from ordinary code). Common RAM
+// (bnk_init(), xmmu.rcr=0x06) is the only address range guaranteed
+// identical across both banks; anything outside it -- like this function's
+// own remaining instructions, if placed in the main program's ordinary
+// (bank-0-only) code segment -- physically vanishes the instant mmu.cr
+// switches banks, replaced by whatever's actually sitting in bank 1's own
+// copy of that address range (confirmed empirically to be uninitialized
+// garbage here). The CPU keeps fetching from the same PC regardless, so it
+// silently executes that garbage instead of this function's own JSR/
+// bank-restore/RTS, eventually crashing into the KERNAL's BRK handler --
+// exactly the symptom observed, and only fixed by moving here.
 {
     char old = mmu.cr;
+    // Defensive sei, no matching cli: hardware sets I=1 on IRQ entry, but
+    // that's only a safe assumption if NOTHING earlier in the chain up to
+    // here has already done its own cli before reaching this point (the
+    // KERNAL's own hardware-IRQ dispatcher, at $ff17, runs before $314 is
+    // ever reached, and may re-enable interrupts as part of its own
+    // register-save convention -- not confirmed either way, so don't rely
+    // on it). Leaving interrupts disabled afterward is fine: the eventual
+    // RTI (via krill_interrupt's own jmp $ff33, reached through
+    // sid_music_interrupt's chain) restores the real saved flags anyway,
+    // same as it always would.
+    __asm { sei }
     mmu.cr = BNK_1_IO;
-    __asm { jsr $2003 }
+    __asm { jsr SIDPLAY }
     mmu.cr = old;
 }
+
+// Back to the main program's ordinary code segment for everything else in
+// this file.
+#pragma code(code)
+#pragma data(data)
+#pragma bss(bss)
 
 __interrupt void raster_irq_tick()
 // Runs once per raster_irq.linespertick VDC rasterlines: writes that many

@@ -80,6 +80,7 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 #include "banking.h"
 #include "peekpoke.h"
 #include "vdc_core.h"
+#include "vdc_raster.h"
 
 // Section and region for low memory area overlay
 #pragma overlay(vdcelmc, 1)
@@ -189,10 +190,6 @@ bool fastload_mapdir(const char *fnames)
 #pragma code(bcode1)
 #pragma data(bdata1)
 #pragma bss(bbss1)
-
-char sid_irq[2];
-char sid_oldcr;
-char sid_pause;
 
 char bnk_readb(char cr, volatile char *p)
 // Function to read a byte from given address with specified banking config register value
@@ -326,68 +323,96 @@ void bnk_redef_charset(unsigned vdcdest, char scr, volatile char *sp, unsigned s
 	mmu.cr = old;
 }
 
-__asm sid_interrupt
-// SID play IRQ routine
+// Saved $314/$315 -- whatever krill_init() (krill.c) already installed
+// there (krill_interrupt's own address) by the time sid_music_init() below
+// runs. sid_music_interrupt's own trailing jmp is self-modified from this
+// every time it fires, so it chains to krill_interrupt correctly regardless
+// of exactly where the linker placed it. Matches Oscar64Test's own
+// sid_irq[2] (banking.c there) byte-for-byte in spirit.
+char sid_krill_irq_saved[2];
+
+__asm sid_music_interrupt
+// SID play + Krill chain trampoline. Installed at $314 by sid_music_init()
+// below, AFTER krill_init() has already installed krill_interrupt there --
+// this REPLACES krill_interrupt as the direct $314 target; krill_interrupt
+// itself is reached only via the jmp at the end, never modified.
+//
+// Plays one SID frame via an ordinary `jsr raster_irq_playframe`
+// (vdc_raster.c) -- ordinary JSR/RTS, fully unwound before this trampoline
+// continues -- then jmps (not jsrs: adds no stack depth at all) to
+// krill_interrupt's own address, self-modified into the placeholder below
+// from sid_krill_irq_saved.
+//
+// This exact structure matters: an earlier attempt called
+// raster_irq_playframe() with a nested jsr *from inside* krill_interrupt
+// itself (one more call depth on top of a handler already reached several
+// JSRs deep through the KERNAL's own dispatch chain) and crashed
+// immediately, every time, regardless of which SID tune was used --
+// something about the added stack depth conflicts with Krill's own
+// protocol timing (see krill_interrupt's own comment, krill.c). Chaining
+// this way instead -- play, fully return, *then* jmp onward -- means
+// krill_interrupt always runs at its original, unmodified call depth,
+// exactly as if this trampoline didn't exist. This is the same mechanism
+// Oscar64Test's own sid_interrupt/sid_startmusic() (banking.c there)
+// already proved works correctly alongside Krill -- reused rather than
+// reinvented, once the nested-jsr attempt here confirmed why it's built
+// this way.
 {
-	// Check if music is paused
-	lda sid_pause
-	bne sid_oldirq
+    jsr raster_irq_playframe
 
-	// Store old MMU config and change to bank 1 wkth I/O ($7e)
-	lda $ff00
-	sta sid_oldcr
-	lda #BNK_1_IO
-	sta $ff00
-
-	// Play frame
-	jsr $2003
-
-	// Restore memory configuration
-	lda sid_oldcr
-	sta $ff00
-
-	// jump to old irq
-	lda sid_irq
-	sta sid_oldirq + 1
-	lda sid_irq + 1
-	sta sid_oldirq + 2
-sid_oldirq:
-	jmp $fa65
+    lda sid_krill_irq_saved
+    sta sid_krill_chain + 1
+    lda sid_krill_irq_saved + 1
+    sta sid_krill_chain + 2
+sid_krill_chain:
+    jmp $ff33
 }
 
-void sid_startmusic()
-// Start SID music
-// Assumes a SID file with:
-// - init address = $2000
-// - play frame address = $2003;
-// - zp address use between $fc and $fe
+void sid_music_init()
+// Initialise SID music: bank to where the tune lives (matches
+// raster_irq_playframe()'s own bank-switch, defines.h's SIDINIT/SIDPLAY),
+// reset the SID chip, call the tune's init entry point (song 0), then chain
+// sid_music_interrupt in ahead of krill_interrupt at $314 -- see that
+// function's own comment for the full trampoline mechanism and why it's
+// structured this way. Call once, after krill_init() has already installed
+// krill_interrupt (krill.c) -- this saves whatever's there at that point
+// and chains onward to it, so ordering matters.
+//
+// sei/cli bracket the bank-switch below for the same reason
+// raster_irq_playframe() (vdc_raster.c) does: BNK_1_IO banks out KERNAL ROM
+// at $C000-$FFFF, where the hardware IRQ vector's real target lives -- an
+// interrupt landing mid-call without this would fetch that vector from
+// bank-1 RAM garbage instead of ROM and crash. Confirmed live: this
+// function originally shipped without the bracketing and crashed on the
+// very first run (screen corruption, PC in the weeds) -- a single missed
+// spot, not a new failure mode; raster_irq_playframe() already had it from
+// the start per the Phase 5 safety assessment.
 {
-	// Safeguard MMU and zeropage values and set new MMU CR
 	char old = mmu.cr;
+	__asm { sei }
 	mmu.cr = BNK_1_IO;
-
-	// Call SID init routine and set new IRQ vector
+	sid_resetsid();
 	__asm
-		{
-		sei
-		lda #BNK_1_IO
-		sta $ff00
+	{
 		lda #$00
-		jsr $2000
-							
-		lda $314							
-		sta sid_irq									
-        lda #<sid_interrupt					
-		sta $314							
-		lda $315							
-		sta sid_irq+1										
-        lda #>sid_interrupt					
-		sta $315
-		cli
-		}
-
-	// Restore MMU and zeropage values
+		jsr SIDINIT
+	}
 	mmu.cr = old;
+
+	// Save krill_interrupt's own address (already installed by krill_init()
+	// by this point), then chain sid_music_interrupt in ahead of it.
+	__asm
+	{
+		lda $314
+		sta sid_krill_irq_saved
+		lda #<sid_music_interrupt
+		sta $314
+		lda $315
+		sta sid_krill_irq_saved + 1
+		lda #>sid_music_interrupt
+		sta $315
+	}
+	__asm { cli }
 }
 
 void sid_resetsid()
@@ -423,29 +448,6 @@ rst2:
         lda #$00
         sta $d418
 	}
-}
-
-void sid_stopmusic()
-// Stops music and restores original IRQ vector
-{
-	// Restore IRQ vector
-	__asm
-		{
-		sei 
-		ldx sid_irq
-		ldy sid_irq+1
-		stx $314
-		sty $315
-		cli
-		}
-	sid_resetsid();
-}
-
-void sid_pausemusic()
-// Toggles pause / unpause of music
-{
-	sid_pause != sid_pause;
-	sid_resetsid();
 }
 
 bool bnk_load(char device, char bank, const char *start, const char *fname)

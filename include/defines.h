@@ -96,6 +96,37 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 #define MEM_SCREEN 0x4000
 #define MEM_CHARSET 0xC000
 
+// "Faded" (GoatTracker), compiled from its own .sng source directly to this
+// project's target load address ($2000) and zero page ($80/$81, matching
+// what tools/sidreloc had separately confirmed clear of Oscar64's own
+// zeropage ($f7-$f8) and Krill's loader ($e0-$f5)) -- assets/music.prg here
+// is that compiled .prg, copied verbatim, needing no relocation at all.
+// Replaces two earlier, abandoned attempts (see git history): Maniac.sid
+// relocated via tools/sidreloc (found and hand-patched 12 unrelocated
+// absolute-address references, crash persisted -- more remained, likely
+// data-table pointers a byte-level scan can't reliably distinguish from
+// code) and Oscar64Test's own music1.prg (no crash, but silent -- that
+// project builds Krill with a different zero-page window, ZP=f5, so it
+// never actually validated this project's own $e0-$f5 layout). Compiling
+// straight from source to the exact address/zp this project needs avoids
+// that whole class of relocation problems outright. $2000/$2003 matches
+// this file's own vector table: JMP $2109 (init), JMP $210d (play).
+//
+// IMPORTANT, found only after switching to this cleanly-compiled tune (so
+// it was never actually a tune/relocation problem at all): the real crash
+// was raster_irq_playframe() (vdc_raster.c) living in the main program's
+// ordinary (bank-0-only) code segment instead of the low/common-RAM segment
+// banking.c's krill_init()/sid_music_init()/etc. use. BNK_1_IO switches to a
+// genuinely different physical 64KB RAM bank -- outside the 8KB common-RAM
+// window bnk_init() sets up (xmmu.rcr=0x06, banking.c), a function's own
+// remaining code physically vanishes the instant it switches banks
+// mid-execution, replaced by whatever bank 1 actually holds at that address
+// (confirmed empirically to be uninitialized garbage). Fixed by moving
+// raster_irq_playframe() into the same bcode1/bdata1/bbss1 segment -- see
+// its own comment in vdc_raster.c for the full explanation.
+#define SIDINIT 0x2000
+#define SIDPLAY 0x2003
+
 // References to steering chars
 #define CH_CURS_UP 145    // Petscii control code for Cursor Up
 #define CH_CURS_DOWN 17   // Petscii control code for Cursor Down
