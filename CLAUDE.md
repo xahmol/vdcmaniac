@@ -16,7 +16,7 @@ come as image assets under `assets/vdcmodemania/` get wired in.
 ## Build commands
 
 ```
-make            # build vdcmaniac.prg, boot sector, and a D81 disk image in build/standard/
+make            # build vdcmaniac.prg, boot sector, and the krill D81 disk image in build/krill/
 make clean      # remove everything in build/
 make vice       # run the D81 in the x128 emulator
 make deploy     # wput the build to a primary Ultimate II+ over FTP (needs ULTIP1 in .env)
@@ -30,13 +30,15 @@ deployment. Deployment IPs go in a gitignored `.env` (`ULTIP1`/`ULTIP2`) — see
 README "Building from source". There is no automated test suite; verification
 is visual, via `make vice` or real hardware.
 
-The Makefile builds two D81 variants: `standard` (`all`/`vice-stnd`, plain
-`bnk_load()`-based asset loading) and `krill` (`vice`, Krill fastloader --
-see `krill_manual.md`), the latter being the one actually meant to be
-tested/deployed going forward. The `flossiec`-fastload variant and `d64`/
-`d71` disk images have been dropped entirely (asset sizes need D81's larger
-capacity; `flossiec` never had a D81 variant) — don't reintroduce them
-without being asked. Update the `MAIN_SRCS` list in the Makefile whenever
+The Makefile builds a single D81 variant: `krill` (`all`/`vice`, Krill
+fastloader -- see `krill_manual.md`). The plain `bnk_load()`-based "standard"
+build was dropped entirely (2026-07-26) — every asset load in `src/main.c`
+goes through `krill_load()`/`krill_loadcompd()` unconditionally now, so
+there's no `#if defined(KRILL)` branching left to build twice. The
+`flossiec`-fastload variant and `d64`/`d71` disk images have also been
+dropped entirely (asset sizes need D81's larger capacity; `flossiec` never
+had a D81 variant) — don't reintroduce any of these without being asked.
+Update the `MAIN_SRCS` list in the Makefile whenever
 `src/main.c` starts `#include`-ing another `include/*.h` (it's a plain file
 list, not auto-derived from `#pragma compile` chains, so make won't know to
 rebuild otherwise).

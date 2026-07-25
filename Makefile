@@ -84,15 +84,15 @@ endif
 # ZIP file contents
 ZIP = build/$(MAIN)_$(VERSION).zip
 README = README.pdf
-ZIPLIST = build/krill/*.* build/standard/*.* $(README)
+ZIPLIST = build/krill/*.* $(README)
 PRGLIST = -write $(MAIN).prg $(MAIN) -write $(LMC).prg $(LMC)
 KRILLLIST = -write install-c128.prg install-c128 -write loader-c128.prg loader-c128
-# TSCrunch-compressed replacements for real assets, loaded via
-# krill_loadcompd() instead of krill_load()/bnk_load() -- krill-variant d81
-# only (the standard/non-KRILL binary has no decompressor and still needs
-# the raw file from $(ASSETS)). Each entry here is produced by baking the
-# real load destination into a copy of the source asset's own 2-byte PRG
-# header, then running it through krill/loader/tools/tscrunch (-i) and
+# TSCrunch-compressed real assets, loaded via krill_loadcompd() -- krill is
+# the only build target (2026-07-26: the plain bnk_load()-based standard
+# build was dropped entirely, so there is no separate raw-asset disk any
+# more). Each entry here is produced by baking the real load destination
+# into a copy of the source asset's own 2-byte PRG header, then running it
+# through krill/loader/tools/tscrunch (-i) and
 # krill/loader/tools/compressedfileconverter.pl -- see krill_manual.md.
 KRILL_COMPRESSED_ASSETS = -write idi8bcmp idi8bcmp \
          -write titletpk titletpk -write titlebtk titlebtk \
@@ -106,23 +106,6 @@ KRILL_COMPRESSED_ASSETS = -write idi8bcmp idi8bcmp \
          -write im800btk im800btk -write im800bbk im800bbk \
          -write im960btk im960btk -write im960bbk im960bbk \
          -write musick musick
-# vdcfli-orig.*/vdcimono-orig.*: temporary diagnostic pictures (Tokra's own
-# "merida"/"avril", copied verbatim from original/v12/sd2iec-version/) --
-# remove once fli_color_demo()/mono_hires_xl_demo() are switched back to
-# vdcfli.*/vdcimono.* (see the "DIAGNOSTIC SWAP" comments in src/main.c).
-ASSETS = -write vdce-scrtit.top vdce-scrtit.top -write vdce-scrtit.bot vdce-scrtit.bot \
-         -write vdcfli.bit vdcfli.bit -write vdcfli.col vdcfli.col \
-         -write vdcimono.top vdcimono.top -write vdcimono.bot vdcimono.bot \
-         -write vdcfli-orig.bit vdcfli-orig.bit -write vdcfli-orig.col vdcfli-orig.col \
-         -write vdcimono-orig.top vdcimono-orig.top -write vdcimono-orig.bot vdcimono-orig.bot \
-         -write vdcihfli.ct vdcihfli.ct -write vdcihfli.cb vdcihfli.cb \
-         -write vdcihfli.bt vdcihfli.bt -write vdcihfli.bb vdcihfli.bb \
-         -write vdcitfli.ct vdcitfli.ct -write vdcitfli.cb vdcitfli.cb \
-         -write vdcitfli.bt vdcitfli.bt -write vdcitfli.bb vdcitfli.bb \
-         -write vdchfli.bit vdchfli.bit -write vdchfli.col vdchfli.col \
-         -write vdcim800.bt vdcim800.bt -write vdcim800.bb vdcim800.bb \
-         -write vdcim960.bt vdcim960.bt -write vdcim960.bb vdcim960.bb \
-         -write idi8blogo.scrn idi8blogo.scrn -write music.prg music.prg
 
 # Generated picture assets (see tools/vdc_convert.py) -- regenerated from
 # assets/source/*.png automatically when python3 is available; if not, the
@@ -133,43 +116,25 @@ GENERATED_ASSETS = assets/vdcfli.bit assets/vdcfli.col assets/vdcimono.top asset
 ########################################
 
 .SUFFIXES:
-.PHONY: all clean deploy deploy2 check-deploy check-deploy2 docs vice vice-stnd krill
+.PHONY: all clean deploy deploy2 check-deploy check-deploy2 docs vice krill
 
-all: $(MAIN).prg bootsect.bin d81 README.pdf
+all: $(MAIN).prg bootsect.bin krill README.pdf
 
 $(MAIN).prg: $(MAIN_SRCS)
-	@$(MKDIR) build/standard 2>$(NULLDEV) ; true
 	@$(MKDIR) build/krill 2>$(NULLDEV) ; true
 	$(CC) $(CFLAGS) -dKRILL -n -o=build/krill/$(MAIN).prg $(MAINSRC)
-	$(CC) $(CFLAGS) -n -o=build/standard/$(MAIN).prg $(MAINSRC)
 
 bootsect.bin: $(MAIN).prg $(GENERATED_ASSETS)
-	@$(MKDIR) build/standard 2>$(NULLDEV) ; true
 	@$(MKDIR) build/krill 2>$(NULLDEV) ; true
-	$(CC) -tf=bin -rt=src/bootsect.c -o=build/standard/bootsect.bin
-	cp build/standard/bootsect.bin build/krill
-	cp assets/vdce-scr*.* build/standard
-	cp assets/vdcfli*.* assets/vdcimono*.* build/standard
-	cp assets/vdcihfli.* assets/vdcitfli.* assets/vdchfli.* assets/vdcim800.* assets/vdcim960.* build/standard
-	cp assets/idi8blogo.scrn build/standard
-	cp assets/music.prg build/standard
-	# build/krill needs none of the raw picture files any more -- every real
-	# picture asset is now loaded via krill_loadcompd() from the
-	# TSCrunch-compressed files below instead (KRILL_COMPRESSED_ASSETS),
-	# so the raw vdce-scr*/vdcfli*/vdcimono*/vdcihfli*/vdcitfli*/vdchfli*/
-	# vdcim800*/vdcim960*/idi8blogo.scrn files are NOT copied here -- the
-	# krill-variant d81 doesn't have room for both copies of ~20 pictures,
-	# and the krill-compiled binary never reads them raw any more
-	# (idi8blogo.scrn's only krill-side user, krill_loadcompd_test()'s
-	# diagnostic, was removed -- it collided with SIDINIT's memory region
-	# once Phase 5 landed, see git history).
+	$(CC) -tf=bin -rt=src/bootsect.c -o=build/krill/bootsect.bin
+	# Every real picture asset is loaded via krill_loadcompd() from the
+	# TSCrunch-compressed files below -- no raw picture files are shipped.
 	cp assets/idi8bcmp assets/titletpk assets/titlebtk assets/flibitk assets/flicolk \
 	   assets/ihflictk assets/ihflicbk assets/ihflibtk assets/ihflibbk \
 	   assets/itflictk assets/itflicbk assets/itflibtk assets/itflibbk \
 	   assets/hflibitk assets/hflicolk assets/imonotpk assets/imonobtk \
 	   assets/im800btk assets/im800bbk assets/im960btk assets/im960bbk \
 	   assets/musick build/krill
-#	cp assets/chars*.prg build/standard
 #	cp assets/chars*.prg build/krill
 
 # asset-loading-roadmap.md Phase 4: builds Krill's loader with both
@@ -193,35 +158,18 @@ loader-c128.prg:
 	cp krill/loader/build/*.prg build/krill
 	cp krill/loader/build/loadersymbols-c128.inc build/krill
 
-# asset-loading-roadmap.md Phase 4: builds a full testable krill-variant d81
-# (build/krill/$(MAIN)-krill.d81) -- the -dKRILL-compiled binary, Krill's own
+# Builds the full testable krill d81 (build/krill/$(MAIN)-krill.d81) -- the
+# only build target (2026-07-26: the plain bnk_load()-based standard build
+# was dropped entirely) -- the -dKRILL-compiled binary, Krill's own
 # install/loader prgs, and the TSCrunch-compressed real assets
-# ($(KRILL_COMPRESSED_ASSETS)) every demo section actually loads now via
-# krill_loadcompd() -- NOT the raw $(ASSETS) list the standard build uses:
-# this binary never calls krill_load()/bnk_load() for any real picture any
-# more, and the disk doesn't have room for both a raw and compressed copy of
-# ~20 pictures. idi8blogo.scrn is NOT shipped here (only the standard build
-# needs it) -- its only krill-side user, krill_loadcompd_test()'s diagnostic,
-# was removed after Phase 5 (SID) landed: that diagnostic's own "unused
-# scratch" load destination (MEM_SID, $2000) turned out to overlap SIDINIT
-# ($2080)'s real memory region, clobbering the loaded SID player and
-# crashing idi8b_logo_demo()'s first raster_irq_playframe() call. Deliberately
-# does not touch all/d81/vice -- those keep building/running only the
-# standard (non-KRILL) variant, so the existing day-to-day workflow is
-# unaffected.
+# ($(KRILL_COMPRESSED_ASSETS)) every demo section loads via
+# krill_loadcompd().
 krill: $(MAIN).prg bootsect.bin loader-c128.prg
 	c1541 -cd build/krill -format "$(MAIN),xm" d81 $(MAIN)-krill.d81
 	c1541 -cd build/krill -attach $(MAIN)-krill.d81 -bwrite bootsect.bin 1 0
 	c1541 -cd build/krill -attach $(MAIN)-krill.d81 -bpoke 40 1 16 $$27 %11111110
 	c1541 -cd build/krill -attach $(MAIN)-krill.d81 -bam 1 1
 	c1541 -cd build/krill -attach $(MAIN)-krill.d81 $(PRGLIST) $(KRILLLIST) $(KRILL_COMPRESSED_ASSETS)
-
-d81: $(MAIN).prg bootsect.bin
-	c1541 -cd build/standard -format "$(MAIN),xm" d81 $(MAIN)-stnd.d81
-	c1541 -cd build/standard -attach $(MAIN)-stnd.d81 -bwrite bootsect.bin 1 0
-	c1541 -cd build/standard -attach $(MAIN)-stnd.d81 -bpoke 40 1 16 $27 %11111110
-	c1541 -cd build/standard -attach $(MAIN)-stnd.d81 -bam 1 1
-	c1541 -cd build/standard -attach $(MAIN)-stnd.d81 $(PRGLIST) $(ASSETS)
 
 ## Creating ZIP file for distribution
 #$(ZIP):
@@ -266,7 +214,6 @@ README.pdf: README.md pandoc-defaults.yaml pandoc-header.tex
 clean:
 	$(DEL) build/*.* 2>$(NULLDEV)
 	$(DEL) build/krill/*.* 2>$(NULLDEV)
-	$(DEL) build/standard/*.* 2>$(NULLDEV)
 	$(DEL) krill/loader/build/*.* 2>$(NULLDEV)
 
 # Check Ultimate II+ is reachable before deploying
@@ -282,17 +229,12 @@ endif
 		(echo "ERROR: Cannot reach U64 at $(ULTIP2) -- check ULTIP2 in .env" && false)
 
 # To deploy software to UII+ enter make deploy. Obviously C128 needs to be powered on with UII+ and USB drive connected.
-deploy: check-deploy $(MAIN).prg
-	wput -u build/standard/*.prg build/standard/$(MAIN)-stnd.d* $(ULTFTP1)
+deploy: check-deploy krill
+	wput -u build/krill/*.prg build/krill/$(MAIN)-krill.d* $(ULTFTP1)
 
-deploy2: check-deploy2 $(MAIN).prg
-	wput -u build/standard/*.prg build/standard/$(MAIN)-stnd.d* $(ULTFTP2)
+deploy2: check-deploy2 krill
+	wput -u build/krill/*.prg build/krill/$(MAIN)-krill.d* $(ULTFTP2)
 
-## To run software using VICE x128 -- krill (fast loader) build by default,
-## since that's the variant actually meant to be tested/deployed going
-## forward; make vice-stnd runs the plain bnk_load()-based build instead.
+# To run software using VICE x128 -- krill is the only build target.
 vice: krill
 	x128 build/krill/$(MAIN)-krill.d81
-
-vice-stnd: d81
-	x128 build/standard/$(MAIN)-stnd.d81

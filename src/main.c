@@ -12,9 +12,7 @@
 #include "vdc_core.h"
 #include "vdc_win.h"
 #include "vdc_raster.h"
-#if defined(KRILL)
 #include "krill.h"
-#endif
 
 // Buffer for attribute screen calculations
 char Screen[4000];
@@ -668,20 +666,18 @@ void title_screen()
 	// Load screen -- asset-loading-roadmap.md Phase 1 proof, now folded into
 	// Phase 2's full rollout: krill_loadcode()/krill_init()/krill_done() are
 	// installed/torn down once in main() (see its own comment) rather than
-	// per-function -- every #if defined(KRILL) call site in this file is
-	// just the load itself (see idi8b_logo_demo()'s comment on this
-	// pattern). krill-loader-integration.md's plan recommended a cia_init()
-	// call after every Krill load as a "free" safety net -- tried, and it
-	// isn't free: cia_init() (c64/cia.c) unconditionally sets cia2.pra =
-	// 0x07, directly overwriting krill_init()'s own cia2.pra = 2 (the IEC
-	// bus control lines Krill's loader protocol depends on for its whole
-	// active session, install to done) -- confirmed live as the cause of a
-	// hang partway through the demo once more than one section had loaded
-	// via Krill. Oscar64Test's own reference usage never calls cia_init()
+	// per-function -- every load call site in this file is just the load
+	// itself (see idi8b_logo_demo()'s comment on this pattern).
+	// krill-loader-integration.md's plan recommended a cia_init() call
+	// after every Krill load as a "free" safety net -- tried, and it isn't
+	// free: cia_init() (c64/cia.c) unconditionally sets cia2.pra = 0x07,
+	// directly overwriting krill_init()'s own cia2.pra = 2 (the IEC bus
+	// control lines Krill's loader protocol depends on for its whole active
+	// session, install to done) -- confirmed live as the cause of a hang
+	// partway through the demo once more than one section had loaded via
+	// Krill. Oscar64Test's own reference usage never calls cia_init()
 	// during an active Krill session either (only once, before
 	// krill_loadcode()/krill_init() even run) -- removed here to match.
-	// Only the standard (non-KRILL) build path is unchanged in behaviour.
-#if defined(KRILL)
 	// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
 	// KRILL_COMPRESSED_ASSETS comment for how titletpk/titlebtk were derived
 	// from vdce-scrtit.top/.bot (same content, re-baked destination header).
@@ -695,10 +691,6 @@ void title_screen()
 		printf("krill loadcompd failed: titlebtk\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdce-scrtit.top");
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN + 16000, "vdce-scrtit.bot");
-#endif
 
 	// Init proper hires mode
 	// Must match the resolution the vdce-scrtit.top/.bot assets were
@@ -890,30 +882,22 @@ void idi8b_logo_demo()
 	// asset-loading-roadmap.md Phase 2: full Krill rollout, following
 	// title_screen()'s Phase 1 proof -- krill_loadcode()/krill_init()/
 	// krill_done() are now installed/torn down once in main() instead of
-	// per-function (see main()'s own comment), so every #if defined(KRILL)
-	// call site here is just the load itself -- see title_screen()'s
-	// comment for why there's no cia_init() call after it (the plan's own
-	// "safety net" recommendation, disproven live: it conflicts with
-	// Krill's own cia2.pra usage).
-#if defined(KRILL)
+	// per-function (see main()'s own comment), so every load call site
+	// here is just the load itself -- see title_screen()'s comment for why
+	// there's no cia_init() call after it (the plan's own "safety net"
+	// recommendation, disproven live: it conflicts with Krill's own
+	// cia2.pra usage).
 	// asset-loading-roadmap.md Phase 4 rollout: TSCrunch-compressed via
 	// krill_loadcompd() instead of the raw krill_load() above -- idi8bcmp is
 	// idi8blogo.scrn's payload, re-baked to load at MEM_SCREEN ($4000, this
 	// function's actual destination -- the checked-in asset's own header was
 	// a placeholder $8000) and compressed (see Makefile's
 	// KRILL_COMPRESSED_ASSETS comment for the exact conversion steps).
-	// idi8blogo.scrn itself is left untouched in assets/ (raw form): the
-	// standard (non-KRILL) build's bnk_load() below still needs it. No
-	// longer shipped on the krill-variant disk, though -- its only other
-	// user, krill_loadcompd_test()'s diagnostic, is gone now (see below).
 	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "idi8bcmp"))
 	{
 		printf("krill loadcompd failed: idi8bcmp\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "idi8blogo.scrn");
-#endif
 
 	vdc_cls();
 	for (r = SRC_MINROW; r <= SRC_MAXROW; r++)
@@ -1122,7 +1106,6 @@ void fli_color_demo()
 	// "vdcfli.col" once confirmed.
 	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
 	// comment on this pattern.
-#if defined(KRILL)
 	// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
 	// KRILL_COMPRESSED_ASSETS comment.
 	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "flibitk"))
@@ -1135,10 +1118,6 @@ void fli_color_demo()
 		printf("krill loadcompd failed: flicolk\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdcfli-orig.bit");
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN + 15120, "vdcfli-orig.col");
-#endif
 
 	// HDISPLAY/HSYNC (registers 1/2) are not part of any other mode's
 	// vdc_modes[] row -- every 640-pixel-wide mode has always relied on
@@ -1264,15 +1243,11 @@ void fli_ihfli_demo()
 
 	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
 	// comment on this pattern.
-#if defined(KRILL)
 	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "ihflictk"))
 	{
 		printf("krill loadcompd failed: ihflictk\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdcihfli.ct");
-#endif
 
 	vdc_wipe_transition();
 
@@ -1284,37 +1259,25 @@ void fli_ihfli_demo()
 
 	bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 9600);
 
-#if defined(KRILL)
 	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "ihflicbk"))
 	{
 		printf("krill loadcompd failed: ihflicbk\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdcihfli.cb");
-#endif
 	bnk_cpytovdc(0x0230, BNK_1_FULL, (char *)MEM_SCREEN, 9600);
 
-#if defined(KRILL)
 	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "ihflibtk"))
 	{
 		printf("krill loadcompd failed: ihflibtk\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdcihfli.bt");
-#endif
 	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 19200);
 
-#if defined(KRILL)
 	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "ihflibbk"))
 	{
 		printf("krill loadcompd failed: ihflibbk\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdcihfli.bb");
-#endif
 	bnk_cpytovdc(0x5780, BNK_1_FULL, (char *)MEM_SCREEN, 19200);
 
 	while (vdcwin_checkch())
@@ -1343,15 +1306,11 @@ void fli_itfli_demo()
 
 	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
 	// comment on this pattern.
-#if defined(KRILL)
 	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "itflictk"))
 	{
 		printf("krill loadcompd failed: itflictk\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdcitfli.ct");
-#endif
 
 	vdc_wipe_transition();
 
@@ -1363,37 +1322,25 @@ void fli_itfli_demo()
 
 	bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 7680);
 
-#if defined(KRILL)
 	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "itflicbk"))
 	{
 		printf("krill loadcompd failed: itflicbk\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdcitfli.cb");
-#endif
 	bnk_cpytovdc(0x0000, BNK_1_FULL, (char *)MEM_SCREEN, 7680);
 
-#if defined(KRILL)
 	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "itflibtk"))
 	{
 		printf("krill loadcompd failed: itflibtk\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdcitfli.bt");
-#endif
 	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 23040);
 
-#if defined(KRILL)
 	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "itflibbk"))
 	{
 		printf("krill loadcompd failed: itflibbk\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdcitfli.bb");
-#endif
 	bnk_cpytovdc(0x4100, BNK_1_FULL, (char *)MEM_SCREEN, 23040);
 
 	while (vdcwin_checkch())
@@ -1425,15 +1372,11 @@ void fli_hfli_demo()
 
 	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
 	// comment on this pattern.
-#if defined(KRILL)
 	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "hflibitk"))
 	{
 		printf("krill loadcompd failed: hflibitk\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdchfli.bit");
-#endif
 
 	vdc_wipe_transition();
 
@@ -1445,15 +1388,11 @@ void fli_hfli_demo()
 
 	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 32000);
 
-#if defined(KRILL)
 	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "hflicolk"))
 	{
 		printf("krill loadcompd failed: hflicolk\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdchfli.col");
-#endif
 	bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 16000);
 
 	while (vdcwin_checkch())
@@ -1506,15 +1445,11 @@ void mono_hires_xl_demo()
 	// "vdcimono.bot" once confirmed.
 	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
 	// comment on this pattern.
-#if defined(KRILL)
 	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "imonotpk"))
 	{
 		printf("krill loadcompd failed: imonotpk\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdcimono-orig.top");
-#endif
 
 	// HDISPLAY/HSYNC/SYNCSIZE (registers 1/2/3) aren't part of any other
 	// mode's vdc_modes[] row (see the identical comment in fli_color_demo());
@@ -1560,15 +1495,11 @@ void mono_hires_xl_demo()
 
 	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 31500);
 
-#if defined(KRILL)
 	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "imonobtk"))
 	{
 		printf("krill loadcompd failed: imonobtk\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdcimono-orig.bot");
-#endif
 
 	// Bottom half goes to VDC address 0x82c8, *not* base_text+31500
 	// (0x7b0c) -- disassembling Tokra's own file loader (gosub9999,
@@ -1642,15 +1573,11 @@ void mono_im800_demo()
 
 	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
 	// comment on this pattern.
-#if defined(KRILL)
 	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "im800btk"))
 	{
 		printf("krill loadcompd failed: im800btk\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdcim800.bt");
-#endif
 
 	char old_hdisplay = vdc_reg_read(VDCR_HDISPLAY);
 	char old_hsync = vdc_reg_read(VDCR_HSYNC);
@@ -1666,15 +1593,11 @@ void mono_im800_demo()
 
 	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 30000);
 
-#if defined(KRILL)
 	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "im800bbk"))
 	{
 		printf("krill loadcompd failed: im800bbk\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdcim800.bb");
-#endif
 	bnk_cpytovdc(0x7e2c, BNK_1_FULL, (char *)MEM_SCREEN, 30000);
 
 	while (vdcwin_checkch())
@@ -1715,15 +1638,11 @@ void mono_im960_demo()
 
 	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
 	// comment on this pattern.
-#if defined(KRILL)
 	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "im960btk"))
 	{
 		printf("krill loadcompd failed: im960btk\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdcim960.bt");
-#endif
 
 	char old_hdisplay = vdc_reg_read(VDCR_HDISPLAY);
 	char old_hsync = vdc_reg_read(VDCR_HSYNC);
@@ -1749,15 +1668,11 @@ void mono_im960_demo()
 
 	bnk_cpytovdc(0x8160, BNK_1_FULL, (char *)MEM_SCREEN, 32400);
 
-#if defined(KRILL)
 	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "im960bbk"))
 	{
 		printf("krill loadcompd failed: im960bbk\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)MEM_SCREEN, "vdcim960.bb");
-#endif
 	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 32400);
 
 	while (vdcwin_checkch())
@@ -1803,6 +1718,93 @@ void demo_end_screen(const char *message)
     }
 }
 
+// Main menu
+//
+// Replaces the old flat, non-interactive sequence of demo-section calls in
+// main() with a number-key-driven menu: all 6 real VDC hires-mode
+// showcases, the 2 procedural effects (plasma/colour rotation), and the
+// raster placement diagnostic, selectable in any order, any number of
+// times, until ESC/STOP. Every entry's function is already fully
+// self-contained (own vdc_init(), own exit-on-keypress loop, own
+// vdc_wipe_transition() before returning) -- the menu only needs to call
+// each one and redraw itself afterwards.
+//
+// plasma_demo()/rotate_demo() take a char mode parameter (both currently
+// called with VDC_HIRES_640x200_Color_PAL from the old main()) -- wrapped
+// in these two no-arg thunks so every entry fits the same menu_fn
+// signature.
+void menu_plasma_demo()
+{
+	plasma_demo(VDC_HIRES_640x200_Color_PAL);
+}
+
+void menu_rotate_demo()
+{
+	rotate_demo(VDC_HIRES_640x200_Color_PAL);
+}
+
+typedef void (*menu_fn)();
+typedef struct
+{
+	char key;
+	const char *label;
+	menu_fn fn;
+} menu_entry;
+
+static const menu_entry menu_entries[9] = {
+	{'1', "VDC-FLI      (480x252, colour 8x1 cells)", fli_color_demo},
+	{'2', "VDC-HFLI     (640x400, colour 8x2 cells)", fli_hfli_demo},
+	{'3', "VDC-IHFLI    (640x480, interlace, colour 8x2)", fli_ihfli_demo},
+	{'4', "VDC-ITFLI    (640x576, interlace, colour 8x3)", fli_itfli_demo},
+	{'5', "VDC-IMONO    (720x700, interlace mono)", mono_hires_xl_demo},
+	{'6', "VDC-IM800    (800x600, interlace mono)", mono_im800_demo},
+	{'7', "Plasma effect", menu_plasma_demo},
+	{'8', "Colour rotation effect", menu_rotate_demo},
+	{'9', "Raster bar placement test", raster_place_test},
+};
+
+void main_menu()
+// Number-key-driven main menu -- loops showing the list, dispatching the
+// chosen section, and redrawing until ESC/STOP ends the demo. Same
+// vdcwin_checkch()/CH_ESC/CH_STOP exit convention raster_place_test()
+// already uses elsewhere in this file, so ESC/STOP inside a section
+// returns here (loop continues), while ESC/STOP on the menu itself ends
+// the whole demo.
+{
+	char key, i;
+
+	for (;;)
+	{
+		vdc_init(VDC_TEXT_80x25_PAL, 1);
+		vdc_cls();
+		vdc_prints(5, 2, "VDC MANIAC -- MAIN MENU");
+		vdc_prints(5, 3, "----------------------------------------");
+		for (i = 0; i < 9; i++)
+		{
+			sprintf(linebuffer, "%c) %s", menu_entries[i].key, menu_entries[i].label);
+			vdc_prints(7, 5 + i, linebuffer);
+		}
+		vdc_prints(5, 16, "Press a number key to select, ESC/STOP to end the demo.");
+
+		while (vdcwin_checkch())
+		{
+		}
+
+		do
+		{
+			key = vdcwin_checkch();
+		} while (key != CH_ESC && key != CH_STOP && !(key >= '1' && key <= '9'));
+
+		if (key == CH_ESC || key == CH_STOP)
+		{
+			vdc_wipe_transition();
+			return;
+		}
+
+		menu_entries[key - '1'].fn();
+	}
+}
+
 // Main routine
 int main(void)
 {
@@ -1822,14 +1824,13 @@ int main(void)
 
 	bnk_init();
 
-#if defined(KRILL)
 	// asset-loading-roadmap.md Phase 2: install Krill's loader once, here,
 	// for the whole program run -- matches Oscar64Test's own proven
 	// sequence (krill_loadcode() right after bnk_init(), krill_init() right
 	// after the first vdc_init()) rather than installing/tearing down per
 	// function the way Phase 1's title_screen()-only proof did. Every demo
-	// function's own #if defined(KRILL) block (see idi8b_logo_demo()'s
-	// comment) is just its load -- no per-load cia_init() (the plan's own
+	// function's own load call (see idi8b_logo_demo()'s comment) is just
+	// that -- no per-load cia_init() (the plan's own
 	// recommended "safety net", which turned out to actively conflict with
 	// Krill's own cia2.pra usage and hang the demo partway through once
 	// live-tested; see title_screen()'s comment for the full explanation).
@@ -1837,13 +1838,10 @@ int main(void)
 	// whole run -- cia_init() itself only ever runs once, at the very top
 	// of main(), before any of this.
 	krill_loadcode();
-#endif
 
 	vdc_init(VDC_TEXT_80x25_PAL, 1);
 
-#if defined(KRILL)
 	krill_init();
-#endif
 
 	// This demo's hires effects (title_screen(), mono_colorize_demo(),
 	// plasma_demo(), rotate_demo()) all use bitmap modes whose framebuffer
@@ -1861,12 +1859,29 @@ int main(void)
 		while (!vdcwin_checkch())
 		{
 		}
-#if defined(KRILL)
 		krill_done();
-#endif
 		vdc_exit();
 		demo_end_screen("This demo requires a VDC with 64 KB RAM.");
 	}
+
+	raster_calibrate();
+
+	// Intro: black screen, black border, "loading assets" message, then
+	// start the music -- SID load+init moved here (from its old position
+	// right after the 64KB check) so it happens right after this message
+	// is on screen, matching the demo spec's own "give message... start
+	// music" ordering. VDC_TEXT_80x25_PAL is the attribute-mode text mode
+	// (colorlines=8, unlike VDC_TEXT_80x25_Mono_PAL) -- vdc_fgcolor() only
+	// sets the physical border nibble here; per-character text colour
+	// comes from attribute RAM (vdc_prints_attr()/vdc_state.text_attr)
+	// independently, so blacking the border doesn't also black the text
+	// (see idi8b_logo_demo()'s own mode-table comment on this exact
+	// attribute-mode-vs-not distinction).
+	vdc_init(VDC_TEXT_80x25_PAL, 0);
+	vdc_bgcolor(VDC_BLACK);
+	vdc_fgcolor(VDC_BLACK);
+	vdc_cls();
+	vdc_prints_attr(20, 12, "demo starting.... loading assets", VDC_LGREEN);
 
 	// SID music (Phase 5): loaded once, here, for the whole program run --
 	// "Faded" (GoatTracker), compiled straight from source to SIDINIT/
@@ -1876,20 +1891,12 @@ int main(void)
 	// (vdc_raster.c) once per VIC raster interrupt from here on -- not a
 	// foreground call, so music keeps playing through every subsequent
 	// krill_loadcompd() picture load too, not just this one section.
-#if defined(KRILL)
 	if (krill_loadcompd(BNK_1_IO, SIDINIT, "musick"))
 	{
 		printf("krill loadcompd failed: musick\n");
 		exit(1);
 	}
-#else
-	bnk_load(bootdevice, 1, (char *)SIDINIT, "music.prg");
-#endif
 	sid_music_init();
-
-	raster_calibrate();
-
-	raster_place_test();
 
 	idi8b_logo_demo();
 
@@ -1908,35 +1915,23 @@ int main(void)
 	// (unused) in case Mechanism 2 gets revisited later.
 	// mono_colorize_demo();
 
-	fli_ihfli_demo();
-
-	fli_itfli_demo();
-
-	fli_color_demo();
-
-	fli_hfli_demo();
-
-	mono_hires_xl_demo();
-
-	mono_im800_demo();
-
 	// Dropped from the demo run (2026-07-22): confirmed live in VICE that
 	// VDC-IM960 doesn't render correctly here -- matches Tokra's own readme
 	// note ("specifically designed for the RGBtoHDMI-device. It will
 	// probably not work otherwise"). Function left intact in the codebase
-	// (unused) for real-hardware/RGBtoHDMI testing later; not calling it
-	// here since nothing else in this file depends on it running.
+	// (unused) for real-hardware/RGBtoHDMI testing later; not on the menu
+	// since nothing else in this file depends on it running.
 	// mono_im960_demo();
 
-	plasma_demo(VDC_HIRES_640x200_Color_PAL);
+	// Every hires-mode showcase, both procedural effects, and the raster
+	// placement diagnostic are now selectable from the menu (any order, any
+	// number of times) instead of being called directly in a fixed sequence
+	// -- see main_menu()/menu_entries[] above.
+	main_menu();
 
-	rotate_demo(VDC_HIRES_640x200_Color_PAL);
-
-#if defined(KRILL)
 	// One-time teardown for the whole run -- see the krill_loadcode()/
 	// krill_init() comment near the top of main().
 	krill_done();
-#endif
 
 	vdc_exit();
 

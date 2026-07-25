@@ -3,6 +3,7 @@
 
 # Build outputs
 build/
+tools/sidreloc/sidreloc
 
 # Release ZIPs generated in project root
 vdcmaniac_*.zip

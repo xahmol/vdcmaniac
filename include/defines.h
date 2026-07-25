@@ -96,36 +96,48 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 #define MEM_SCREEN 0x4000
 #define MEM_CHARSET 0xC000
 
-// "Faded" (GoatTracker), compiled from its own .sng source directly to this
-// project's target load address ($2000) and zero page ($80/$81, matching
-// what tools/sidreloc had separately confirmed clear of Oscar64's own
-// zeropage ($f7-$f8) and Krill's loader ($e0-$f5)) -- assets/music.prg here
-// is that compiled .prg, copied verbatim, needing no relocation at all.
-// Replaces two earlier, abandoned attempts (see git history): Maniac.sid
-// relocated via tools/sidreloc (found and hand-patched 12 unrelocated
-// absolute-address references, crash persisted -- more remained, likely
-// data-table pointers a byte-level scan can't reliably distinguish from
-// code) and Oscar64Test's own music1.prg (no crash, but silent -- that
-// project builds Krill with a different zero-page window, ZP=f5, so it
-// never actually validated this project's own $e0-$f5 layout). Compiling
-// straight from source to the exact address/zp this project needs avoids
-// that whole class of relocation problems outright. $2000/$2003 matches
-// this file's own vector table: JMP $2109 (init), JMP $210d (play).
+// "Maniac" by Paul Kleimeyer, 1983, Access Software Inc. --
+// https://csdb.dk/release/?id=238071 /
+// https://hvsc.csdb.dk/MUSICIANS/K/Kleimeyer_Paul/Maniac.sid -- relocated
+// from its native $7580 (init)/$7587 (play) to this project's target load
+// address via tools/sidreloc (Linus Akesson, MIT license --
+// https://www.linusakesson.net/software/sidreloc/, vendored at
+// tools/sidreloc/, see tools/sidreloc/CREDIT.md):
 //
-// IMPORTANT, found only after switching to this cleanly-compiled tune (so
-// it was never actually a tune/relocation problem at all): the real crash
-// was raster_irq_playframe() (vdc_raster.c) living in the main program's
-// ordinary (bank-0-only) code segment instead of the low/common-RAM segment
-// banking.c's krill_init()/sid_music_init()/etc. use. BNK_1_IO switches to a
-// genuinely different physical 64KB RAM bank -- outside the 8KB common-RAM
-// window bnk_init() sets up (xmmu.rcr=0x06, banking.c), a function's own
-// remaining code physically vanishes the instant it switches banks
-// mid-execution, replaced by whatever bank 1 actually holds at that address
-// (confirmed empirically to be uninitialized garbage). Fixed by moving
-// raster_irq_playframe() into the same bcode1/bdata1/bbss1 segment -- see
-// its own comment in vdc_raster.c for the full explanation.
-#define SIDINIT 0x2000
-#define SIDPLAY 0x2003
+//   tools/sidreloc/sidreloc -v -p 20 -z 80-df Maniac.sid maniac_reloc.sid
+//
+// Result: init $2080, play $2087, zero page $fb/$fc -> $80/$81 (clear of
+// both Oscar64's own default zeropage, $f7-$ff, and Krill's loader,
+// $e0-$f5). sidreloc's own emulated verification (~33 simulated minutes of
+// playback): 0% bad pitches, 0% bad pulse widths. assets/music.prg is
+// maniac_reloc.sid's PSID payload with the PSID header stripped (payload
+// already starts with its own 2-byte $2080 load-address prefix, i.e. it's
+// already a valid PRG -- no repacking needed).
+//
+// HISTORY: this exact tune was tried once before this session and
+// abandoned after a crash, then hand-patched (12 unrelocated
+// absolute-address references found and fixed) with the crash still
+// persisting -- at the time this looked like a structural relocation
+// problem sidreloc's own byte-level scan couldn't fully resolve (likely
+// data-table pointers indistinguishable from code), so the project moved
+// to "Faded" (GoatTracker, compiled straight from source, needing no
+// relocation at all) instead, which worked. That diagnosis turned out to
+// be wrong: the actual crash, found once "Faded" was wired in and *still*
+// crashed the same way, was raster_irq_playframe() (vdc_raster.c) living
+// in the main program's ordinary (bank-0-only) code segment instead of the
+// low/common-RAM segment banking.c's krill_init()/sid_music_init()/etc.
+// use -- BNK_1_IO switches to a genuinely different physical 64KB RAM bank,
+// outside the 8KB common-RAM window bnk_init() sets up (xmmu.rcr=0x06,
+// banking.c), so a function's own remaining code physically vanishes the
+// instant it switches banks mid-execution. Fixed by moving
+// raster_irq_playframe() into the bcode1/bdata1/bbss1 segment (see its own
+// comment in vdc_raster.c) plus a defensive `sei` in sid_music_init() --
+// both entirely unrelated to which tune was loaded. With that infrastructure
+// bug fixed, Maniac.sid (this file, unpatched beyond sidreloc's own
+// automated relocation) plays correctly, confirming the original crash was
+// never actually a relocation problem.
+#define SIDINIT 0x2080
+#define SIDPLAY 0x2087
 
 // References to steering chars
 #define CH_CURS_UP 145    // Petscii control code for Cursor Up

@@ -86,11 +86,10 @@ The Makefile constructs the FTP path as `ftp://$(ULTIP1)/usb1/temp/`. Override `
 
 | Target | Description |
 |---|---|
-| `make` / `make all` | Build the program, boot sector and D81 disk image (plain `bnk_load()`-based asset loading) |
-| `make krill` | Build the D81 variant using Krill's fastloader for asset loading (see `krill_manual.md`) |
+| `make` / `make all` | Build the program, boot sector and the Krill-fastloader D81 disk image (see `krill_manual.md`) |
+| `make krill` | Same D81 build, invokable on its own |
 | `make clean` | Remove all build artefacts |
-| `make vice` | Launch VICE x128 with the Krill-fastloader D81 -- the variant actually meant to be tested/deployed going forward |
-| `make vice-stnd` | Launch VICE x128 with the plain `bnk_load()` D81 instead |
+| `make vice` | Launch VICE x128 with the D81 |
 | `make deploy` | Upload build to primary Ultimate II+ (requires `ULTIP1` in `.env`) |
 | `make deploy2` | Upload to second Ultimate II+ (requires `ULTIP2` in `.env`) |
 | `make docs` | Regenerate `README.pdf` from `README.md` (requires pandoc) |
