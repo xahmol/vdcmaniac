@@ -830,14 +830,17 @@ void title_screen()
 	// krill_loadcode()/krill_init() even run) -- removed here to match.
 	// Only the standard (non-KRILL) build path is unchanged in behaviour.
 #if defined(KRILL)
-	if (krill_load(BNK_1_IO, MEM_SCREEN, "vdce-scrtit.top"))
+	// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
+	// KRILL_COMPRESSED_ASSETS comment for how titletpk/titlebtk were derived
+	// from vdce-scrtit.top/.bot (same content, re-baked destination header).
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "titletpk"))
 	{
-		printf("krill load failed: vdce-scrtit.top\n");
+		printf("krill loadcompd failed: titletpk\n");
 		exit(1);
 	}
-	if (krill_load(BNK_1_IO, MEM_SCREEN + 16000, "vdce-scrtit.bot"))
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN + 16000, "titlebtk"))
 	{
-		printf("krill load failed: vdce-scrtit.bot\n");
+		printf("krill loadcompd failed: titlebtk\n");
 		exit(1);
 	}
 #else
@@ -1041,9 +1044,19 @@ void idi8b_logo_demo()
 	// "safety net" recommendation, disproven live: it conflicts with
 	// Krill's own cia2.pra usage).
 #if defined(KRILL)
-	if (krill_load(BNK_1_IO, MEM_SCREEN, "idi8blogo.scrn"))
+	// asset-loading-roadmap.md Phase 4 rollout: TSCrunch-compressed via
+	// krill_loadcompd() instead of the raw krill_load() above -- idi8bcmp is
+	// idi8blogo.scrn's payload, re-baked to load at MEM_SCREEN ($4000, this
+	// function's actual destination -- the checked-in asset's own header was
+	// a placeholder $8000) and compressed (see Makefile's
+	// KRILL_COMPRESSED_ASSETS comment for the exact conversion steps).
+	// idi8blogo.scrn itself is left untouched/still on disk: the standard
+	// (non-KRILL) build's bnk_load() below still needs it, and
+	// krill_loadcompd_test()'s own diagnostic also loads it as its raw
+	// reference.
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "idi8bcmp"))
 	{
-		printf("krill load failed: idi8blogo.scrn\n");
+		printf("krill loadcompd failed: idi8bcmp\n");
 		exit(1);
 	}
 #else
@@ -1258,14 +1271,16 @@ void fli_color_demo()
 	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
 	// comment on this pattern.
 #if defined(KRILL)
-	if (krill_load(BNK_1_IO, MEM_SCREEN, "vdcfli-orig.bit"))
+	// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
+	// KRILL_COMPRESSED_ASSETS comment.
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "flibitk"))
 	{
-		printf("krill load failed: vdcfli-orig.bit\n");
+		printf("krill loadcompd failed: flibitk\n");
 		exit(1);
 	}
-	if (krill_load(BNK_1_IO, MEM_SCREEN + 15120, "vdcfli-orig.col"))
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN + 15120, "flicolk"))
 	{
-		printf("krill load failed: vdcfli-orig.col\n");
+		printf("krill loadcompd failed: flicolk\n");
 		exit(1);
 	}
 #else
@@ -1398,9 +1413,9 @@ void fli_ihfli_demo()
 	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
 	// comment on this pattern.
 #if defined(KRILL)
-	if (krill_load(BNK_1_IO, MEM_SCREEN, "vdcihfli.ct"))
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "ihflictk"))
 	{
-		printf("krill load failed: vdcihfli.ct\n");
+		printf("krill loadcompd failed: ihflictk\n");
 		exit(1);
 	}
 #else
@@ -1418,9 +1433,9 @@ void fli_ihfli_demo()
 	bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 9600);
 
 #if defined(KRILL)
-	if (krill_load(BNK_1_IO, MEM_SCREEN, "vdcihfli.cb"))
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "ihflicbk"))
 	{
-		printf("krill load failed: vdcihfli.cb\n");
+		printf("krill loadcompd failed: ihflicbk\n");
 		exit(1);
 	}
 #else
@@ -1429,9 +1444,9 @@ void fli_ihfli_demo()
 	bnk_cpytovdc(0x0230, BNK_1_FULL, (char *)MEM_SCREEN, 9600);
 
 #if defined(KRILL)
-	if (krill_load(BNK_1_IO, MEM_SCREEN, "vdcihfli.bt"))
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "ihflibtk"))
 	{
-		printf("krill load failed: vdcihfli.bt\n");
+		printf("krill loadcompd failed: ihflibtk\n");
 		exit(1);
 	}
 #else
@@ -1440,9 +1455,9 @@ void fli_ihfli_demo()
 	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 19200);
 
 #if defined(KRILL)
-	if (krill_load(BNK_1_IO, MEM_SCREEN, "vdcihfli.bb"))
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "ihflibbk"))
 	{
-		printf("krill load failed: vdcihfli.bb\n");
+		printf("krill loadcompd failed: ihflibbk\n");
 		exit(1);
 	}
 #else
@@ -1477,9 +1492,9 @@ void fli_itfli_demo()
 	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
 	// comment on this pattern.
 #if defined(KRILL)
-	if (krill_load(BNK_1_IO, MEM_SCREEN, "vdcitfli.ct"))
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "itflictk"))
 	{
-		printf("krill load failed: vdcitfli.ct\n");
+		printf("krill loadcompd failed: itflictk\n");
 		exit(1);
 	}
 #else
@@ -1497,9 +1512,9 @@ void fli_itfli_demo()
 	bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 7680);
 
 #if defined(KRILL)
-	if (krill_load(BNK_1_IO, MEM_SCREEN, "vdcitfli.cb"))
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "itflicbk"))
 	{
-		printf("krill load failed: vdcitfli.cb\n");
+		printf("krill loadcompd failed: itflicbk\n");
 		exit(1);
 	}
 #else
@@ -1508,9 +1523,9 @@ void fli_itfli_demo()
 	bnk_cpytovdc(0x0000, BNK_1_FULL, (char *)MEM_SCREEN, 7680);
 
 #if defined(KRILL)
-	if (krill_load(BNK_1_IO, MEM_SCREEN, "vdcitfli.bt"))
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "itflibtk"))
 	{
-		printf("krill load failed: vdcitfli.bt\n");
+		printf("krill loadcompd failed: itflibtk\n");
 		exit(1);
 	}
 #else
@@ -1519,9 +1534,9 @@ void fli_itfli_demo()
 	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 23040);
 
 #if defined(KRILL)
-	if (krill_load(BNK_1_IO, MEM_SCREEN, "vdcitfli.bb"))
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "itflibbk"))
 	{
-		printf("krill load failed: vdcitfli.bb\n");
+		printf("krill loadcompd failed: itflibbk\n");
 		exit(1);
 	}
 #else
@@ -1559,9 +1574,9 @@ void fli_hfli_demo()
 	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
 	// comment on this pattern.
 #if defined(KRILL)
-	if (krill_load(BNK_1_IO, MEM_SCREEN, "vdchfli.bit"))
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "hflibitk"))
 	{
-		printf("krill load failed: vdchfli.bit\n");
+		printf("krill loadcompd failed: hflibitk\n");
 		exit(1);
 	}
 #else
@@ -1579,9 +1594,9 @@ void fli_hfli_demo()
 	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 32000);
 
 #if defined(KRILL)
-	if (krill_load(BNK_1_IO, MEM_SCREEN, "vdchfli.col"))
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "hflicolk"))
 	{
-		printf("krill load failed: vdchfli.col\n");
+		printf("krill loadcompd failed: hflicolk\n");
 		exit(1);
 	}
 #else
@@ -1640,9 +1655,9 @@ void mono_hires_xl_demo()
 	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
 	// comment on this pattern.
 #if defined(KRILL)
-	if (krill_load(BNK_1_IO, MEM_SCREEN, "vdcimono-orig.top"))
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "imonotpk"))
 	{
-		printf("krill load failed: vdcimono-orig.top\n");
+		printf("krill loadcompd failed: imonotpk\n");
 		exit(1);
 	}
 #else
@@ -1694,9 +1709,9 @@ void mono_hires_xl_demo()
 	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 31500);
 
 #if defined(KRILL)
-	if (krill_load(BNK_1_IO, MEM_SCREEN, "vdcimono-orig.bot"))
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "imonobtk"))
 	{
-		printf("krill load failed: vdcimono-orig.bot\n");
+		printf("krill loadcompd failed: imonobtk\n");
 		exit(1);
 	}
 #else
@@ -1776,9 +1791,9 @@ void mono_im800_demo()
 	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
 	// comment on this pattern.
 #if defined(KRILL)
-	if (krill_load(BNK_1_IO, MEM_SCREEN, "vdcim800.bt"))
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "im800btk"))
 	{
-		printf("krill load failed: vdcim800.bt\n");
+		printf("krill loadcompd failed: im800btk\n");
 		exit(1);
 	}
 #else
@@ -1800,9 +1815,9 @@ void mono_im800_demo()
 	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 30000);
 
 #if defined(KRILL)
-	if (krill_load(BNK_1_IO, MEM_SCREEN, "vdcim800.bb"))
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "im800bbk"))
 	{
-		printf("krill load failed: vdcim800.bb\n");
+		printf("krill loadcompd failed: im800bbk\n");
 		exit(1);
 	}
 #else
@@ -1849,9 +1864,9 @@ void mono_im960_demo()
 	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
 	// comment on this pattern.
 #if defined(KRILL)
-	if (krill_load(BNK_1_IO, MEM_SCREEN, "vdcim960.bt"))
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "im960btk"))
 	{
-		printf("krill load failed: vdcim960.bt\n");
+		printf("krill loadcompd failed: im960btk\n");
 		exit(1);
 	}
 #else
@@ -1883,9 +1898,9 @@ void mono_im960_demo()
 	bnk_cpytovdc(0x8160, BNK_1_FULL, (char *)MEM_SCREEN, 32400);
 
 #if defined(KRILL)
-	if (krill_load(BNK_1_IO, MEM_SCREEN, "vdcim960.bb"))
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "im960bbk"))
 	{
-		printf("krill load failed: vdcim960.bb\n");
+		printf("krill loadcompd failed: im960bbk\n");
 		exit(1);
 	}
 #else

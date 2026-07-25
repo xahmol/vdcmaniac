@@ -87,6 +87,24 @@ README = README.pdf
 ZIPLIST = build/krill/*.* build/standard/*.* $(README)
 PRGLIST = -write $(MAIN).prg $(MAIN) -write $(LMC).prg $(LMC)
 KRILLLIST = -write install-c128.prg install-c128 -write loader-c128.prg loader-c128
+# TSCrunch-compressed replacements for real assets, loaded via
+# krill_loadcompd() instead of krill_load()/bnk_load() -- krill-variant d81
+# only (the standard/non-KRILL binary has no decompressor and still needs
+# the raw file from $(ASSETS)). Each entry here is produced by baking the
+# real load destination into a copy of the source asset's own 2-byte PRG
+# header, then running it through krill/loader/tools/tscrunch (-i) and
+# krill/loader/tools/compressedfileconverter.pl -- see krill_manual.md.
+KRILL_COMPRESSED_ASSETS = -write idi8bcmp idi8bcmp \
+         -write titletpk titletpk -write titlebtk titlebtk \
+         -write flibitk flibitk -write flicolk flicolk \
+         -write ihflictk ihflictk -write ihflicbk ihflicbk \
+         -write ihflibtk ihflibtk -write ihflibbk ihflibbk \
+         -write itflictk itflictk -write itflicbk itflicbk \
+         -write itflibtk itflibtk -write itflibbk itflibbk \
+         -write hflibitk hflibitk -write hflicolk hflicolk \
+         -write imonotpk imonotpk -write imonobtk imonobtk \
+         -write im800btk im800btk -write im800bbk im800bbk \
+         -write im960btk im960btk -write im960bbk im960bbk
 # vdcfli-orig.*/vdcimono-orig.*: temporary diagnostic pictures (Tokra's own
 # "merida"/"avril", copied verbatim from original/v12/sd2iec-version/) --
 # remove once fli_color_demo()/mono_hires_xl_demo() are switched back to
@@ -133,10 +151,20 @@ bootsect.bin: $(MAIN).prg $(GENERATED_ASSETS)
 	cp assets/vdcfli*.* assets/vdcimono*.* build/standard
 	cp assets/vdcihfli.* assets/vdcitfli.* assets/vdchfli.* assets/vdcim800.* assets/vdcim960.* build/standard
 	cp assets/idi8blogo.scrn build/standard
-	cp assets/vdce-scr*.* build/krill
-	cp assets/vdcfli*.* assets/vdcimono*.* build/krill
-	cp assets/vdcihfli.* assets/vdcitfli.* assets/vdchfli.* assets/vdcim800.* assets/vdcim960.* build/krill
+	# build/krill only needs idi8blogo.scrn as the raw reference for
+	# krill_loadcompd_test()'s diagnostic (see src/main.c) -- every real
+	# picture asset is now loaded via krill_loadcompd() from the
+	# TSCrunch-compressed files below instead (KRILL_COMPRESSED_ASSETS),
+	# so the raw vdce-scr*/vdcfli*/vdcimono*/vdcihfli*/vdcitfli*/vdchfli*/
+	# vdcim800*/vdcim960* files are NOT copied here -- the krill-variant d81
+	# doesn't have room for both copies of ~20 pictures, and the
+	# krill-compiled binary never reads them raw any more.
 	cp assets/idi8blogo.scrn build/krill
+	cp assets/idi8bcmp assets/titletpk assets/titlebtk assets/flibitk assets/flicolk \
+	   assets/ihflictk assets/ihflicbk assets/ihflibtk assets/ihflibbk \
+	   assets/itflictk assets/itflicbk assets/itflibtk assets/itflibbk \
+	   assets/hflibitk assets/hflicolk assets/imonotpk assets/imonobtk \
+	   assets/im800btk assets/im800bbk assets/im960btk assets/im960bbk build/krill
 #	cp assets/music*.prg build/standard
 #	cp assets/chars*.prg build/standard
 #	cp assets/music*.prg build/krill
@@ -163,21 +191,23 @@ loader-c128.prg:
 	cp krill/loader/build/*.prg build/krill
 	cp krill/loader/build/loadersymbols-c128.inc build/krill
 
-# asset-loading-roadmap.md Phase 1: builds a full testable krill-variant d81
-# (build/krill/$(MAIN)-krill.d81) -- the -dKRILL-compiled binary (which
-# routes title_screen()'s picture load through krill_load() instead of
-# bnk_load(), see that function's own comment), Krill's own install/loader
-# prgs, and every asset the full demo needs (every *other* section's
-# bnk_load() calls are unchanged, so this image needs the same full asset
-# set as the standard build). Deliberately does NOT touch all/d81/vice --
-# those keep building/running only the standard (non-KRILL) variant, so the
-# existing day-to-day workflow is unaffected.
+# asset-loading-roadmap.md Phase 4: builds a full testable krill-variant d81
+# (build/krill/$(MAIN)-krill.d81) -- the -dKRILL-compiled binary, Krill's own
+# install/loader prgs, idi8blogo.scrn (the one raw file still needed, as the
+# reference asset for krill_loadcompd_test()'s diagnostic), and the
+# TSCrunch-compressed real assets ($(KRILL_COMPRESSED_ASSETS)) every demo
+# section actually loads now via krill_loadcompd() -- NOT the raw $(ASSETS)
+# list the standard build uses: this binary never calls krill_load()/
+# bnk_load() for any real picture any more, and the disk doesn't have room
+# for both a raw and compressed copy of ~20 pictures. Deliberately does not
+# touch all/d81/vice -- those keep building/running only the standard
+# (non-KRILL) variant, so the existing day-to-day workflow is unaffected.
 krill: $(MAIN).prg bootsect.bin loader-c128.prg
 	c1541 -cd build/krill -format "$(MAIN),xm" d81 $(MAIN)-krill.d81
 	c1541 -cd build/krill -attach $(MAIN)-krill.d81 -bwrite bootsect.bin 1 0
 	c1541 -cd build/krill -attach $(MAIN)-krill.d81 -bpoke 40 1 16 $$27 %11111110
 	c1541 -cd build/krill -attach $(MAIN)-krill.d81 -bam 1 1
-	c1541 -cd build/krill -attach $(MAIN)-krill.d81 $(PRGLIST) $(KRILLLIST) $(ASSETS)
+	c1541 -cd build/krill -attach $(MAIN)-krill.d81 $(PRGLIST) $(KRILLLIST) -write idi8blogo.scrn idi8blogo.scrn $(KRILL_COMPRESSED_ASSETS)
 
 d81: $(MAIN).prg bootsect.bin
 	c1541 -cd build/standard -format "$(MAIN),xm" d81 $(MAIN)-stnd.d81
