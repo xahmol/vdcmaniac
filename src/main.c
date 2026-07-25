@@ -75,10 +75,12 @@ void rle_decode_to_vdc(unsigned vdcdest, const char *src, unsigned srclen)
 // this is a throwaway proof, not a real asset yet. Loads the same file two
 // ways: raw to MEM_SID (0x2000, unused this early in the boot sequence --
 // same reasoning as rle_test_diagnostic()'s 0xf000 scratch address) as
-// reference, and compressed via krill_loadcompd() to 0x5800 (the
-// destination baked into idi8blogo.scrn's own 2-byte header at compress
-// time -- loadcompd has no absolute-address override, unlike krill_load();
-// see krill.c's own comment on krill_loadcompd()). Writes its result to
+// reference, and compressed via krill_loadcompd() to 0x5800 (now an
+// explicit destination parameter, same shape as krill_load() -- see
+// krill.c's own comment on krill_loadcompd() for the zero-page bug this
+// replaced: the file's own baked-in header address turned out to never
+// actually be used as the decompression destination in this build).
+// Writes its result to
 // krilltest_result/krilltest_mismatchoffset instead of printing, so it can
 // be read back via a VICE monitor memory dump without needing a human to
 // read the screen. Remove this whole block (globals, function, call site)
@@ -101,7 +103,7 @@ void krill_loadcompd_test()
 		krilltest_result = 1;
 		return;
 	}
-	if (krill_loadcompd(BNK_1_IO, "idi8blkr"))
+	if (krill_loadcompd(BNK_1_IO, COMPDADDR, "idi8blkr"))
 	{
 		krilltest_result = 2;
 		return;
@@ -1910,6 +1912,30 @@ void mono_im960_demo()
 	vdc_reg_write(VDCR_SYNCSIZE, old_syncsize);
 }
 
+void demo_end_screen(const char *message)
+// Ends the program without ever returning to BASIC. Call after vdc_exit()
+// (and krill_done(), if KRILL); prints message centred, then loops forever
+// instead of `return`-ing from main().
+//
+// Oscar64's own docs (oscar64.md, "Limits and Errors") document this as a
+// known limitation: "Basic zero page variables not restored on
+// stop/restore" -- any Oscar64 program that uses zero page leaves BASIC's
+// own zero-page state corrupted on return, and a clean READY prompt is not
+// guaranteed. Confirmed live in VICE: returning via `return 0` produced a
+// READY prompt that looked fine but could not reliably run further BASIC
+// commands, once this session's Krill zero-page work moved the loader's
+// window to $E0-$F5. Looping forever here instead of returning sidesteps
+// the whole problem -- press RESET or power off to leave, same as most
+// boot-sector-loaded C64/C128 demos already do.
+{
+    char col = (char)((80 - strlen(message)) / 2);
+    vdc_prints(col, 12, message);
+    vdc_prints(28, 14, "press reset or power off");
+    while (1)
+    {
+    }
+}
+
 // Main routine
 int main(void)
 {
@@ -1972,7 +1998,7 @@ int main(void)
 		krill_done();
 #endif
 		vdc_exit();
-		return 0;
+		demo_end_screen("This demo requires a VDC with 64 KB RAM.");
 	}
 
 	// TEMPORARY DIAGNOSTIC -- see its own comment near the top of this file.
@@ -2037,5 +2063,7 @@ int main(void)
 
 	vdc_exit();
 
-	return 0;
+	demo_end_screen("vdcmaniac -- demo finished");
+
+	return 0; // unreachable -- demo_end_screen() loops forever
 }
