@@ -1590,7 +1590,7 @@ void mono_hires_xl_demo()
 // buffer.
 {
 	static const char *descr[3] = {
-		"Poppy field",
+		"Cologne Cathedral, interior",
 		"Zebra with herd",
 		"Berber woman, traditional dress",
 	};
@@ -1691,7 +1691,7 @@ void mono_im800_demo()
 // defines.h).
 {
 	static const char *descr[3] = {
-		"Lavender field, Provence",
+		"Portrait of a woman",
 		"Kelly Lee Owens, studio portrait",
 		"Maupi, the author's own cat",
 	};

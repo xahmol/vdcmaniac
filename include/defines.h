@@ -98,10 +98,12 @@ et al in src/main.c), converted via tools/vdc_convert.py:
 
 -   VDC-IMONO:
 
-    Poppy field photograph by Stig Nygaard, CC-BY (confirmed via the
-    downloaded file's own EXIF Copyright/Artist tags: "Stig Nygaard,
-    https://www.rockland.dk/" -- exact Commons File: page not re-recorded,
-    see the file's own metadata in assets/source/imono1_poppyfield.jpg).
+    "Interior of Cologne Cathedral.jpg" by Dr. Avishai Teicher (Avi1111),
+    CC BY-SA 4.0 (replaces an earlier poppy-field photo, dropped once the
+    mono modes' raster colour bands -- which the poppy field's sky/horizon/
+    field bands were originally picked for -- were removed in favour of the
+    +/-/= colour-cycle feature):
+    https://commons.wikimedia.org/wiki/File:Interior_of_Cologne_Cathedral.jpg
 
     "Zebras Ngorongoro Crater.jpg" by Muhammad Mahdi Karim, GFDL 1.2:
     https://commons.wikimedia.org/wiki/File:Zebras_Ngorongoro_Crater.jpg
@@ -112,8 +114,10 @@ et al in src/main.c), converted via tools/vdc_convert.py:
 
 -   VDC-IM800:
 
-    "Lavender Field Provence France 021.JPG" by Marek Gehrmann, CC BY-SA 3.0:
-    https://commons.wikimedia.org/wiki/File:Lavender_Field_Provence_France_021.JPG
+    "Portrait-of-a-woman.jpg" by Mark Sherman, CC BY 2.0 (replaces an
+    earlier lavender-field photo, dropped for the same reason as IMONO's
+    poppy field above):
+    https://commons.wikimedia.org/wiki/File:Portrait-of-a-woman.jpg
 
     "The History of Apple Pie - Kelly Lee Owens (2013).jpg" by Sylvain lasco,
     CC BY-SA 4.0:

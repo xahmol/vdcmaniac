@@ -331,22 +331,27 @@ def convert_imono(img, width, height):
     return bytes(bitmap)
 
 
-def fit_to_size(img, width, height):
-    """Center-crop img to the target aspect ratio, then resize to exact
-    (width, height) -- so any source photo can be dropped in as-is rather
-    than requiring it to be pre-cropped to the exact VDC resolution."""
+def fit_to_size(img, width, height, crop_top=None, crop_left=None):
+    """Crop img to the target aspect ratio, then resize to exact (width,
+    height) -- so any source photo can be dropped in as-is rather than
+    requiring it to be pre-cropped to the exact VDC resolution. Defaults to
+    a center crop; pass crop_top/crop_left (source-pixel offsets) to anchor
+    the crop window elsewhere instead -- e.g. a portrait photo where the
+    subject's face/ears sit above center, so a blind center crop cuts them
+    off (found live with im8002_kellyleeowens.jpg/im8003_cat.jpg -- see
+    those --crop-top call sites in main() below)."""
     src_w, src_h = img.size
     target_ratio = width / height
     src_ratio = src_w / src_h
     if src_ratio > target_ratio:
         # Source is wider than target -- crop left/right.
         new_w = round(src_h * target_ratio)
-        left = (src_w - new_w) // 2
+        left = crop_left if crop_left is not None else (src_w - new_w) // 2
         img = img.crop((left, 0, left + new_w, src_h))
     elif src_ratio < target_ratio:
         # Source is taller than target -- crop top/bottom.
         new_h = round(src_w / target_ratio)
-        top = (src_h - new_h) // 2
+        top = crop_top if crop_top is not None else (src_h - new_h) // 2
         img = img.crop((0, top, src_w, top + new_h))
     return img.resize((width, height), Image.LANCZOS)
 
@@ -405,6 +410,7 @@ def main():
     )
     ap.add_argument("--input", required=True, help="Source image (any Pillow-readable format, any size/aspect)")
     ap.add_argument("--out-prefix", required=True, help="Output path prefix; writes <prefix>.bit/.col or <prefix>.bit")
+    ap.add_argument("--crop-top", type=int, default=None, help="Override fit_to_size()'s center crop with this source-pixel top offset (for portrait photos where the subject sits above center)")
     args = ap.parse_args()
 
     img = Image.open(args.input)
@@ -457,7 +463,7 @@ def main():
         # else print#4` (even rows to .eve, odd rows to .odd), not a
         # physical-half split.
         width, height = 800, 600
-        img = fit_to_size(img, width, height)
+        img = fit_to_size(img, width, height, crop_top=args.crop_top)
         bitmap = convert_imono(img, width, height)
         bytes_per_row = width // 8
         even = bytearray()
@@ -472,7 +478,7 @@ def main():
         print(f"wrote {args.out_prefix}.eve ({len(even)} bytes) and .odd ({len(odd)} bytes)")
     elif args.mode == "imono":
         width, height = 720, 700
-        img = fit_to_size(img, width, height)
+        img = fit_to_size(img, width, height, crop_top=args.crop_top)
         bitmap = convert_imono(img, width, height)
         # Split even/odd by row PARITY (even rows -> even field, odd rows ->
         # odd field), NOT physical half -- confirmed against Tokra's
