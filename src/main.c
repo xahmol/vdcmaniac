@@ -421,6 +421,19 @@ void raster_place_test()
 	char line;
 	char keypress = 0;
 
+	// This function used to inherit whatever mode the caller (main_menu())
+	// left the VDC in, which was always VDC_TEXT_80x25_PAL (attribute mode
+	// ON, so vdc_prints()'s text came out in vdc_state.text_attr's per-
+	// character colour) -- fine until main_menu() switched to
+	// VDC_TEXT_80x25_Mono_PAL for its own raster-driven header/highlight.
+	// Inheriting mono mode here left every vdc_prints() call using
+	// whatever the last raster_bar_*() write happened to leave in the
+	// single global VDCR_COLOR register instead (often black foreground),
+	// hence the black-ink regression. Set the mode explicitly instead of
+	// relying on inherited state, same as every other demo section does.
+	vdc_init(VDC_TEXT_80x25_PAL, 1);
+	raster_calibrate();
+
 	// Clear first -- entered from the menu (or looped back to from a
 	// previous ESC/STOP), whose own text would otherwise still show through
 	// in every column this function doesn't explicitly overwrite (it only
@@ -1420,7 +1433,7 @@ void fli_itfli_demo()
 	static const char *descr[3] = {
 		"Tutankhamun funerary mask",
 		"Hyacinth macaw, the Pantanal, Brazil",
-		"Red rose",
+		"Utrecht cityscape",
 	};
 	// Named even/odd, not top/bottom -- see fli_ihfli_demo()'s own comment.
 	static const char *ce_names[3] = {"itfli1cek", "itfli2cek", "itfli3cek"};
@@ -2053,6 +2066,11 @@ void main_menu()
 	char before_count, after_count;
 	char items_top, items_bottom;
 
+	// Set once, not per redraw pass -- retains the last-chosen item across
+	// a dispatched section returning here, instead of always resetting to
+	// the top of the list.
+	selected = 0;
+
 	for (;;)
 	{
 		vdc_init(VDC_TEXT_80x25_Mono_PAL, 1);
@@ -2087,7 +2105,6 @@ void main_menu()
 		}
 		vdc_prints(5, 16, "Cursor/joystick + RETURN/fire, or a number key. ESC/STOP to end.");
 
-		selected = 0;
 		holdframes = 0;
 		prevjoyb = 0;
 		// Item rows (text rows 5-13) as a single contiguous rasterline

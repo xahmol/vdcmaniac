@@ -47,10 +47,8 @@ et al in src/main.c), converted via tools/vdc_convert.py:
 
 -   VDC-FLI:
 
-    Real photographs (Iceland/Utrecht/macaw) replaced with public-domain
-    Van Gogh paintings -- per explicit user feedback, photographic detail
-    was too complex/muddy at this mode's coarse 8x1 colour-cell resolution;
-    bold, distinct brushstroke colour blocks suit it far better:
+    Bold, distinct Van Gogh brushstroke colour blocks suit this mode's
+    coarse 8x1 colour-cell resolution well:
 
     "Wheat Field with Cypresses" (1889), Vincent van Gogh, The Met, public
     domain (author died 1890):
@@ -66,10 +64,8 @@ et al in src/main.c), converted via tools/vdc_convert.py:
 
 -   VDC-HFLI:
 
-    Real photographs (parrots/tulips/fjord) replaced for the same reason as
-    VDC-FLI above, with public-domain Japanese ukiyo-e woodblock prints --
-    flat bold colour fields, well suited to this mode's coarser colour
-    resolution too:
+    Public-domain Japanese ukiyo-e woodblock prints -- flat bold colour
+    fields, well suited to this mode's colour-cell resolution:
 
     "The Great Wave off Kanagawa" (c. 1831), Katsushika Hokusai, public
     domain (author died 1849):
@@ -105,19 +101,14 @@ et al in src/main.c), converted via tools/vdc_convert.py:
     Brazil, by Charles J. Sharp, CC BY-SA 4.0:
     https://commons.wikimedia.org/wiki/File:Hyacinth_macaw_(Anodorhynchus_hyacinthinus)_head.JPG
 
-    "Red Rose Photography.jpg" by Md Shaifuzzaman Ayon, CC BY-SA 4.0:
-    https://commons.wikimedia.org/wiki/File:Red_Rose_Photography.jpg
+    "De Hamburgerbrug met de Oudegracht en de Domtoren in de Stad
+    Utrecht.jpg" by Jan dijkstra, CC BY-SA 4.0:
+    https://commons.wikimedia.org/wiki/File:De_Hamburgerbrug_met_de_Oudegracht_en_de_Domtoren_in_de_Stad_Utrecht.jpg
 
 -   VDC-IMONO:
 
     "Strasbourg Cathedral Exterior" by David Iliff (Diliff), CC BY-SA 3.0 /
-    GFDL 1.2+ (replaces an earlier poppy-field photo, dropped once the mono
-    modes' raster colour bands -- which the poppy field's sky/horizon/field
-    bands were originally picked for -- were removed in favour of the
-    +/-/= colour-cycle feature; a first replacement, Cologne Cathedral's
-    interior, was tried and dropped in turn -- too dark/black-heavy once
-    dithered; this bright, evenly-lit exterior facade shot dithers with a
-    much better black/white balance):
+    GFDL 1.2+:
     https://commons.wikimedia.org/wiki/File:Strasbourg_Cathedral_Exterior_-_Diliff.jpg
 
     "Zebras Ngorongoro Crater.jpg" by Muhammad Mahdi Karim, GFDL 1.2:
@@ -129,9 +120,7 @@ et al in src/main.c), converted via tools/vdc_convert.py:
 
 -   VDC-IM800:
 
-    "Portrait-of-a-woman.jpg" by Mark Sherman, CC BY 2.0 (replaces an
-    earlier lavender-field photo, dropped for the same reason as IMONO's
-    poppy field above):
+    "Portrait-of-a-woman.jpg" by Mark Sherman, CC BY 2.0:
     https://commons.wikimedia.org/wiki/File:Portrait-of-a-woman.jpg
 
     "The History of Apple Pie - Kelly Lee Owens (2013).jpg" by Sylvain lasco,
