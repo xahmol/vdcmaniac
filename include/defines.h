@@ -47,29 +47,41 @@ et al in src/main.c), converted via tools/vdc_convert.py:
 
 -   VDC-FLI:
 
-    "Landmannalaugar Iceland 2005 3.JPG" by Chris 73, CC BY-SA 3.0 / GFDL 1.3+:
-    https://commons.wikimedia.org/wiki/File:Landmannalaugar_Iceland_2005_3.JPG
+    Real photographs (Iceland/Utrecht/macaw) replaced with public-domain
+    Van Gogh paintings -- per explicit user feedback, photographic detail
+    was too complex/muddy at this mode's coarse 8x1 colour-cell resolution;
+    bold, distinct brushstroke colour blocks suit it far better:
 
-    "De Hamburgerbrug met de Oudegracht en de Domtoren in de Stad Utrecht.jpg"
-    by Jan dijkstra, CC BY-SA 4.0:
-    https://commons.wikimedia.org/wiki/File:De_Hamburgerbrug_met_de_Oudegracht_en_de_Domtoren_in_de_Stad_Utrecht.jpg
+    "Wheat Field with Cypresses" (1889), Vincent van Gogh, The Met, public
+    domain (author died 1890):
+    https://commons.wikimedia.org/wiki/File:Vincent_van_Gogh_-_Wheat_Field_with_Cypresses_-_Google_Art_Project.jpg
 
-    "Scarlet macaw (Ara macao cyanopterus) Copan.jpg" by Charles J. Sharp,
-    CC BY-SA 4.0:
-    https://commons.wikimedia.org/wiki/File:Scarlet_macaw_(Ara_macao_cyanopterus)_Copan.jpg
+    "Starry Night Over the Rhone" (1888), Vincent van Gogh, Musee d'Orsay,
+    public domain:
+    https://commons.wikimedia.org/wiki/File:Vincent_van_Gogh_-_Starry_Night_-_Google_Art_Project_2.jpg
+
+    "Vase with Irises Against a Yellow Background" (1890), Vincent van
+    Gogh, Van Gogh Museum, public domain:
+    https://commons.wikimedia.org/wiki/File:Vincent_van_Gogh_-_Irises_-_Google_Art_Project.jpg
 
 -   VDC-HFLI:
 
-    "Amazon parrot and gray parrot in Indonesia.jpg" by Philip Nalangan,
-    CC BY 4.0:
-    https://commons.wikimedia.org/wiki/File:Amazon_parrot_and_gray_parrot_in_Indonesia.jpg
+    Real photographs (parrots/tulips/fjord) replaced for the same reason as
+    VDC-FLI above, with public-domain Japanese ukiyo-e woodblock prints --
+    flat bold colour fields, well suited to this mode's coarser colour
+    resolution too:
 
-    "Tulipfield in Holland.JPG" by BKP, CC BY-SA 3.0:
-    https://commons.wikimedia.org/wiki/File:Tulipfield_in_Holland.JPG
+    "The Great Wave off Kanagawa" (c. 1831), Katsushika Hokusai, public
+    domain (author died 1849):
+    https://commons.wikimedia.org/wiki/File:Katsushika_Hokusai_-_Thirty-Six_Views_of_Mount_Fuji-_The_Great_Wave_Off_the_Coast_of_Kanagawa_-_Google_Art_Project.jpg
 
-    "Autumn landscape near Gullesfjordbotn, Hinnøya, 2010 September.jpg" by
-    Ximonic (Simo Räsänen), CC BY-SA 3.0:
-    https://commons.wikimedia.org/wiki/File:Autumn_landscape_near_Gullesfjordbotn,_Hinn%C3%B8ya,_2010_September.jpg
+    "Fine Wind, Clear Morning" ("Red Fuji", c. 1830-1832), Katsushika
+    Hokusai, public domain:
+    https://commons.wikimedia.org/wiki/File:Katsushika_Hokusai_-_Fine_Wind,_Clear_Morning_(Gaif%C5%AB_kaisei)_-_Google_Art_Project.jpg
+
+    "Ejiri in Suruga Province" (c. 1830-1832), Katsushika Hokusai, public
+    domain:
+    https://commons.wikimedia.org/wiki/File:Ejiri_in_the_Suruga_province.jpg
 
 -   VDC-IHFLI:
 
@@ -98,12 +110,15 @@ et al in src/main.c), converted via tools/vdc_convert.py:
 
 -   VDC-IMONO:
 
-    "Interior of Cologne Cathedral.jpg" by Dr. Avishai Teicher (Avi1111),
-    CC BY-SA 4.0 (replaces an earlier poppy-field photo, dropped once the
-    mono modes' raster colour bands -- which the poppy field's sky/horizon/
-    field bands were originally picked for -- were removed in favour of the
-    +/-/= colour-cycle feature):
-    https://commons.wikimedia.org/wiki/File:Interior_of_Cologne_Cathedral.jpg
+    "Strasbourg Cathedral Exterior" by David Iliff (Diliff), CC BY-SA 3.0 /
+    GFDL 1.2+ (replaces an earlier poppy-field photo, dropped once the mono
+    modes' raster colour bands -- which the poppy field's sky/horizon/field
+    bands were originally picked for -- were removed in favour of the
+    +/-/= colour-cycle feature; a first replacement, Cologne Cathedral's
+    interior, was tried and dropped in turn -- too dark/black-heavy once
+    dithered; this bright, evenly-lit exterior facade shot dithers with a
+    much better black/white balance):
+    https://commons.wikimedia.org/wiki/File:Strasbourg_Cathedral_Exterior_-_Diliff.jpg
 
     "Zebras Ngorongoro Crater.jpg" by Muhammad Mahdi Karim, GFDL 1.2:
     https://commons.wikimedia.org/wiki/File:Zebras_Ngorongoro_Crater.jpg

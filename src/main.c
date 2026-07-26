@@ -1152,9 +1152,9 @@ void fli_color_demo()
 // see defines.h for sources/licenses), advancing on keypress.
 {
 	static const char *descr[3] = {
-		"Landmannalaugar, Iceland",
-		"Utrecht cityscape",
-		"Scarlet macaw, Copan",
+		"Van Gogh, Wheat Field with Cypresses",
+		"Van Gogh, Starry Night Over the Rhone",
+		"Van Gogh, Vase with Irises",
 	};
 	static const char *bitnames[3] = {"fli1bitk", "fli2bitk", "fli3bitk"};
 	static const char *colnames[3] = {"fli1colk", "fli2colk", "fli3colk"};
@@ -1464,9 +1464,9 @@ void fli_hfli_demo()
 // output, see defines.h for sources/licenses), advancing on keypress.
 {
 	static const char *descr[3] = {
-		"Parrots, Indonesia",
-		"Tulip field, Holland",
-		"Autumn fjord, Gullesfjordbotn, Norway",
+		"Hokusai, The Great Wave off Kanagawa",
+		"Hokusai, Fine Wind, Clear Morning",
+		"Hokusai, Ejiri in Suruga Province",
 	};
 	static const char *bitnames[3] = {"hfli1btk", "hfli2btk", "hfli3btk"};
 	static const char *colnames[3] = {"hfli1clk", "hfli2clk", "hfli3clk"};
@@ -1590,7 +1590,7 @@ void mono_hires_xl_demo()
 // buffer.
 {
 	static const char *descr[3] = {
-		"Cologne Cathedral, interior",
+		"Strasbourg Cathedral, exterior",
 		"Zebra with herd",
 		"Berber woman, traditional dress",
 	};
