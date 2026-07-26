@@ -1937,7 +1937,7 @@ static const menu_entry menu_entries[9] = {
 
 #define MENU_REPEAT_DELAY 15 // frames held before auto-repeat kicks in (~0.3s @ 50Hz)
 #define MENU_REPEAT_RATE 5    // frames between repeats once repeating (~10/s)
-#define GAP_TRIM 4            // lines shaved off the header-to-items gap -- live-tuning nudge, see main_menu()'s own comment
+#define GAP_TRIM 8            // lines shaved off the header-to-items gap -- live-tuning nudge, see main_menu()'s own comment
 
 char raster_bar_flat(char line, char color, char count)
 // Fills `count` consecutive rasterlines with one repeated colour -- the
