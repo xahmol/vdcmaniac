@@ -20,6 +20,12 @@
 // Buffer for attribute screen calculations
 char Screen[4000];
 
+// Cached PAL/NTSC state -- set once by system_diagnostic_screen() (the
+// first thing main() runs), reused by vdc_row_to_rasterline() so later
+// callers don't need to re-run detect_ntsc()'s own one-VIC-frame timing
+// measurement.
+char g_is_ntsc;
+
 // Raster colour values
 char rasterbar[13] = {VDC_BLACK, VDC_DGREY, VDC_LGREY, VDC_WHITE, VDC_DCYAN, VDC_LBLUE, VDC_DBLUE, VDC_LBLUE, VDC_DCYAN, VDC_WHITE, VDC_LGREY, VDC_DGREY, VDC_BLACK};
 
@@ -1937,7 +1943,9 @@ static const menu_entry menu_entries[9] = {
 
 #define MENU_REPEAT_DELAY 15 // frames held before auto-repeat kicks in (~0.3s @ 50Hz)
 #define MENU_REPEAT_RATE 5    // frames between repeats once repeating (~10/s)
-#define GAP_TRIM 8            // lines shaved off the header-to-items gap -- live-tuning nudge, see main_menu()'s own comment
+#define MENU_GLIDE_STEP 3     // rasterlines/frame the highlight glides toward its target (~1 row/frame at 8 lines/row, i.e. a quick but visible slide, not a snap)
+#define MENU_ITEM_NUDGE 1     // small live-tuning correction for the item highlight vs its text (independent of the header's own row-1 fix)
+#define HEADER_NUDGE 1        // small live-tuning correction for the header band vs its text, on top of the whole-row row-1 shift
 
 char raster_bar_flat(char line, char color, char count)
 // Fills `count` consecutive rasterlines with one repeated colour -- the
@@ -1951,6 +1959,27 @@ char raster_bar_flat(char line, char color, char count)
 		line--;
 	}
 	return line;
+}
+
+// PAL: empirically calibrated live against raster_place_test() -- rasterline
+// 153 landed on text row 13, i.e. TOP_LINE(13) = 255-8*13 = 151, within this
+// project's usual +/-2-line live-tuning margin. NTSC: not yet independently
+// calibrated -- placeholder uses the same offset until verified live in an
+// NTSC VICE session (see eager-sniffing-feather.md); PAL and NTSC share the
+// same 8-scanlines-per-text-row hardware constant (CSIZE doesn't change with
+// video standard), so only this reference offset can differ between them.
+#define PAL_ROW0_RASTERLINE 255
+#define NTSC_ROW0_RASTERLINE 255
+
+char vdc_row_to_rasterline(char row)
+// Converts an 80x25 text row (0-24) to the VDC rasterline value
+// raster_waitline()/raster_bar_*() expect, using g_is_ntsc (cached by
+// system_diagnostic_screen(), the first thing main() runs) to pick the
+// right reference offset. Row 0's own top-of-row value is the constant
+// itself; every later row is 8 rasterlines further down (hardware CSIZE=8,
+// same for every VDC_TEXT_80x25_* mode this project uses).
+{
+	return (g_is_ntsc ? NTSC_ROW0_RASTERLINE : PAL_ROW0_RASTERLINE) - 8 * row;
 }
 
 void main_menu()
@@ -1984,27 +2013,31 @@ void main_menu()
 	// convention idi8b_logo_demo()/title_screen() already use for their
 	// own raster bars. Header rows: green background bands (dark for the
 	// title row, light for the subtitle row) with the TEXT itself in a
-	// white-to-grey vertical gradient, both nibbles raster-driven.
+	// subtle white/light-grey gradient (both nibbles raster-driven) --
+	// kept to just these two shades per explicit user feedback that the
+	// original white/light-grey/dark-grey spread was too extreme to read
+	// comfortably.
 	static const char title_gradient[8] = {
 		16 * VDC_WHITE + VDC_DGREEN, 16 * VDC_WHITE + VDC_DGREEN,
+		16 * VDC_WHITE + VDC_DGREEN, 16 * VDC_WHITE + VDC_DGREEN,
 		16 * VDC_LGREY + VDC_DGREEN, 16 * VDC_LGREY + VDC_DGREEN,
-		16 * VDC_LGREY + VDC_DGREEN, 16 * VDC_DGREY + VDC_DGREEN,
-		16 * VDC_DGREY + VDC_DGREEN, 16 * VDC_DGREY + VDC_DGREEN,
+		16 * VDC_LGREY + VDC_DGREEN, 16 * VDC_LGREY + VDC_DGREEN,
 	};
 	static const char subtitle_gradient[8] = {
 		16 * VDC_WHITE + VDC_LGREEN, 16 * VDC_WHITE + VDC_LGREEN,
+		16 * VDC_WHITE + VDC_LGREEN, 16 * VDC_WHITE + VDC_LGREEN,
 		16 * VDC_LGREY + VDC_LGREEN, 16 * VDC_LGREY + VDC_LGREEN,
-		16 * VDC_LGREY + VDC_LGREEN, 16 * VDC_DGREY + VDC_LGREEN,
-		16 * VDC_DGREY + VDC_LGREEN, 16 * VDC_DGREY + VDC_LGREEN,
+		16 * VDC_LGREY + VDC_LGREEN, 16 * VDC_LGREY + VDC_LGREEN,
 	};
-	// Selected-item glow: cyan-to-blue background, yellow-to-red
-	// foreground, both fading top to bottom across the row -- driving
-	// both nibbles since attribute mode is off here.
+	// Selected-item glow: cyan-to-blue background (top to bottom), text in
+	// a subtle light-yellow/dark-yellow gradient only -- per explicit user
+	// feedback, the earlier red-to-yellow spread was too hard to read;
+	// this is a much gentler two-shade fade, no red at all.
 	static const char highlight_gradient[8] = {
 		16 * VDC_LYELLOW + VDC_LCYAN, 16 * VDC_LYELLOW + VDC_LCYAN,
-		16 * VDC_DYELLOW + VDC_DCYAN, 16 * VDC_DYELLOW + VDC_DCYAN,
-		16 * VDC_LRED + VDC_LBLUE, 16 * VDC_LRED + VDC_LBLUE,
-		16 * VDC_DRED + VDC_DBLUE, 16 * VDC_DRED + VDC_DBLUE,
+		16 * VDC_LYELLOW + VDC_DCYAN, 16 * VDC_LYELLOW + VDC_DCYAN,
+		16 * VDC_DYELLOW + VDC_LBLUE, 16 * VDC_DYELLOW + VDC_LBLUE,
+		16 * VDC_DYELLOW + VDC_DBLUE, 16 * VDC_DYELLOW + VDC_DBLUE,
 	};
 	static const char floor_color = 16 * VDC_LYELLOW + VDC_BLACK;
 	static const char gap_color = 16 * VDC_BLACK + VDC_BLACK;
@@ -2015,7 +2048,10 @@ void main_menu()
 	char holdframes;
 	char prevjoyb;
 	char firepressed;
-	char line, row;
+	char line;
+	char target_top, highlight_top;
+	char before_count, after_count;
+	char items_top, items_bottom;
 
 	for (;;)
 	{
@@ -2034,10 +2070,15 @@ void main_menu()
 		bnk_redef_charset(vdc_state.char_std, BNK_CHARROM, (char *)0xd800, 256);
 		vdc_cls();
 
-		vdc_prints(1, 0, "VDC Maniac: Experiments with C128's greatest asset");
-		vdc_prints(61, 0, "IDreamIn8Bits.com");
+		// Row 1/2, not 0/1 -- row 0's own rasterline (255) is the very
+		// first line reachable after raster_synch()'s own VBLANK sync
+		// point (0 lines elapsed), with no room to nudge it any earlier;
+		// row 1 (247) has a full row's worth of margin instead, and there
+		// was no shortage of blank screen to give up row 0 to get it.
+		vdc_prints(1, 1, "VDC Maniac: Experiments with C128's greatest asset");
+		vdc_prints(61, 1, "IDreamIn8Bits.com");
 		i = (char)((80 - strlen("Main menu")) / 2);
-		vdc_prints(i, 1, "Main menu");
+		vdc_prints(i, 2, "Main menu");
 
 		for (i = 0; i < 9; i++)
 		{
@@ -2049,6 +2090,20 @@ void main_menu()
 		selected = 0;
 		holdframes = 0;
 		prevjoyb = 0;
+		// Item rows (text rows 5-13) as a single contiguous rasterline
+		// span, top to bottom -- vdc_row_to_rasterline() gives the TOP
+		// line of each row directly, so items_bottom is just the last
+		// row's top minus 7 (its own 8 lines). No more manual gap-length
+		// arithmetic (the old GAP_TRIM hack): the gap fill's length is
+		// simply "whatever's left" between the header and items_top.
+		// MENU_ITEM_NUDGE: small live-tuned correction (independent of the
+		// header's own row-1 fix above, which is a whole-row change) --
+		// the highlight sat 1-2 lines too low against the item text.
+		items_top = vdc_row_to_rasterline(5) + MENU_ITEM_NUDGE;
+		items_bottom = vdc_row_to_rasterline(13) - 7 + MENU_ITEM_NUDGE;
+		// No animation on the very first draw -- start already at the
+		// target so the highlight doesn't visibly slide in from row 0.
+		highlight_top = items_top;
 
 		while (vdcwin_checkch())
 		{
@@ -2058,34 +2113,51 @@ void main_menu()
 		for (;;)
 		{
 			// One synced sweep per frame, top to bottom: header (rows
-			// 0-1, own gradient), blank gap (rows 2-4), the 9 menu-item
-			// rows (rows 5-13 -- floor colour, except the selected row,
-			// which gets the highlight glow), then the instruction rows
-			// (14-16). Calibrated empirically against raster_place_test()
-			// during planning (rasterline 153 landed on row 13, each row
-			// being 8 rasterlines apart -- hardware CSIZE=8) and nudged
-			// after live feedback that the highlight sat slightly low:
-			// the gap is trimmed by GAP_TRIM lines (stolen off the end,
-			// not the header, since the header is already anchored at
-			// the top of the 0-255 range raster_waitline() can express)
-			// to shift every row from the first menu item downward up by
-			// that amount.
-			raster_bar_begin();
-			line = 255;
-			line = raster_bar_segment(line, title_gradient, 8);
-			line = raster_bar_segment(line, subtitle_gradient, 8);
-			line = raster_bar_flat(line, gap_color, 24 - GAP_TRIM);
-			for (row = 0; row < 9; row++)
+			// 0-1, own gradient), blank gap, the 9 menu-item rows' worth
+			// of rasterlines (floor colour throughout, except an 8-line
+			// window at `highlight_top` -- the glow), then the
+			// instruction rows. `highlight_top` is animated toward
+			// `target_top` a few lines per frame (see below) instead of
+			// jumping straight there, so moving the selection glides
+			// smoothly instead of snapping.
+			target_top = vdc_row_to_rasterline(5 + selected) + MENU_ITEM_NUDGE;
+			if (highlight_top < target_top)
 			{
-				if (row == selected)
+				highlight_top += MENU_GLIDE_STEP;
+				if (highlight_top > target_top)
 				{
-					line = raster_bar_segment(line, highlight_gradient, 8);
-				}
-				else
-				{
-					line = raster_bar_flat(line, floor_color, 8);
+					highlight_top = target_top;
 				}
 			}
+			else if (highlight_top > target_top)
+			{
+				highlight_top -= MENU_GLIDE_STEP;
+				if (highlight_top < target_top)
+				{
+					highlight_top = target_top;
+				}
+			}
+
+			raster_bar_begin();
+			line = raster_bar_segment(vdc_row_to_rasterline(1) + HEADER_NUDGE, title_gradient, 8);
+			line = raster_bar_segment(line, subtitle_gradient, 8);
+			// True gap between the header and the item area (gap_color --
+			// black on black, nothing is printed there so it doesn't
+			// matter that this isn't floor_color).
+			line = raster_bar_flat(line, gap_color, line - items_top);
+			// Unselected item rows above the (possibly still-animating)
+			// highlight -- floor_color, not gap_color, since these DO have
+			// visible text (yellow-on-black) that gap_color's black-on-
+			// black foreground would otherwise hide.
+			before_count = line - highlight_top;
+			line = raster_bar_flat(line, floor_color, before_count);
+			line = raster_bar_segment(line, highlight_gradient, 8);
+			// Unselected item rows below the highlight, down to the last
+			// item row (+1: items_bottom is the last line to actually
+			// colour, inclusive, not "one past" like every other target
+			// in this sweep).
+			after_count = line - items_bottom + 1;
+			line = raster_bar_flat(line, floor_color, after_count);
 			line = raster_bar_flat(line, floor_color, 24);
 			raster_bar_end();
 
@@ -2219,6 +2291,7 @@ void system_diagnostic_screen()
 {
 	char is_ntsc = detect_ntsc();
 	char vdc_rev = detect_vdc_revision();
+	g_is_ntsc = is_ntsc; // cached for vdc_row_to_rasterline()
 
 	// Calibrate now, in this text mode, before showing the numbers below --
 	// same call site raster_bar_*() users elsewhere already depend on this
