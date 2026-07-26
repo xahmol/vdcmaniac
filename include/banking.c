@@ -331,6 +331,9 @@ void bnk_redef_charset(unsigned vdcdest, char scr, volatile char *sp, unsigned s
 // sid_irq[2] (banking.c there) byte-for-byte in spirit.
 char sid_krill_irq_saved[2];
 
+// See its own comment in banking.h.
+unsigned sid_music_framecount;
+
 __asm sid_music_interrupt
 // SID play + Krill chain trampoline. Installed at $314 by sid_music_init()
 // below, AFTER krill_init() has already installed krill_interrupt there --
@@ -398,6 +401,7 @@ void sid_music_init()
 		jsr SIDINIT
 	}
 	mmu.cr = old;
+	sid_music_framecount = 0;
 
 	// Save krill_interrupt's own address (already installed by krill_init()
 	// by this point), then chain sid_music_interrupt in ahead of it.

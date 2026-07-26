@@ -41,15 +41,85 @@ Code and resources from others used:
     the same published technique (those files carry no license permitting
     reuse of the code itself).
 
--   "Aegina sunset" photograph by Jebulon, CC0 1.0 Universal (public domain
-    dedication), used as the source picture for the VDC-FLI demo section:
+Real photographs used as source pictures for the VDC hires-mode showcase
+sections (3 per mode, cycled on keypress -- see main_menu()/fli_color_demo()
+et al in src/main.c), converted via tools/vdc_convert.py:
 
-    https://commons.wikimedia.org/wiki/File:Aegina_sunset.jpg
+-   VDC-FLI:
 
--   "Eurasian Eagle Owl" photograph by Peter K Burian, CC BY-SA 4.0, used as
-    the source picture for the VDC-IMONO demo section:
+    "Landmannalaugar Iceland 2005 3.JPG" by Chris 73, CC BY-SA 3.0 / GFDL 1.3+:
+    https://commons.wikimedia.org/wiki/File:Landmannalaugar_Iceland_2005_3.JPG
 
-    https://commons.wikimedia.org/wiki/File:Eurasian_Eagle_Owl.jpg
+    "De Hamburgerbrug met de Oudegracht en de Domtoren in de Stad Utrecht.jpg"
+    by Jan dijkstra, CC BY-SA 4.0:
+    https://commons.wikimedia.org/wiki/File:De_Hamburgerbrug_met_de_Oudegracht_en_de_Domtoren_in_de_Stad_Utrecht.jpg
+
+    "Scarlet macaw (Ara macao cyanopterus) Copan.jpg" by Charles J. Sharp,
+    CC BY-SA 4.0:
+    https://commons.wikimedia.org/wiki/File:Scarlet_macaw_(Ara_macao_cyanopterus)_Copan.jpg
+
+-   VDC-HFLI:
+
+    "Amazon parrot and gray parrot in Indonesia.jpg" by Philip Nalangan,
+    CC BY 4.0:
+    https://commons.wikimedia.org/wiki/File:Amazon_parrot_and_gray_parrot_in_Indonesia.jpg
+
+    "Tulipfield in Holland.JPG" by BKP, CC BY-SA 3.0:
+    https://commons.wikimedia.org/wiki/File:Tulipfield_in_Holland.JPG
+
+    "Autumn landscape near Gullesfjordbotn, Hinnøya, 2010 September.jpg" by
+    Ximonic (Simo Räsänen), CC BY-SA 3.0:
+    https://commons.wikimedia.org/wiki/File:Autumn_landscape_near_Gullesfjordbotn,_Hinn%C3%B8ya,_2010_September.jpg
+
+-   VDC-IHFLI:
+
+    "Passiflora caerulea (makro close-up).jpg" by Petar Milošević, CC BY-SA 4.0:
+    https://commons.wikimedia.org/wiki/File:Passiflora_caerulea_(makro_close-up).jpg
+
+    "Sonnenblume Helianthus 1.JPG" by Böhringer Friedrich, CC BY-SA 2.5:
+    https://commons.wikimedia.org/wiki/File:Sonnenblume_Helianthus_1.JPG
+
+    "Keel-billed Toucan - Ramphastos sulfuratus, Caves Branch Jungle Lodge,
+    Belmopan, Belize.jpg" by Judy Gallagher, CC BY 2.0:
+    https://commons.wikimedia.org/wiki/File:Keel-billed_Toucan_-_Ramphastos_sulfuratus,_Caves_Branch_Jungle_Lodge,_Belmopan,_Belize.jpg
+
+-   VDC-ITFLI:
+
+    "Tutanchamun Maske.jpg" (Tutankhamun funerary mask, front view) by
+    MykReeve, CC BY-SA 3.0 / GFDL 1.2+:
+    https://commons.wikimedia.org/wiki/File:Tutanchamun_Maske.jpg
+
+    "Hyacinth macaw (Anodorhynchus hyacinthinus) head.JPG", the Pantanal,
+    Brazil, by Charles J. Sharp, CC BY-SA 4.0:
+    https://commons.wikimedia.org/wiki/File:Hyacinth_macaw_(Anodorhynchus_hyacinthinus)_head.JPG
+
+    "Red Rose Photography.jpg" by Md Shaifuzzaman Ayon, CC BY-SA 4.0:
+    https://commons.wikimedia.org/wiki/File:Red_Rose_Photography.jpg
+
+-   VDC-IMONO:
+
+    Poppy field photograph by Stig Nygaard, CC-BY (confirmed via the
+    downloaded file's own EXIF Copyright/Artist tags: "Stig Nygaard,
+    https://www.rockland.dk/" -- exact Commons File: page not re-recorded,
+    see the file's own metadata in assets/source/imono1_poppyfield.jpg).
+
+    "Zebras Ngorongoro Crater.jpg" by Muhammad Mahdi Karim, GFDL 1.2:
+    https://commons.wikimedia.org/wiki/File:Zebras_Ngorongoro_Crater.jpg
+
+    "Portrait de femme en tenue traditionnelle de Berbère Algérien.jpg" by
+    Samia Dib Benkaci, CC BY-SA 4.0:
+    https://commons.wikimedia.org/wiki/File:Portrait_de_femme_en_tenue_traditionnelle_de_Berb%C3%A8re_Alg%C3%A9rien.jpg
+
+-   VDC-IM800:
+
+    "Lavender Field Provence France 021.JPG" by Marek Gehrmann, CC BY-SA 3.0:
+    https://commons.wikimedia.org/wiki/File:Lavender_Field_Provence_France_021.JPG
+
+    "The History of Apple Pie - Kelly Lee Owens (2013).jpg" by Sylvain lasco,
+    CC BY-SA 4.0:
+    https://commons.wikimedia.org/wiki/File:The_History_of_Apple_Pie_-_Kelly_Lee_Owens_(2013).jpg
+
+    Third picture: "Maupi", the author's own cat (not Commons-sourced).
 
 -   Scott Hutter - VDC Core functions inspiration:
 

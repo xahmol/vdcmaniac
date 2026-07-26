@@ -173,7 +173,7 @@ extern unsigned raster_cycles_per_line_x1000; // measured cycles/line, fixed-poi
 //     incremented once per frame) instead: run the effect for a fixed
 //     number of frames, call raster_music_irq_stop(), then check for a
 //     keypress via the normal vdcwin_checkch() path once KERNAL banking is
-//     back. See mono_hires_xl_demo() (src/main.c) for an example that
+//     back. See title_screen() (src/main.c) for an example that
 //     sidesteps this differently, by using raster_bar_*() instead of this
 //     mechanism entirely, when animation isn't actually required.
 //   - Don't touch any VDC register ($d600/$d601, or the vdc_prints()/

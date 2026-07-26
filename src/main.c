@@ -6,12 +6,14 @@
 #include <c128/vdc.h>
 #include <c128/mmu.h>
 #include <c64/cia.h>
+#include <c64/vic.h>
 #include <c64/keyboard.h>
 #include "defines.h"
 #include "banking.h"
 #include "vdc_core.h"
 #include "vdc_win.h"
 #include "vdc_raster.h"
+#include "peekpoke.h"
 #include "krill.h"
 
 // Buffer for attribute screen calculations
@@ -410,6 +412,13 @@ void raster_place_test()
 	char line;
 	char keypress = 0;
 
+	// Clear first -- entered from the menu (or looped back to from a
+	// previous ESC/STOP), whose own text would otherwise still show through
+	// in every column this function doesn't explicitly overwrite (it only
+	// ever writes columns 0-1 for the line-number gutter plus a handful of
+	// short strings, never a full-width vdc_cls()-equivalent of its own).
+	vdc_cls();
+
 	// Print line numbers and instructions
 	for (char i = 0; i < 25; i++)
 	{
@@ -462,6 +471,52 @@ void raster_place_test()
 	vdc_wipe_transition();
 }
 
+void vdc_header_bar(const char *subtitle)
+// Two-row reverse-video header bar, matching UltimateDemo2026's
+// screen_init()/header_line() convention (see that project's src/screen.c):
+// row 0 is the fixed project title+tagline (left) plus the site credit
+// (right), row 1 the screen-specific subtitle (centred). Both rows are
+// full-width solid-colour bars (vdc_hchar() fills both the text plane,
+// with C_SPACE, and the attribute plane, with the reverse-video colour, in
+// one call -- same primitive vdc_menu.c's own dormant menu_placeheader()/
+// menu_placebar() already use). Called at the top of every menu/info/
+// diagnostic text screen, right after vdc_cls() -- body text starts at
+// row 3 or later, same as before this convention existed. Title text is
+// 50 chars, credit is 17, right-aligned at column 61-77 -- an ~10-column
+// gap between them at 80 columns, checked when the title was lengthened
+// from plain "VDC Maniac" to include the tagline (title_screen()'s own
+// "Experiments with C128's greatest asset").
+{
+	static const char title[] = "VDC Maniac: Experiments with C128's greatest asset";
+	static const char credit[] = "IDreamIn8Bits.com";
+	char x;
+
+	vdc_hchar(0, 0, C_SPACE, VDC_DGREEN | VDC_A_REVERSE | VDC_A_ALTCHAR, 80);
+	vdc_prints_attr(1, 0, title, VDC_DGREEN | VDC_A_REVERSE | VDC_A_ALTCHAR);
+	x = (char)(78 - strlen(credit));
+	vdc_prints_attr(x, 0, credit, VDC_DGREEN | VDC_A_REVERSE | VDC_A_ALTCHAR);
+
+	vdc_hchar(0, 1, C_SPACE, VDC_LGREEN | VDC_A_REVERSE | VDC_A_ALTCHAR, 80);
+	x = (char)((80 - strlen(subtitle)) / 2);
+	vdc_prints_attr(x, 1, subtitle, VDC_LGREEN | VDC_A_REVERSE | VDC_A_ALTCHAR);
+}
+
+void diag_line(char row, const char *label, const char *badge, char badgecolor, const char *detail)
+// One row of a UltimateDemo2026-style "label : [BADGE] detail" diagnostic
+// line (see that project's screen_result()) -- label in the ambient body
+// colour, badge in badgecolor (reverse-free, just a coloured tag), detail
+// alongside it. Uses its own local buffer for the label, never the shared
+// global `linebuffer` -- callers commonly pass a `linebuffer`-built string
+// as `detail` itself, and formatting the label into the same shared buffer
+// here would clobber that string before it gets printed.
+{
+	char label_buf[24];
+	sprintf(label_buf, "%-20s:", label);
+	vdc_prints(5, row, label_buf);
+	vdc_prints_attr(26, row, badge, badgecolor | VDC_A_ALTCHAR);
+	vdc_prints(33, row, detail);
+}
+
 void vdc_mode_info_screen(const char *modename, const char *line1, const char *line2, const char *line3, const char *line4)
 // Shows a text-mode "specs" screen for the upcoming VDC Mode Mania mode --
 // same idea as Tokra's own original BASIC demo, which prints a screen like
@@ -476,8 +531,7 @@ void vdc_mode_info_screen(const char *modename, const char *line1, const char *l
 {
 	vdc_init(VDC_TEXT_80x25_PAL, 0);
 	vdc_cls();
-	vdc_prints(5, 2, modename);
-	vdc_prints(5, 3, "----------------------------------------");
+	vdc_header_bar(modename);
 	if (line1)
 	{
 		vdc_prints(5, 5, line1);
@@ -494,7 +548,7 @@ void vdc_mode_info_screen(const char *modename, const char *line1, const char *l
 	{
 		vdc_prints(5, 8, line4);
 	}
-	vdc_prints(5, 11, "loading...");
+	vdc_prints(5, 11, "Loading...");
 }
 
 void raster_bar(char upper, char lower, char length)
@@ -679,21 +733,24 @@ void title_screen()
 	// during an active Krill session either (only once, before
 	// krill_loadcode()/krill_init() even run) -- removed here to match.
 	// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
-	// KRILL_COMPRESSED_ASSETS comment for how titletpk/titlebtk were derived
-	// from vdce-scrtit.top/.bot (same content, re-baked destination header).
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "titletpk"))
+	// KRILL_COMPRESSED_ASSETS comment for how titleevk/titleodk were derived
+	// from vdce-scrtit.eve/.odd (same content, re-baked destination header).
+	// Named even/odd, not top/bottom: these are interlace fields (even
+	// source rows / odd source rows), not a physical top-half/bottom-half
+	// split -- see tools/vdc_convert.py's own comment on this mode.
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "titleevk"))
 	{
-		printf("krill loadcompd failed: titletpk\n");
+		printf("krill loadcompd failed: titleevk\n");
 		exit(1);
 	}
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN + 16000, "titlebtk"))
+	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN + 16000, "titleodk"))
 	{
-		printf("krill loadcompd failed: titlebtk\n");
+		printf("krill loadcompd failed: titleodk\n");
 		exit(1);
 	}
 
 	// Init proper hires mode
-	// Must match the resolution the vdce-scrtit.top/.bot assets were
+	// Must match the resolution the vdce-scrtit.eve/.odd assets were
 	// exported for: 640x400 mono (32000 bytes total, 16000/half). An
 	// in-session experiment switched this to VDC_HIRES_640x480_Mono_NTSC
 	// (with the load offset bumped to 19200 to match that taller mode's
@@ -746,7 +803,7 @@ void title_screen()
 		// values -- 182/181/176/114/85/84 -- were hand-tuned against the
 		// old "VDC Experience" picture's own content boundaries, which sit
 		// at different rows). Derived by measuring per-row pixel density in
-		// the new vdce-scrtit.top/.bot to find the actual near-blank gaps
+		// the new vdce-scrtit.eve/.odd to find the actual near-blank gaps
 		// between the top art / "VDC Maniac" text / "Experiments with..."
 		// text / bottom art, then mapping row -> raster-line using the old
 		// picture's own two known-good anchor points (182 <-> its top gap's
@@ -1091,33 +1148,17 @@ void fli_color_demo()
 // interlaced dual-field encoding: just a static bitmap plane plus a static
 // attribute plane, the same mechanism plasma_demo()/rotate_demo() already
 // use for VDC_HIRES_640x200_Color_PAL (procedural content there; a loaded
-// picture here). Picture converted from a CC0 photograph by
-// tools/vdc_convert.py -- see defines.h for the source/license.
+// picture here). Cycles through 3 real photos (tools/vdc_convert.py output,
+// see defines.h for sources/licenses), advancing on keypress.
 {
-	vdc_mode_info_screen("VDC-FLI", "480 x 252 pixels, non-interlace", "colour resolution: 8x1", 0, 0);
-
-	// DIAGNOSTIC SWAP (temporary): loading Tokra's own "merida" picture
-	// (original/v12/sd2iec-version/merida.bit/.col, copied verbatim to
-	// assets/vdcfli-orig.bit/.col -- same 15120-byte format, no conversion)
-	// instead of our own tools/vdc_convert.py output, to check whether this
-	// mode's register set alone renders a *known-good* VDC-FLI picture
-	// correctly -- isolates "is our register table/timing right" from "is
-	// our own converter/picture choice right". Revert to "vdcfli.bit"/
-	// "vdcfli.col" once confirmed.
-	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
-	// comment on this pattern.
-	// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
-	// KRILL_COMPRESSED_ASSETS comment.
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "flibitk"))
-	{
-		printf("krill loadcompd failed: flibitk\n");
-		exit(1);
-	}
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN + 15120, "flicolk"))
-	{
-		printf("krill loadcompd failed: flicolk\n");
-		exit(1);
-	}
+	static const char *descr[3] = {
+		"Landmannalaugar, Iceland",
+		"Utrecht cityscape",
+		"Scarlet macaw, Copan",
+	};
+	static const char *bitnames[3] = {"fli1bitk", "fli2bitk", "fli3bitk"};
+	static const char *colnames[3] = {"fli1colk", "fli2colk", "fli3colk"};
+	char pic;
 
 	// HDISPLAY/HSYNC (registers 1/2) are not part of any other mode's
 	// vdc_modes[] row -- every 640-pixel-wide mode has always relied on
@@ -1132,81 +1173,105 @@ void fli_color_demo()
 	char old_hdisplay = vdc_reg_read(VDCR_HDISPLAY);
 	char old_hsync = vdc_reg_read(VDCR_HSYNC);
 
-	// Wipe here (unlike other sections, which rely on the *previous*
-	// section's own exit wipe -- see init_plasma()'s comment): this
-	// function's own vdc_mode_info_screen() call above already switched to
-	// text mode and is itself the thing that needs wiping away now, right
-	// before switching to this mode's own geometry -- otherwise the info
-	// text would briefly show reinterpreted under VDC-FLI's bitmap/
-	// attribute layout before bnk_cpytovdc() below overwrites it.
-	vdc_wipe_transition();
-
-	vdc_init(VDC_HIRES_480x252_Color_PAL, 1);
-	if (!vdc_state.bitmap)
+	for (pic = 0; pic < 3; pic++)
 	{
-		return;
-	}
+		// Wipe first every pass (harmless on pic==0, coming from the text-mode
+		// menu; clears the *previous* picture's bitmap on later passes before
+		// vdc_mode_info_screen() below draws text over it -- see the 3-picture
+		// loop's own comment convention, mono_hires_xl_demo()/mono_im800_demo()
+		// use the same pattern).
+		vdc_wipe_transition();
 
-	// CSIZE (register 9) is deliberately absent from this mode's vdc_modes[]
-	// row (see its comment in vdc_core.c) -- vdc_set_mode()'s regset loop
-	// therefore leaves it at whatever the *previous* mode set it to (height 8
-	// for every mode that ran before this one), not the height-1 this mode
-	// needs. The per-frame toggle below corrects that once it starts, but
-	// vdc_init() already re-enabled the display, and there's a real gap
-	// between here and the toggle loop's first pass (both bnk_cpytovdc()
-	// calls, plus the keypress-drain wait below) where the picture would
-	// otherwise show at 8x the intended height. Force it to height 1 now so
-	// that gap is never visibly wrong.
-	vdc_reg_write(VDCR_CSIZE, 0xe0);
+		vdc_mode_info_screen("VDC-FLI", "480 x 252 pixels, non-interlace", "colour resolution: 8x1", descr[pic], 0);
 
-	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 15120);
-	bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN + 15120, 15120);
-
-	while (vdcwin_checkch())
-	{
-	}
-
-	// VDC-FLI's per-frame CSIZE (register 9) toggle -- see the long comment
-	// on this mode's vdc_modes[] row in vdc_core.c for why this is here
-	// instead of a static register value: reverse-engineered from Tokra's
-	// sys4864 (vdcmodemania.bas).
-	//
-	// Exit check is a direct CIA1 keyboard-matrix poll (keyb_poll(), called
-	// with interrupts still disabled from the asm block above), not
-	// vdcwin_checkch()/KERNAL GETIN -- matching Tokra's own sys4864, which
-	// reads $dc00/$dc01 directly inside this same SEI-held loop rather than
-	// re-enabling interrupts and going through the KERNAL. This loop holds
-	// SEI for nearly the entire VDC frame (fw1 waits out the active display
-	// period, fw2 waits out the following vblank), leaving only a brief CLI
-	// window each pass -- not enough of a guarantee that the KERNAL's own
-	// keyboard-scan IRQ gets to run and populate GETIN's buffer, which is
-	// what going through vdcwin_checkch() here depended on and is the likely
-	// cause of this section previously appearing to hang (frozen in the
-	// pre-toggle CSIZE state above, never reaching a completed pass).
-	// keyb_poll() only touches CIA1 registers directly, so it's safe to call
-	// with interrupts still off.
-	do
-	{
-		__asm
+		// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
+		// KRILL_COMPRESSED_ASSETS comment.
+		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, bitnames[pic]))
 		{
-			sei
-			ldx #9
-			lda #$20
-			ldy #$e0
-		fw1:
-			bit $d600
-			bne fw1
-			stx $d600
-			sty $d601
-			ldy #$e7
-		fw2:
-			bit $d600
-			beq fw2
-			sty $d601
+			printf("krill loadcompd failed: %s\n", bitnames[pic]);
+			exit(1);
 		}
-		keyb_poll();
-		__asm { cli }
-	} while (keyb_key == 0);
+		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN + 15120, colnames[pic]))
+		{
+			printf("krill loadcompd failed: %s\n", colnames[pic]);
+			exit(1);
+		}
+
+		// Wipe here too -- the info screen (text mode) needs to be cleared
+		// before switching to this mode's own bitmap geometry, otherwise it
+		// would briefly show reinterpreted under VDC-FLI's bitmap/attribute
+		// layout before bnk_cpytovdc() below overwrites it.
+		vdc_wipe_transition();
+
+		vdc_init(VDC_HIRES_480x252_Color_PAL, 1);
+		if (!vdc_state.bitmap)
+		{
+			return;
+		}
+
+		// CSIZE (register 9) is deliberately absent from this mode's
+		// vdc_modes[] row (see its comment in vdc_core.c) -- vdc_set_mode()'s
+		// regset loop therefore leaves it at whatever the *previous* mode
+		// set it to (height 8 for every mode that ran before this one), not
+		// the height-1 this mode needs. The per-frame toggle below corrects
+		// that once it starts, but vdc_init() already re-enabled the
+		// display, and there's a real gap between here and the toggle
+		// loop's first pass (both bnk_cpytovdc() calls, plus the
+		// keypress-drain wait below) where the picture would otherwise show
+		// at 8x the intended height. Force it to height 1 now so that gap
+		// is never visibly wrong.
+		vdc_reg_write(VDCR_CSIZE, 0xe0);
+
+		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 15120);
+		bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN + 15120, 15120);
+
+		while (vdcwin_checkch())
+		{
+		}
+
+		// VDC-FLI's per-frame CSIZE (register 9) toggle -- see the long
+		// comment on this mode's vdc_modes[] row in vdc_core.c for why this
+		// is here instead of a static register value: reverse-engineered
+		// from Tokra's sys4864 (vdcmodemania.bas).
+		//
+		// Exit check is a direct CIA1 keyboard-matrix poll (keyb_poll(),
+		// called with interrupts still disabled from the asm block above),
+		// not vdcwin_checkch()/KERNAL GETIN -- matching Tokra's own
+		// sys4864, which reads $dc00/$dc01 directly inside this same
+		// SEI-held loop rather than re-enabling interrupts and going
+		// through the KERNAL. This loop holds SEI for nearly the entire VDC
+		// frame (fw1 waits out the active display period, fw2 waits out the
+		// following vblank), leaving only a brief CLI window each pass --
+		// not enough of a guarantee that the KERNAL's own keyboard-scan IRQ
+		// gets to run and populate GETIN's buffer, which is what going
+		// through vdcwin_checkch() here depended on and is the likely cause
+		// of this section previously appearing to hang (frozen in the
+		// pre-toggle CSIZE state above, never reaching a completed pass).
+		// keyb_poll() only touches CIA1 registers directly, so it's safe to
+		// call with interrupts still off.
+		do
+		{
+			__asm
+			{
+				sei
+				ldx #9
+				lda #$20
+				ldy #$e0
+			fw1:
+				bit $d600
+				bne fw1
+				stx $d600
+				sty $d601
+				ldy #$e7
+			fw2:
+				bit $d600
+				beq fw2
+				sty $d601
+			}
+			keyb_poll();
+			__asm { cli }
+		} while (keyb_key == 0);
+	}
 
 	// Wipe right as the keypress that ends this section is detected -- see
 	// init_plasma()'s comment. Supersedes the plain vdc_cls() this used to
@@ -1228,9 +1293,8 @@ void fli_ihfli_demo()
 // time into the 32KB CPU staging buffer (each field individually fits;
 // no pair fits together, unlike VDC-FLI's single bitmap+colour load) --
 // same sequential load-then-copy pattern as VDC-IMONO's top+bottom split,
-// just with twice as many fields. Picture: Tokra's own "lochness"
-// (temporary, same convention as the VDC-FLI/VDC-IMONO diagnostic swaps --
-// not CC-licensed, revisit before any public release). No HDISPLAY/HSYNC/
+// just with twice as many fields. Cycles through 3 real photos (see
+// defines.h for sources/licenses). No HDISPLAY/HSYNC/
 // SYNCSIZE save-restore needed here (unlike VDC-FLI/VDC-IMONO): this mode
 // is 640 pixels/80 columns wide like the KERNAL default, and every
 // vdc_init() call now resets those three registers to the boot baseline
@@ -1239,53 +1303,72 @@ void fli_ihfli_demo()
 // automatically regardless of what this one leaves behind.
 // Live-confirmed working.
 {
-	vdc_mode_info_screen("VDC-IHFLI", "640 x 480 pixels (interlace)", "colour resolution: 8x2", "refresh rate about 30 Hz", 0);
+	static const char *descr[3] = {
+		"Passiflora caerulea macro",
+		"Sunflower",
+		"Keel-billed toucan, Belize",
+	};
+	// Named even/odd, not top/bottom: these are interlace fields (even
+	// source rows / odd source rows), not a physical top-half/bottom-half
+	// split -- see tools/vdc_convert.py's deinterlace_fields() comment.
+	static const char *ce_names[3] = {"ihfli1cek", "ihfli2cek", "ihfli3cek"};
+	static const char *co_names[3] = {"ihfli1cok", "ihfli2cok", "ihfli3cok"};
+	static const char *be_names[3] = {"ihfli1bek", "ihfli2bek", "ihfli3bek"};
+	static const char *bo_names[3] = {"ihfli1bok", "ihfli2bok", "ihfli3bok"};
+	char pic;
 
-	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
-	// comment on this pattern.
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "ihflictk"))
+	for (pic = 0; pic < 3; pic++)
 	{
-		printf("krill loadcompd failed: ihflictk\n");
-		exit(1);
-	}
+		vdc_wipe_transition();
 
-	vdc_wipe_transition();
+		vdc_mode_info_screen("VDC-IHFLI", "640 x 480 pixels (interlace)", "colour resolution: 8x2", descr[pic], 0);
 
-	vdc_init(VDC_HIRES_640x480_IHFLI_NTSC, 1);
-	if (!vdc_state.bitmap)
-	{
-		return;
-	}
+		// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
+		// KRILL_COMPRESSED_ASSETS comment.
+		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, ce_names[pic]))
+		{
+			printf("krill loadcompd failed: %s\n", ce_names[pic]);
+			exit(1);
+		}
 
-	bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 9600);
+		vdc_wipe_transition();
 
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "ihflicbk"))
-	{
-		printf("krill loadcompd failed: ihflicbk\n");
-		exit(1);
-	}
-	bnk_cpytovdc(0x0230, BNK_1_FULL, (char *)MEM_SCREEN, 9600);
+		vdc_init(VDC_HIRES_640x480_IHFLI_NTSC, 1);
+		if (!vdc_state.bitmap)
+		{
+			return;
+		}
 
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "ihflibtk"))
-	{
-		printf("krill loadcompd failed: ihflibtk\n");
-		exit(1);
-	}
-	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 19200);
+		bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 9600);
 
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "ihflibbk"))
-	{
-		printf("krill loadcompd failed: ihflibbk\n");
-		exit(1);
-	}
-	bnk_cpytovdc(0x5780, BNK_1_FULL, (char *)MEM_SCREEN, 19200);
+		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, co_names[pic]))
+		{
+			printf("krill loadcompd failed: %s\n", co_names[pic]);
+			exit(1);
+		}
+		bnk_cpytovdc(0x0230, BNK_1_FULL, (char *)MEM_SCREEN, 9600);
 
-	while (vdcwin_checkch())
-	{
-	}
+		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, be_names[pic]))
+		{
+			printf("krill loadcompd failed: %s\n", be_names[pic]);
+			exit(1);
+		}
+		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 19200);
 
-	while (!vdcwin_checkch())
-	{
+		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, bo_names[pic]))
+		{
+			printf("krill loadcompd failed: %s\n", bo_names[pic]);
+			exit(1);
+		}
+		bnk_cpytovdc(0x5780, BNK_1_FULL, (char *)MEM_SCREEN, 19200);
+
+		while (vdcwin_checkch())
+		{
+		}
+
+		while (!vdcwin_checkch())
+		{
+		}
 	}
 
 	// Wipe right as the keypress that ends this section is detected -- see
@@ -1297,58 +1380,74 @@ void fli_itfli_demo()
 // Showcases VDC-ITFLI (640x576, interlace, 8x3 colour cells, near-PAL --
 // see original/v12/). Same dual-field structure as VDC-IHFLI above, just
 // PAL-tuned timing and taller (8x3 cells) -- tightest fit of the whole
-// set (picture data alone is 61440 of 65536 bytes). Picture: Tokra's own
-// "castle" (temporary, see fli_ihfli_demo()'s comment on licensing). No
-// HDISPLAY/HSYNC/SYNCSIZE save-restore needed, same reasoning as
-// fli_ihfli_demo(). Live-confirmed working.
+// set (picture data alone is 61440 of 65536 bytes). Cycles through 3 real
+// photos (see defines.h for sources/licenses). No HDISPLAY/HSYNC/SYNCSIZE
+// save-restore needed, same reasoning as fli_ihfli_demo().
 {
-	vdc_mode_info_screen("VDC-ITFLI", "640 x 576 pixels (interlace)", "colour resolution: 8x3", "refresh rate about 25 Hz", 0);
+	static const char *descr[3] = {
+		"Tutankhamun funerary mask",
+		"Hyacinth macaw, the Pantanal, Brazil",
+		"Red rose",
+	};
+	// Named even/odd, not top/bottom -- see fli_ihfli_demo()'s own comment.
+	static const char *ce_names[3] = {"itfli1cek", "itfli2cek", "itfli3cek"};
+	static const char *co_names[3] = {"itfli1cok", "itfli2cok", "itfli3cok"};
+	static const char *be_names[3] = {"itfli1bek", "itfli2bek", "itfli3bek"};
+	static const char *bo_names[3] = {"itfli1bok", "itfli2bok", "itfli3bok"};
+	char pic;
 
-	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
-	// comment on this pattern.
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "itflictk"))
+	for (pic = 0; pic < 3; pic++)
 	{
-		printf("krill loadcompd failed: itflictk\n");
-		exit(1);
-	}
+		vdc_wipe_transition();
 
-	vdc_wipe_transition();
+		vdc_mode_info_screen("VDC-ITFLI", "640 x 576 pixels (interlace)", "colour resolution: 8x3", descr[pic], 0);
 
-	vdc_init(VDC_HIRES_640x576_ITFLI_PAL, 1);
-	if (!vdc_state.bitmap)
-	{
-		return;
-	}
+		// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
+		// KRILL_COMPRESSED_ASSETS comment.
+		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, ce_names[pic]))
+		{
+			printf("krill loadcompd failed: %s\n", ce_names[pic]);
+			exit(1);
+		}
 
-	bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 7680);
+		vdc_wipe_transition();
 
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "itflicbk"))
-	{
-		printf("krill loadcompd failed: itflicbk\n");
-		exit(1);
-	}
-	bnk_cpytovdc(0x0000, BNK_1_FULL, (char *)MEM_SCREEN, 7680);
+		vdc_init(VDC_HIRES_640x576_ITFLI_PAL, 1);
+		if (!vdc_state.bitmap)
+		{
+			return;
+		}
 
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "itflibtk"))
-	{
-		printf("krill loadcompd failed: itflibtk\n");
-		exit(1);
-	}
-	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 23040);
+		bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 7680);
 
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "itflibbk"))
-	{
-		printf("krill loadcompd failed: itflibbk\n");
-		exit(1);
-	}
-	bnk_cpytovdc(0x4100, BNK_1_FULL, (char *)MEM_SCREEN, 23040);
+		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, co_names[pic]))
+		{
+			printf("krill loadcompd failed: %s\n", co_names[pic]);
+			exit(1);
+		}
+		bnk_cpytovdc(0x0000, BNK_1_FULL, (char *)MEM_SCREEN, 7680);
 
-	while (vdcwin_checkch())
-	{
-	}
+		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, be_names[pic]))
+		{
+			printf("krill loadcompd failed: %s\n", be_names[pic]);
+			exit(1);
+		}
+		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 23040);
 
-	while (!vdcwin_checkch())
-	{
+		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, bo_names[pic]))
+		{
+			printf("krill loadcompd failed: %s\n", bo_names[pic]);
+			exit(1);
+		}
+		bnk_cpytovdc(0x4100, BNK_1_FULL, (char *)MEM_SCREEN, 23040);
+
+		while (vdcwin_checkch())
+		{
+		}
+
+		while (!vdcwin_checkch())
+		{
+		}
 	}
 
 	// Wipe right as the keypress that ends this section is detected -- see
@@ -1361,46 +1460,56 @@ void fli_hfli_demo()
 // original/v12/). Simplest of the three remaining colour modes -- single
 // static bitmap+colour plane, no dual-field encoding, no per-frame CSIZE
 // toggle (CSIZE=1 is set directly in this mode's own vdc_modes[] row,
-// unlike VDC-FLI). Picture: Tokra's own "hartverdraht" (temporary, see
-// fli_ihfli_demo()'s comment on licensing -- this one's a German word,
-// "hard-wired", likely an abstract/procedural image rather than a
-// copyrighted photo, but not otherwise verified). No HDISPLAY/HSYNC/
-// SYNCSIZE save-restore needed, same reasoning as fli_ihfli_demo(). Not
-// yet live-tested.
+// unlike VDC-FLI). Cycles through 3 real photos (tools/vdc_convert.py
+// output, see defines.h for sources/licenses), advancing on keypress.
 {
-	vdc_mode_info_screen("VDC-HFLI", "640 x 400 pixels, non-interlace", "colour resolution: 8x2", "refresh rate about 37 Hz", 0);
+	static const char *descr[3] = {
+		"Parrots, Indonesia",
+		"Tulip field, Holland",
+		"Autumn fjord, Gullesfjordbotn, Norway",
+	};
+	static const char *bitnames[3] = {"hfli1btk", "hfli2btk", "hfli3btk"};
+	static const char *colnames[3] = {"hfli1clk", "hfli2clk", "hfli3clk"};
+	char pic;
 
-	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
-	// comment on this pattern.
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "hflibitk"))
+	for (pic = 0; pic < 3; pic++)
 	{
-		printf("krill loadcompd failed: hflibitk\n");
-		exit(1);
-	}
+		vdc_wipe_transition();
 
-	vdc_wipe_transition();
+		vdc_mode_info_screen("VDC-HFLI", "640 x 400 pixels, non-interlace", "colour resolution: 8x2", descr[pic], 0);
 
-	vdc_init(VDC_HIRES_640x400_HFLI_PAL, 1);
-	if (!vdc_state.bitmap)
-	{
-		return;
-	}
+		// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
+		// KRILL_COMPRESSED_ASSETS comment.
+		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, bitnames[pic]))
+		{
+			printf("krill loadcompd failed: %s\n", bitnames[pic]);
+			exit(1);
+		}
 
-	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 32000);
+		vdc_wipe_transition();
 
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "hflicolk"))
-	{
-		printf("krill loadcompd failed: hflicolk\n");
-		exit(1);
-	}
-	bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 16000);
+		vdc_init(VDC_HIRES_640x400_HFLI_PAL, 1);
+		if (!vdc_state.bitmap)
+		{
+			return;
+		}
 
-	while (vdcwin_checkch())
-	{
-	}
+		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 32000);
 
-	while (!vdcwin_checkch())
-	{
+		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, colnames[pic]))
+		{
+			printf("krill loadcompd failed: %s\n", colnames[pic]);
+			exit(1);
+		}
+		bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 16000);
+
+		while (vdcwin_checkch())
+		{
+		}
+
+		while (!vdcwin_checkch())
+		{
+		}
 	}
 
 	// Wipe right as the keypress that ends this section is detected -- see
@@ -1408,48 +1517,89 @@ void fli_hfli_demo()
 	vdc_wipe_transition();
 }
 
+// Shared by mono_hires_xl_demo()/mono_im800_demo(): both are non-attribute
+// bitmap modes (colorlines=0), so the *entire* picture's "1" bits are
+// coloured by one single register (VDCR_COLOR high nibble, vdc_fgcolor()) --
+// same mechanism idi8b_logo_demo()'s raster bar exploits, just static here
+// instead of animated. Per-picture raster colour bands were tried first and
+// dropped (2026-07-26): unstable in VICE and not the effect actually
+// wanted. This replaces them with a manual colour cycle instead.
+static const char mono_cycle_colors[15] = {
+	VDC_WHITE, VDC_LGREY, VDC_DGREY, VDC_LYELLOW, VDC_DYELLOW,
+	VDC_LRED, VDC_DRED, VDC_LPURPLE, VDC_DPURPLE, VDC_LBLUE,
+	VDC_DBLUE, VDC_LCYAN, VDC_DCYAN, VDC_LGREEN, VDC_DGREEN,
+};
+
+char mono_color_cycle_wait()
+// Waits for a keypress; '+' (or '=', accepted as an alias since it shares
+// the same physical key on most keyboards and is easier to hit than a
+// shifted '+' through VICE's own keyboard mapping) and '-' cycle the
+// picture's foreground colour instead of ending the wait. Starts at white
+// every time a new picture is shown; VDC_BLACK is deliberately excluded
+// from the cycle entirely (a black "1" plane would make the whole picture
+// invisible against the black background). Returns the first non-cycling
+// key pressed -- the caller's own "advance to next picture" signal.
+{
+	char key;
+	char idx = 0; // mono_cycle_colors[0] == VDC_WHITE
+
+	vdc_fgcolor(mono_cycle_colors[idx]);
+	for (;;)
+	{
+		do
+		{
+			key = vdcwin_checkch();
+		} while (key == 0);
+
+		if (key == '+' || key == '=')
+		{
+			idx = (idx + 1) % 15;
+			vdc_fgcolor(mono_cycle_colors[idx]);
+		}
+		else if (key == '-')
+		{
+			idx = (idx == 0) ? 14 : idx - 1;
+			vdc_fgcolor(mono_cycle_colors[idx]);
+		}
+		else
+		{
+			return key;
+		}
+	}
+}
+
 void mono_hires_xl_demo()
-// Showcases VDC-IMONO (720x700, interlace monochrome -- see original/v12/)
-// combined with raster_bar_*()'s CIA2 busy-wait bars -- the same mechanism
-// title_screen() uses (Mechanism 1), not raster_music_irq_start()'s CIA1
-// hardware IRQ (Mechanism 2 -- dropped from this demo entirely, see
-// mono_colorize_demo()'s comment in main(): even a fixed-duration timer
-// exit didn't work reliably). Mechanism 2 banks out KERNAL/BASIC/char ROM
-// for its whole active duration, which is
+// Showcases VDC-IMONO (720x700, interlace monochrome -- see original/v12/).
+// Mechanism 2 (raster_music_irq_start()'s CIA1 hardware IRQ) was dropped
+// from this demo entirely, see mono_colorize_demo()'s comment in main():
+// even a fixed-duration timer exit didn't work reliably, it banks out
+// KERNAL/BASIC/char ROM for its whole active duration, which is
 // what made keyb_poll()-based keypress detection unreliable here (see
 // memory: mono_colorize_keypress_bug -- extensively diagnosed, root cause
-// never found). Mechanism 1 never banks out KERNAL, so the proven-reliable
-// vdcwin_checkch() (KERNAL GETIN) works exactly like it does in
-// title_screen() -- this sidesteps that bug entirely rather than continuing
-// to chase it. The trade-off: raster_bar_line()'s line is a single byte, so
-// (unlike Mechanism 2's colortable[], sized to the picture's full 700
-// lines) one synced sweep can only colour a handful of section bands, not
-// the whole picture at once -- matches what was actually asked for here
-// (static coloured sections, not full-picture animation). Picture
-// converted from a CC-BY-SA photograph by tools/vdc_convert.py -- see
-// defines.h for the source/license.
+// never found). The proven-reliable vdcwin_checkch() (KERNAL GETIN) works
+// exactly like it does in title_screen() -- this sidesteps that bug
+// entirely rather than continuing to chase it. Picture converted from a
+// CC-BY-SA photograph by tools/vdc_convert.py -- see defines.h for the
+// source/license.
 //
 // The 720x700 bitmap is 63000 bytes -- bigger than the 32KB CPU RAM staging
 // area (MEM_SCREEN..MEM_CHARSET, see defines.h) used to load a picture into
-// VDC memory in one piece, so unlike title_screen()'s top+bot (which both
-// fit in that 32KB together), each half here is loaded and copied to VDC
-// memory before the next half is loaded into the same buffer.
+// VDC memory in one piece, so unlike title_screen()'s even/odd fields
+// (which both fit in that 32KB together), each field here is loaded and
+// copied to VDC memory before the next field is loaded into the same
+// buffer.
 {
-	vdc_mode_info_screen("VDC-IMONO", "720 x 700 pixels (interlace)", "monochrome", "refresh rate about 21 Hz", 0);
-
-	// DIAGNOSTIC SWAP (temporary): loading Tokra's own "avril" picture
-	// (original/v12/sd2iec-version/avril.bt/.bb, copied verbatim to
-	// assets/vdcimono-orig.top/.bot -- same 31500-byte-per-half format, no
-	// conversion) instead of our own tools/vdc_convert.py output -- same
-	// reasoning as fli_color_demo()'s swap above. Revert to "vdcimono.top"/
-	// "vdcimono.bot" once confirmed.
-	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
-	// comment on this pattern.
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "imonotpk"))
-	{
-		printf("krill loadcompd failed: imonotpk\n");
-		exit(1);
-	}
+	static const char *descr[3] = {
+		"Poppy field",
+		"Zebra with herd",
+		"Berber woman, traditional dress",
+	};
+	// Named even/odd, not top/bottom: these are interlace fields (even
+	// source rows / odd source rows), not a physical top-half/bottom-half
+	// split -- see tools/vdc_convert.py's deinterlace_fields() comment.
+	static const char *ev_names[3] = {"imono1evk", "imono2evk", "imono3evk"};
+	static const char *od_names[3] = {"imono1odk", "imono2odk", "imono3odk"};
+	char pic;
 
 	// HDISPLAY/HSYNC/SYNCSIZE (registers 1/2/3) aren't part of any other
 	// mode's vdc_modes[] row (see the identical comment in fli_color_demo());
@@ -1460,87 +1610,58 @@ void mono_hires_xl_demo()
 	char old_hsync = vdc_reg_read(VDCR_HSYNC);
 	char old_syncsize = vdc_reg_read(VDCR_SYNCSIZE);
 
-	// Wipe here -- see the identical comment in fli_color_demo(): this
-	// function's own vdc_mode_info_screen() call above switched to text
-	// mode, which needs wiping away before switching to this mode's own
-	// geometry.
-	vdc_wipe_transition();
-
-	vdc_init(VDC_HIRES_720x700_Mono_PAL, 1);
-	if (!vdc_state.bitmap)
+	for (pic = 0; pic < 3; pic++)
 	{
-		return;
+		vdc_wipe_transition();
+
+		vdc_mode_info_screen("VDC-IMONO", "720 x 700 pixels (interlace)", "monochrome", descr[pic], 0);
+
+		// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
+		// KRILL_COMPRESSED_ASSETS comment.
+		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, ev_names[pic]))
+		{
+			printf("krill loadcompd failed: %s\n", ev_names[pic]);
+			exit(1);
+		}
+
+		// Wipe here -- see the identical comment in fli_color_demo(): the
+		// info screen (text mode) needs wiping away before switching to
+		// this mode's own geometry.
+		vdc_wipe_transition();
+
+		vdc_init(VDC_HIRES_720x700_Mono_PAL, 1);
+		if (!vdc_state.bitmap)
+		{
+			return;
+		}
+
+		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 31500);
+
+		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, od_names[pic]))
+		{
+			printf("krill loadcompd failed: %s\n", od_names[pic]);
+			exit(1);
+		}
+
+		// Odd field goes to VDC address 0x82c8, *not* base_text+31500
+		// (0x7b0c) -- disassembling Tokra's own file loader (gosub9999,
+		// vdcmodemania.bas line 5004: "v=dec("82c8"):n$=f$+".bb"") shows a
+		// genuine ~1980-byte gap between the two fields, not a simple back-to-
+		// back split. tools/vdc_convert.py's own deinterlace_fields() confirms
+		// this is an even/odd row split, not a physical top/bottom-half one.
+		// 0x82c8 leaves the same ~2.5KB headroom this mode's char_std=0
+		// comment already assumed (63000 bytes across the two fields either
+		// way), just not contiguous.
+		bnk_cpytovdc(0x82c8, BNK_1_FULL, (char *)MEM_SCREEN, 31500);
+
+		while (vdcwin_checkch())
+		{
+		}
+
+		// See mono_color_cycle_wait()'s own comment: +/-/= cycle the
+		// picture's colour, any other key advances to the next picture.
+		mono_color_cycle_wait();
 	}
-
-	// Recalibrate for this mode -- see title_screen()/mono_colorize_demo()'s
-	// comments: calibration is mode-specific and must be redone after every
-	// vdc_init() switch that a raster-timed effect depends on.
-	raster_calibrate();
-
-	// VDC_HIRES_720x700_Mono_PAL is genuinely interlaced (LACE bits 0-1 =
-	// 11): raster_calibrate() (vdc_raster.c) times cycles against the VDC's
-	// $D600 bit 5 status, which toggles once per FIELD for interlaced modes,
-	// not once per full (VTOTAL+1)*(CHEIGHT+1)-line frame that its line-count
-	// math assumes -- so its result reads half the true cycles/line here
-	// (confirmed live: ~31.4 instead of the ~62-63 every non-interlaced mode
-	// calibrates to). An earlier attempt fixed this inside raster_calibrate()
-	// itself (checking LACE there), but that's a shared library function
-	// also used by mono_colorize_demo() (also LACE=3) and indirectly by every
-	// later effect that relies on its globals -- and it destabilized the
-	// already-working raster bars in raster_place_test()/title_screen().
-	// Correcting locally here instead, only for this one mode/demo, leaves
-	// raster_calibrate() itself exactly as it was before this session.
-	raster_cycles_per_line_x1000 *= 2;
-	raster_timer_reload = (char)(((unsigned long)raster_cycles_per_line_x1000 + 500UL) / 1000UL);
-
-	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 31500);
-
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "imonobtk"))
-	{
-		printf("krill loadcompd failed: imonobtk\n");
-		exit(1);
-	}
-
-	// Bottom half goes to VDC address 0x82c8, *not* base_text+31500
-	// (0x7b0c) -- disassembling Tokra's own file loader (gosub9999,
-	// vdcmodemania.bas line 5004: "v=dec("82c8"):n$=f$+".bb"") shows a
-	// genuine ~1980-byte gap between the two halves, not a simple back-to-
-	// back split. This project's own top+bottom split was sized purely to
-	// fit the 32KB CPU staging buffer (see this function's top comment) and
-	// never actually confirmed against a genuinely interlaced mode's real
-	// VDC addressing. 0x82c8 leaves the same ~2.5KB headroom this mode's
-	// char_std=0 comment already assumed (63000 bytes across the two
-	// halves either way), just not contiguous.
-	bnk_cpytovdc(0x82c8, BNK_1_FULL, (char *)MEM_SCREEN, 31500);
-
-	while (vdcwin_checkch())
-	{
-	}
-
-	// Flat, solid-colour section bands (raster_bar_line() only, no
-	// raster_bar_segment() gradients) -- deliberately simpler than
-	// title_screen()'s bar: VDC-IMONO's interlace made a gradient run
-	// visibly unstable live in VICE (each raster_bar_segment() line is its
-	// own busy-wait-and-write, so a longer run means more chances for a
-	// field-timing hiccup to show as a jitter/tear; a handful of single
-	// raster_bar_line() calls has far less exposure). Static (no per-frame
-	// "start" offset) -- colorizing sections of the picture was the ask,
-	// not animation. Line values are a first attempt, not yet live-verified
-	// against this mode's actual field geometry (700 lines interlaced is
-	// new territory for raster_bar_*() this session, previously only
-	// proven across title_screen()'s much smaller 84-182 range) -- watch in
-	// VICE and adjust these if the bands land somewhere unexpected relative
-	// to the picture.
-	do
-	{
-		raster_bar_begin();
-		raster_bar_line(220, VDC_DRED);
-		raster_bar_line(180, 16 * VDC_LYELLOW + VDC_DGREY);
-		raster_bar_line(140, 16 * VDC_LCYAN + VDC_DGREY);
-		raster_bar_line(100, VDC_DRED);
-		raster_bar_line(60, 16 * VDC_WHITE + VDC_BLACK);
-		raster_bar_end();
-	} while (!vdcwin_checkch());
 
 	// Wipe right as the keypress that ends this section is detected -- see
 	// init_plasma()'s comment. Supersedes the plain vdc_cls() this used to
@@ -1559,53 +1680,70 @@ void mono_im800_demo()
 // Tokra's own readme note: needs a monitor that can squeeze the image on
 // real hardware -- a Commodore 1901 "cannot squeeze horizontally, so you
 // will miss the left and right edges." No colour plane (colorlines=0), so
-// only two fields to load (top/bottom bitmap), same sequential
-// load-then-copy pattern as VDC-IMONO. Picture: Tokra's own "koala"
-// (temporary, see fli_ihfli_demo()'s comment on licensing -- a generic
-// animal photo, one of the less likely to be a problem). This mode is 800
-// pixels/100 columns wide, wider than the KERNAL default -- HDISPLAY/HSYNC/
-// SYNCSIZE saved and restored explicitly here, same pattern as
-// fli_color_demo()/mono_hires_xl_demo(), since the *next* mode needs the
-// standard 80-column baseline back and this one's row doesn't match it.
-// Live-confirmed working.
+// only two fields to load (even/odd bitmap), same sequential
+// load-then-copy pattern as VDC-IMONO. This mode is 800 pixels/100 columns
+// wide, wider than the KERNAL default -- HDISPLAY/HSYNC/SYNCSIZE saved and
+// restored explicitly here, same pattern as fli_color_demo()/
+// mono_hires_xl_demo(), since the *next* mode needs the standard 80-column
+// baseline back and this one's row doesn't match it.
+//
+// 3rd picture is Maupi, the author's own cat (not Commons-sourced, see
+// defines.h).
 {
-	vdc_mode_info_screen("VDC-IM800", "800 x 600 pixels (interlace)", "monochrome", "refresh rate about 24 Hz", 0);
-
-	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
-	// comment on this pattern.
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "im800btk"))
-	{
-		printf("krill loadcompd failed: im800btk\n");
-		exit(1);
-	}
+	static const char *descr[3] = {
+		"Lavender field, Provence",
+		"Kelly Lee Owens, studio portrait",
+		"Maupi, the author's own cat",
+	};
+	// Named even/odd, not top/bottom -- see mono_hires_xl_demo()'s own
+	// comment (same interlace-field convention, no address gap concern
+	// here since 0x7e2c below is unconditional either way).
+	static const char *ev_names[3] = {"im8001evk", "im8002evk", "im8003evk"};
+	static const char *od_names[3] = {"im8001odk", "im8002odk", "im8003odk"};
+	char pic;
 
 	char old_hdisplay = vdc_reg_read(VDCR_HDISPLAY);
 	char old_hsync = vdc_reg_read(VDCR_HSYNC);
 	char old_syncsize = vdc_reg_read(VDCR_SYNCSIZE);
 
-	vdc_wipe_transition();
-
-	vdc_init(VDC_HIRES_800x600_IM800_PAL, 1);
-	if (!vdc_state.bitmap)
+	for (pic = 0; pic < 3; pic++)
 	{
-		return;
-	}
+		vdc_wipe_transition();
 
-	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 30000);
+		vdc_mode_info_screen("VDC-IM800", "800 x 600 pixels (interlace)", "monochrome", descr[pic], 0);
 
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "im800bbk"))
-	{
-		printf("krill loadcompd failed: im800bbk\n");
-		exit(1);
-	}
-	bnk_cpytovdc(0x7e2c, BNK_1_FULL, (char *)MEM_SCREEN, 30000);
+		// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
+		// KRILL_COMPRESSED_ASSETS comment.
+		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, ev_names[pic]))
+		{
+			printf("krill loadcompd failed: %s\n", ev_names[pic]);
+			exit(1);
+		}
 
-	while (vdcwin_checkch())
-	{
-	}
+		vdc_wipe_transition();
 
-	while (!vdcwin_checkch())
-	{
+		vdc_init(VDC_HIRES_800x600_IM800_PAL, 1);
+		if (!vdc_state.bitmap)
+		{
+			return;
+		}
+
+		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 30000);
+
+		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, od_names[pic]))
+		{
+			printf("krill loadcompd failed: %s\n", od_names[pic]);
+			exit(1);
+		}
+		bnk_cpytovdc(0x7e2c, BNK_1_FULL, (char *)MEM_SCREEN, 30000);
+
+		while (vdcwin_checkch())
+		{
+		}
+
+		// See mono_color_cycle_wait()'s own comment: +/-/= cycle the
+		// picture's colour, any other key advances to the next picture.
+		mono_color_cycle_wait();
 	}
 
 	// Wipe right as the keypress that ends this section is detected -- see
@@ -1634,7 +1772,7 @@ void mono_im960_demo()
 // licensing). This mode is 960 pixels/120 columns wide -- HDISPLAY/HSYNC/
 // SYNCSIZE saved/restored, same reasoning as mono_im800_demo().
 {
-	vdc_mode_info_screen("VDC-IM960", "960 x 540 pixels (interlace)", "monochrome", "designed for RGBtoHDMI device", "refresh rate about 28 Hz");
+	vdc_mode_info_screen("VDC-IM960", "960 x 540 pixels (interlace)", "monochrome", "Designed for RGBtoHDMI device", "Refresh rate about 28 Hz");
 
 	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
 	// comment on this pattern.
@@ -1712,7 +1850,7 @@ void demo_end_screen(const char *message)
 {
     char col = (char)((80 - strlen(message)) / 2);
     vdc_prints(col, 12, message);
-    vdc_prints(28, 14, "press reset or power off");
+    vdc_prints(28, 14, "Press RESET or power off");
     while (1)
     {
     }
@@ -1777,8 +1915,7 @@ void main_menu()
 	{
 		vdc_init(VDC_TEXT_80x25_PAL, 1);
 		vdc_cls();
-		vdc_prints(5, 2, "VDC MANIAC -- MAIN MENU");
-		vdc_prints(5, 3, "----------------------------------------");
+		vdc_header_bar("Main menu");
 		for (i = 0; i < 9; i++)
 		{
 			sprintf(linebuffer, "%c) %s", menu_entries[i].key, menu_entries[i].label);
@@ -1802,6 +1939,122 @@ void main_menu()
 		}
 
 		menu_entries[key - '1'].fn();
+	}
+}
+
+// System diagnostics (PAL/NTSC detection, VDC RAM/revision, raster
+// calibration) -- shown once at boot, before the demo proper starts.
+
+unsigned vic_rasterline()
+// Full 9-bit VIC-II raster line (ctrl1 bit 7 = MSB, raster = low 8 bits,
+// c64/vic.h) -- vic.raster alone aliases at physical line 256 (wraps back
+// to 0), which would make a naive "wait for raster==0" false-trigger a
+// full frame early: both PAL (312 lines) and NTSC (263 lines) exceed 255.
+{
+	return ((unsigned)(vic.ctrl1 & 0x80) << 1) | vic.raster;
+}
+
+char detect_ntsc()
+// Detects PAL vs NTSC by measuring how many CIA1 cycles elapse during one
+// full VIC-II frame (raster line 0 -> away from 0 -> back to 0), using the
+// VIC's own hardware raster counter directly -- not any KERNAL/ROM-
+// provided flag, since this project boots via a raw boot sector (not a
+// normal KERNAL cold start) and this session already established KERNAL/
+// ROM soft state can't be trusted after that (see krill_interrupt's own
+// $314/$315 comment). VIC-II keeps generating its own raster timing even
+// while blanked in 2MHz fast mode (confirmed this session -- it's exactly
+// what keeps krill_interrupt's jsr $c024 jiffy/keyboard-scan working), so
+// this works regardless of fastmode(). PAL is 312 lines * 63 cycles/line =
+// 19656 cycles/frame; NTSC is 263 lines * 65 cycles/line = 17095 -- a wide
+// enough gap (>2500 cycles) that a simple midpoint threshold is reliable
+// even with a few cycles of measurement slop. Returns 1 if NTSC, 0 if PAL.
+{
+	unsigned elapsed;
+
+	while (vic_rasterline() != 0)
+	{
+	}
+	cia1.cra = 0x00;
+	cia1.ta = 0xffff;
+	cia1.cra = 0x11; // start, force load, continuous
+	while (vic_rasterline() == 0)
+	{
+	}
+	while (vic_rasterline() != 0)
+	{
+	}
+	elapsed = 0xffff - cia1.ta;
+	cia1.cra = 0x00; // stop -- leaves CIA1 idle for raster_calibrate()/etc. below
+
+	return elapsed < 18375; // midpoint of 19656 (PAL) and 17095 (NTSC)
+}
+
+char detect_vdc_revision()
+// Reads the VDC chip version directly from $D600's status byte, bits 2:0
+// (0=original 8563, nonzero=later revision/8568) -- per
+// ~/.claude/c128_reference.md's own documented VDC status register layout.
+// A raw memory read, no register-select needed (unlike every other VDC
+// register access in this file, via vdc_reg_read()): $D600 always returns
+// this status byte on a plain read, regardless of which internal register
+// was last selected by a write.
+{
+	return PEEK(0xd600) & 0x07;
+}
+
+void system_diagnostic_screen()
+// Shows VDC RAM size, VDC chip revision, detected video standard, and
+// raster calibration timing before the demo proper starts -- confirms the
+// hardware was detected correctly, and gives the mandatory 64KB VDC RAM
+// check (every hires mode in this demo needs it) a proper diagnostic
+// screen instead of just a bare error message. Per explicit request: wait
+// for a key to proceed, THEN exit if VDC RAM isn't 64KB -- the diagnostic
+// info is worth seeing either way, not just on the failure path.
+{
+	char is_ntsc = detect_ntsc();
+	char vdc_rev = detect_vdc_revision();
+
+	// Calibrate now, in this text mode, before showing the numbers below --
+	// same call site raster_bar_*() users elsewhere already depend on this
+	// running from (main(), before the first hires mode).
+	raster_calibrate();
+
+	vdc_cls();
+	vdc_header_bar("System diagnostics");
+
+	sprintf(linebuffer, "%u KB", vdc_state.memsize);
+	diag_line(5, "VDC RAM", vdc_state.memsize == 64 ? "[ OK ]" : "[FAIL]",
+			  vdc_state.memsize == 64 ? VDC_LGREEN : VDC_LRED, linebuffer);
+
+	sprintf(linebuffer, "%u (%s)", vdc_rev,
+			vdc_rev == 0 ? "original 8563" : "later revision / 8568");
+	diag_line(6, "VDC chip revision", "[INFO]", VDC_LCYAN, linebuffer);
+
+	diag_line(7, "Video standard", "[INFO]", VDC_LCYAN, is_ntsc ? "NTSC" : "PAL");
+
+	sprintf(linebuffer, "%2u.%03u cycles/line (timer reload %2u)",
+			raster_cycles_per_line_x1000 / 1000, raster_cycles_per_line_x1000 % 1000, raster_timer_reload);
+	diag_line(8, "Raster calibration", "[INFO]", VDC_LCYAN, linebuffer);
+
+	vdc_prints(5, 11, "Press a key to continue.");
+
+	while (vdcwin_checkch())
+	{
+	}
+	while (!vdcwin_checkch())
+	{
+	}
+
+	if (vdc_state.memsize != 64)
+	{
+		vdc_prints(5, 13, "This demo requires a VDC with 64 KB RAM.");
+		vdc_prints(5, 14, "Your VDC only has 16 KB -- exiting.");
+		vdc_prints(5, 16, "Press a key to continue.");
+		while (!vdcwin_checkch())
+		{
+		}
+		krill_done();
+		vdc_exit();
+		demo_end_screen("This demo requires a VDC with 64 KB RAM.");
 	}
 }
 
@@ -1851,20 +2104,10 @@ int main(void)
 	// present, so without this check the demo would just show a blank/
 	// stuck screen on a 16KB VDC instead of a clear reason why. memsize is
 	// populated by vdc_detect_mem_size(), called from the vdc_init() above.
-	if (vdc_state.memsize != 64)
-	{
-		vdc_prints(5, 5, "This demo requires a VDC with 64 KB RAM.");
-		vdc_prints(5, 6, "Your VDC only has 16 KB -- exiting.");
-		vdc_prints(5, 8, "Press a key to continue.");
-		while (!vdcwin_checkch())
-		{
-		}
-		krill_done();
-		vdc_exit();
-		demo_end_screen("This demo requires a VDC with 64 KB RAM.");
-	}
-
-	raster_calibrate();
+	// system_diagnostic_screen() shows this (plus PAL/NTSC, VDC revision,
+	// raster calibration) and performs the actual 64KB exit itself -- see
+	// its own comment.
+	system_diagnostic_screen();
 
 	// Intro: black screen, black border, "loading assets" message, then
 	// start the music -- SID load+init moved here (from its old position
@@ -1881,7 +2124,7 @@ int main(void)
 	vdc_bgcolor(VDC_BLACK);
 	vdc_fgcolor(VDC_BLACK);
 	vdc_cls();
-	vdc_prints_attr(20, 12, "demo starting.... loading assets", VDC_LGREEN);
+	vdc_prints_attr(20, 12, "Demo starting.... loading assets", VDC_LGREEN | VDC_A_ALTCHAR);
 
 	// SID music (Phase 5): loaded once, here, for the whole program run --
 	// "Faded" (GoatTracker), compiled straight from source to SIDINIT/
@@ -1935,7 +2178,7 @@ int main(void)
 
 	vdc_exit();
 
-	demo_end_screen("vdcmaniac -- demo finished");
+	demo_end_screen("VDC Maniac -- demo finished");
 
 	return 0; // unreachable -- demo_end_screen() loops forever
 }

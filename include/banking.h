@@ -120,6 +120,17 @@ __noinline bool bnk_save(char device, char bank, const char *start, const char *
 __noinline void sid_music_init();
 __noinline void sid_resetsid();
 
+// Frame counter incremented once per call to raster_irq_playframe()
+// (vdc_raster.c) -- used there to restart the tune (re-run SIDINIT) after
+// SID_RESTART_FRAMES frames, since Maniac.sid's own composed length/loop
+// point isn't known precisely and this project has no per-tune "has the
+// song ended" telemetry. Declared here (not local to raster_irq_playframe())
+// so it lives in banking.c's existing bcode1/bdata1/bbss1 segment next to
+// the rest of the SID state, matching this project's own "anything touched
+// from interrupt context must live in common RAM" rule.
+extern unsigned sid_music_framecount;
+#define SID_RESTART_FRAMES 15000 // ~5 minutes at 50Hz PAL -- widened from an initial 6000 (~2 min) guess that live-tested as cutting the tune off before it finished; still not measured against the tune's actual length, just a safer interim margin -- narrow this once the real length is known
+
 // Fastload
 __noinline bool fastload_mapdir(const char * fnames);
 __noinline bool fastload_load(char bank, const char *start, char fnumber);

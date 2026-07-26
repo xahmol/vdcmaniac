@@ -89,10 +89,65 @@ class ViceMon:
         return r, ev
 
     def mem_get(self, start, end, memspace=0, side_effects=0, bank=0):
+        # NOTE: (start, end) is INCLUSIVE on both ends per VICE's own binary
+        # monitor protocol -- requesting end=start+N returns N+1 bytes, not
+        # N. The response body also has its own 2-byte little-endian
+        # "length of data that follows" prefix, which is NOT part of the
+        # memory content -- callers must skip body[0:2]. Both of these bit
+        # a manual chunked-read helper written directly against this method
+        # during vdcmaniac's photo-pipeline verification (2026-07-26):
+        # naively concatenating multiple mem_get() calls' raw bodies without
+        # accounting for either produced a spurious few-byte artifact at
+        # every chunk boundary, which briefly looked exactly like a genuine
+        # picture-data corruption bug before being traced back here. Use
+        # read_mem_bytes() below for a chunked read that already handles
+        # both of these correctly, rather than reimplementing chunking
+        # against this raw method again.
         body = struct.pack("<BHHBH", side_effects, start, end, memspace, bank)
         rid = self.send_cmd(0x01, body)
         r, ev = self.wait_for(rid)
         return r, ev
+
+    def read_mem_bytes(self, start, n, memspace=0, side_effects=0, bank=0, chunk_size=2000):
+        """Read exactly n contiguous bytes starting at `start`, chunked to
+        avoid whatever response-size limit the binary monitor enforces.
+        Correctly strips the 2-byte length prefix and accounts for the
+        inclusive (start,end) range -- see mem_get()'s own comment for why
+        naive chunking here is a trap."""
+        out = bytearray()
+        off = start
+        remaining = n
+        while remaining > 0:
+            c = min(chunk_size, remaining)
+            r, ev = self.mem_get(off, off + c - 1, memspace=memspace, side_effects=side_effects, bank=bank)
+            data = r["body"][2:2 + c]
+            out.extend(data)
+            off += c
+            remaining -= c
+        return bytes(out)
+
+    def display_get(self, use_vic_ii=0, image_format=0):
+        """MON_CMD_DISPLAY_GET (0x84) -- captures the emulator's current
+        rendered frame as an indexed-8bpp image (image_format=0). Returns
+        (width, height, raw_index_bytes) -- raw_index_bytes is width*height
+        palette-index bytes, row-major. For a genuinely interlaced VDC mode
+        (LACE=3), the returned height reflects a single field (half the
+        mode's full vertical resolution), not the combined frame -- observed
+        directly this way for VDC-IHFLI (640x480 mode captured at 240 lines)
+        during vdcmaniac's interlace-alignment investigation (2026-07-26).
+        Response body layout: [info_len:4][info: dbg_w,dbg_h,off_x,off_y,
+        inner_w,inner_h,bpp (2 bytes each except bpp=1, 13 bytes total)]
+        [inner_w*inner_h index bytes] -- no separate length prefix on the
+        image data itself, unlike mem_get()'s response."""
+        rid = self.send_cmd(0x84, bytes([use_vic_ii, image_format]))
+        r, ev = self.wait_for(rid)
+        data = r["body"]
+        info_len = struct.unpack("<I", data[0:4])[0]
+        info = data[4:4 + info_len]
+        w = int.from_bytes(info[8:10], "little")
+        h = int.from_bytes(info[10:12], "little")
+        img = data[4 + info_len:4 + info_len + w * h]
+        return w, h, img
 
     def registers_available(self, memspace=0):
         rid = self.send_cmd(0x83, bytes([memspace]))

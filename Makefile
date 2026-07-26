@@ -95,23 +95,33 @@ KRILLLIST = -write install-c128.prg install-c128 -write loader-c128.prg loader-c
 # through krill/loader/tools/tscrunch (-i) and
 # krill/loader/tools/compressedfileconverter.pl -- see krill_manual.md.
 KRILL_COMPRESSED_ASSETS = -write idi8bcmp idi8bcmp \
-         -write titletpk titletpk -write titlebtk titlebtk \
-         -write flibitk flibitk -write flicolk flicolk \
-         -write ihflictk ihflictk -write ihflicbk ihflicbk \
-         -write ihflibtk ihflibtk -write ihflibbk ihflibbk \
-         -write itflictk itflictk -write itflicbk itflicbk \
-         -write itflibtk itflibtk -write itflibbk itflibbk \
-         -write hflibitk hflibitk -write hflicolk hflicolk \
-         -write imonotpk imonotpk -write imonobtk imonobtk \
-         -write im800btk im800btk -write im800bbk im800bbk \
-         -write im960btk im960btk -write im960bbk im960bbk \
+         -write titleevk titleevk -write titleodk titleodk \
+         -write fli1bitk fli1bitk -write fli1colk fli1colk \
+         -write fli2bitk fli2bitk -write fli2colk fli2colk \
+         -write fli3bitk fli3bitk -write fli3colk fli3colk \
+         -write ihfli1bek ihfli1bek -write ihfli1cek ihfli1cek -write ihfli1bok ihfli1bok -write ihfli1cok ihfli1cok \
+         -write ihfli2bek ihfli2bek -write ihfli2cek ihfli2cek -write ihfli2bok ihfli2bok -write ihfli2cok ihfli2cok \
+         -write ihfli3bek ihfli3bek -write ihfli3cek ihfli3cek -write ihfli3bok ihfli3bok -write ihfli3cok ihfli3cok \
+         -write itfli1bek itfli1bek -write itfli1cek itfli1cek -write itfli1bok itfli1bok -write itfli1cok itfli1cok \
+         -write itfli2bek itfli2bek -write itfli2cek itfli2cek -write itfli2bok itfli2bok -write itfli2cok itfli2cok \
+         -write itfli3bek itfli3bek -write itfli3cek itfli3cek -write itfli3bok itfli3bok -write itfli3cok itfli3cok \
+         -write hfli1btk hfli1btk -write hfli1clk hfli1clk \
+         -write hfli2btk hfli2btk -write hfli2clk hfli2clk \
+         -write hfli3btk hfli3btk -write hfli3clk hfli3clk \
+         -write imono1evk imono1evk -write imono1odk imono1odk \
+         -write imono2evk imono2evk -write imono2odk imono2odk \
+         -write imono3evk imono3evk -write imono3odk imono3odk \
+         -write im8001evk im8001evk -write im8001odk im8001odk \
+         -write im8002evk im8002evk -write im8002odk im8002odk \
+         -write im8003evk im8003evk -write im8003odk im8003odk \
          -write musick musick
 
 # Generated picture assets (see tools/vdc_convert.py) -- regenerated from
 # assets/source/*.png automatically when python3 is available; if not, the
 # build proceeds with a warning and whatever converted files already exist.
-GENERATED_ASSETS = assets/vdcfli.bit assets/vdcfli.col assets/vdcimono.top assets/vdcimono.bot \
-                   assets/vdce-scrtit.top assets/vdce-scrtit.bot
+# The 18-photo hires-mode set is deliberately NOT part of this automatic
+# list -- see the make rule comment further down.
+GENERATED_ASSETS = assets/vdce-scrtit.eve assets/vdce-scrtit.odd
 
 ########################################
 
@@ -129,11 +139,18 @@ bootsect.bin: $(MAIN).prg $(GENERATED_ASSETS)
 	$(CC) -tf=bin -rt=src/bootsect.c -o=build/krill/bootsect.bin
 	# Every real picture asset is loaded via krill_loadcompd() from the
 	# TSCrunch-compressed files below -- no raw picture files are shipped.
-	cp assets/idi8bcmp assets/titletpk assets/titlebtk assets/flibitk assets/flicolk \
-	   assets/ihflictk assets/ihflicbk assets/ihflibtk assets/ihflibbk \
-	   assets/itflictk assets/itflicbk assets/itflibtk assets/itflibbk \
-	   assets/hflibitk assets/hflicolk assets/imonotpk assets/imonobtk \
-	   assets/im800btk assets/im800bbk assets/im960btk assets/im960bbk \
+	cp assets/idi8bcmp assets/titleevk assets/titleodk \
+	   assets/fli1bitk assets/fli1colk assets/fli2bitk assets/fli2colk assets/fli3bitk assets/fli3colk \
+	   assets/ihfli1bek assets/ihfli1cek assets/ihfli1bok assets/ihfli1cok \
+	   assets/ihfli2bek assets/ihfli2cek assets/ihfli2bok assets/ihfli2cok \
+	   assets/ihfli3bek assets/ihfli3cek assets/ihfli3bok assets/ihfli3cok \
+	   assets/itfli1bek assets/itfli1cek assets/itfli1bok assets/itfli1cok \
+	   assets/itfli2bek assets/itfli2cek assets/itfli2bok assets/itfli2cok \
+	   assets/itfli3bek assets/itfli3cek assets/itfli3bok assets/itfli3cok \
+	   assets/hfli1btk assets/hfli1clk assets/hfli2btk assets/hfli2clk assets/hfli3btk assets/hfli3clk \
+	   assets/imono1evk assets/imono1odk assets/imono2evk assets/imono2odk assets/imono3evk assets/imono3odk \
+	   assets/im8001evk assets/im8001odk assets/im8002evk assets/im8002odk \
+	   assets/im8003evk assets/im8003odk \
 	   assets/musick build/krill
 #	cp assets/chars*.prg build/krill
 
@@ -178,25 +195,24 @@ krill: $(MAIN).prg bootsect.bin loader-c128.prg
 
 # Converted picture assets (requires python3 + Pillow: pip install Pillow).
 # See tools/vdc_convert.py for the conversion technique (credited there).
-assets/vdcfli.bit assets/vdcfli.col: assets/source/vdcfli-source.png tools/vdc_convert.py
-	@if which python3 >/dev/null 2>&1; then \
-		python3 tools/vdc_convert.py --mode fli --input assets/source/vdcfli-source.png --out-prefix assets/vdcfli; \
-	else \
-		echo "WARNING: python3 not found -- assets/vdcfli.bit/.col not regenerated"; \
-	fi
-
-assets/vdcimono.top assets/vdcimono.bot: assets/source/vdcimono-source.png tools/vdc_convert.py
-	@if which python3 >/dev/null 2>&1; then \
-		python3 tools/vdc_convert.py --mode imono --input assets/source/vdcimono-source.png --out-prefix assets/vdcimono; \
-	else \
-		echo "WARNING: python3 not found -- assets/vdcimono.top/.bot not regenerated"; \
-	fi
-
-assets/vdce-scrtit.top assets/vdce-scrtit.bot: assets/original/vdc_maniac_title.png tools/vdc_convert.py
+#
+# The 18-photo set (3 per hires mode -- fli1-3/hfli1-3/ihfli1-3/itfli1-3/
+# imono1-3/im8001-2, see defines.h for sources/licenses) is NOT wired into
+# an automatic make rule like titlescreen below: each conversion takes
+# anywhere from ~20s (fli/imono) to ~20 minutes (itfli, cell_height=3) --
+# auto-regenerating all 18 on every build (e.g. because a source PNG's
+# mtime changed) would make ordinary `make` runs unpredictably slow. These
+# are produced once, by hand (`python3 tools/vdc_convert.py --mode <mode>
+# --input assets/source/<name> --out-prefix assets/<prefix>`), then
+# TSCrunch-compressed (see krill_manual.md) and checked into `assets/` as
+# committed binary artifacts, exactly like the KRILL_COMPRESSED_ASSETS list
+# above already treats every other real picture -- redo only when a photo
+# is actually being replaced, not on every build.
+assets/vdce-scrtit.eve assets/vdce-scrtit.odd: assets/original/vdc_maniac_title.png tools/vdc_convert.py
 	@if which python3 >/dev/null 2>&1; then \
 		python3 tools/vdc_convert.py --mode titlescreen --input assets/original/vdc_maniac_title.png --out-prefix assets/vdce-scrtit; \
 	else \
-		echo "WARNING: python3 not found -- assets/vdce-scrtit.top/.bot not regenerated"; \
+		echo "WARNING: python3 not found -- assets/vdce-scrtit.eve/.odd not regenerated"; \
 	fi
 
 # Regenerate README.pdf from README.md (requires pandoc).

@@ -227,7 +227,14 @@ struct VDCModeSet vdc_modes[19] =
         // attribute enable, already applied generically by vdc_set_mode();
         // bits 0-3 = horizontal smooth-scroll amount = 7, same nibble as
         // VDC-FLI above) -- previously omitted here too.
-        {720, 700, 1, 0, 1, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_HDISPLAY, 0x5a, VDCR_HSYNC, 0x6b, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x6a, VDCR_VADJUST, 0x06, VDCR_VDISPLAY, 0x6a, VDCR_VSYNC, 0x65, VDCR_LACE, 0x03, VDCR_CSIZE, 0x06, VDCR_HSCROLL, 0x87, 255}},
+        // VDCR_VSYNC corrected from 0x65 to 0x64 (2026-07-26): this mode's
+        // own value was off by one from VTOTAL-VADJUST (0x6a-0x06=0x64), the
+        // formula independently verified against Tokra's own working demo
+        // for VDC-IHFLI (see vdc_interlace_vsync_alignment memory/gotcha #--
+        // IHFLI's and VDC-ITFLI's own VSYNC values below both match this
+        // formula exactly; this row and VDC-IM800's did not, likely a slip
+        // in whichever pass extrapolated them rather than cross-checking).
+        {720, 700, 1, 0, 1, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_HDISPLAY, 0x5a, VDCR_HSYNC, 0x6b, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x6a, VDCR_VADJUST, 0x06, VDCR_VDISPLAY, 0x6a, VDCR_VSYNC, 0x64, VDCR_LACE, 0x03, VDCR_CSIZE, 0x06, VDCR_HSCROLL, 0x87, 255}},
         // VDC-IHFLI: 640x480, interlace, 8x2 colour cells, near-NTSC (Tokra's
         // original/v12/source/vdcmodemania.bas line 42). Genuinely
         // interlaced dual-field encoding: separate top/bottom bitmap AND
@@ -279,7 +286,10 @@ struct VDCModeSet vdc_modes[19] =
         // 26) = 32 here is just Tokra's initial ink/paper default -- the
         // original lets the user retune it live with cursor keys, optional
         // for a first pass. Live-confirmed working.
-        {800, 600, 1, 0, 1, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_HDISPLAY, 0x64, VDCR_HSYNC, 0x70, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x5c, VDCR_VADJUST, 0x06, VDCR_VDISPLAY, 0x5c, VDCR_VSYNC, 0x57, VDCR_LACE, 0x03, VDCR_CSIZE, 0x06, VDCR_HSCROLL, 0x87, VDCR_COLOR, 0x20, VDCR_CHAR_ADDRH, 0xff, VDCR_HEND, 0x6a, 255}},
+        // VDCR_VSYNC corrected from 0x57 to 0x56 (2026-07-26): same
+        // off-by-one fix as VDC-IMONO above, same VTOTAL-VADJUST formula
+        // (0x5c-0x06=0x56).
+        {800, 600, 1, 0, 1, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_HDISPLAY, 0x64, VDCR_HSYNC, 0x70, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x5c, VDCR_VADJUST, 0x06, VDCR_VDISPLAY, 0x5c, VDCR_VSYNC, 0x56, VDCR_LACE, 0x03, VDCR_CSIZE, 0x06, VDCR_HSCROLL, 0x87, VDCR_COLOR, 0x20, VDCR_CHAR_ADDRH, 0xff, VDCR_HEND, 0x6a, 255}},
         // VDC-IM960: 960x540, interlace, monochrome (Tokra's vdcmodemania.bas
         // line 181) -- Tokra's own readme note: "specifically designed for
         // the RGBtoHDMI-device. It will probably not work otherwise" --

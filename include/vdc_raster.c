@@ -357,7 +357,28 @@ __interrupt void raster_irq_playframe()
     // same as it always would.
     __asm { sei }
     mmu.cr = BNK_1_IO;
-    __asm { jsr SIDPLAY }
+    // Restart the tune every SID_RESTART_FRAMES frames instead of playing
+    // one more frame -- Maniac.sid's own composed length/loop point was
+    // never measured, and if its own internal loop-back jump is one of the
+    // handful of addresses sidreloc's relocation left "status undetermined"
+    // (see project memory), it may not loop on its own at all. Restarting
+    // from our own side sidesteps needing to know either way -- see
+    // banking.h's own comment on SID_RESTART_FRAMES for the exact threshold
+    // (a rough guess, not measured against this tune specifically).
+    if (++sid_music_framecount >= SID_RESTART_FRAMES)
+    {
+        sid_music_framecount = 0;
+        sid_resetsid();
+        __asm
+        {
+            lda #$00
+            jsr SIDINIT
+        }
+    }
+    else
+    {
+        __asm { jsr SIDPLAY }
+    }
     mmu.cr = old;
 }
 
