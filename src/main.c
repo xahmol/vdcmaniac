@@ -8,6 +8,7 @@
 #include <c64/cia.h>
 #include <c64/vic.h>
 #include <c64/keyboard.h>
+#include <c64/joystick.h>
 #include "defines.h"
 #include "banking.h"
 #include "vdc_core.h"
@@ -259,7 +260,8 @@ void plasma_demo(char mode)
 		doplasma1();
 		vdc_wait_vblank();
 		setattraddress(vdc_state.swap_attr);
-	} while (!vdcwin_checkch());
+		joy_poll(0);
+	} while (!vdcwin_checkch() && !joyb[0]);
 
 	// Wipe right as the keypress that ends this section is detected -- see
 	// init_plasma()'s comment on why this moved here instead of living in
@@ -395,7 +397,8 @@ void rotate_demo(char mode)
 			vdc_write(Screen[pos]);
 		}
 
-	} while (!vdcwin_checkch());
+		joy_poll(0);
+	} while (!vdcwin_checkch() && !joyb[0]);
 
 	// Wipe right as the keypress that ends this (last) section is detected
 	// -- see init_plasma()'s comment. Nothing visual follows this before
@@ -452,13 +455,17 @@ void raster_place_test()
 		line = raster_bar_segment(line, gradient16, 16);
 		raster_bar_end();
 
-		// Check keys
+		// Check keys -- joystick up/down mirrors the cursor keys (no
+		// debounce needed here, unlike the main menu: holding a direction
+		// to scrub quickly through the range is desirable, and there's no
+		// "wrong item selected" failure mode with a single movable bar).
+		joy_poll(0);
 		keypress = vdcwin_checkch();
-		if (keypress == CH_CURS_DOWN && rasterline > 16)
+		if ((keypress == CH_CURS_DOWN || joyy[0] == 1) && rasterline > 16)
 		{
 			rasterline--;
 		}
-		if (keypress == CH_CURS_UP && rasterline < 255)
+		if ((keypress == CH_CURS_UP || joyy[0] == -1) && rasterline < 255)
 		{
 			rasterline++;
 		}
@@ -820,7 +827,8 @@ void title_screen()
 		raster_bar_line(89, VDC_DRED);
 		raster_bar_line(88, 16 * VDC_WHITE + VDC_BLACK);
 		raster_bar_end();
-	} while (!vdcwin_checkch());
+		joy_poll(0);
+	} while (!vdcwin_checkch() && !joyb[0]);
 
 	// Wipe right as the keypress that ends this section is detected -- see
 	// init_plasma()'s comment.
@@ -1022,7 +1030,8 @@ void idi8b_logo_demo()
 		line = raster_bar_segment(line, direction > 0 ? upcolors : downcolors, 16);
 		raster_bar_line(line, DEFAULTCOLOR);
 		raster_bar_end();
-	} while (!vdcwin_checkch());
+		joy_poll(0);
+	} while (!vdcwin_checkch() && !joyb[0]);
 
 	// Wipe right as the keypress that ends this section is detected -- see
 	// init_plasma()'s comment.
@@ -1270,7 +1279,24 @@ void fli_color_demo()
 			}
 			keyb_poll();
 			__asm { cli }
-		} while (keyb_key == 0);
+			// joy_poll() only after keyb_poll() returns, and only trusted
+			// as a fallback when keyb_poll() found no real key -- CIA1
+			// $dc00/Port A is shared between joystick port 2 input and
+			// this project's own keyboard-matrix row-select output, and
+			// this is the one call site running a hand-rolled matrix scan
+			// back-to-back with a raw joystick read in the same SEI-held
+			// pass, with no other frame's scanning in between to dilute a
+			// held joystick direction/fire being misread as a phantom
+			// keyboard-matrix keypress on whichever row that bit's wire
+			// crosses (a generic, well-known port-2 hardware quirk, not
+			// introduced by this change). Preferring a real keyb_key
+			// result when one exists sidesteps needing to touch
+			// keyb_poll() itself at all.
+			if (keyb_key == 0)
+			{
+				joy_poll(0);
+			}
+		} while (keyb_key == 0 && !joyb[0]);
 	}
 
 	// Wipe right as the keypress that ends this section is detected -- see
@@ -1366,9 +1392,10 @@ void fli_ihfli_demo()
 		{
 		}
 
-		while (!vdcwin_checkch())
+		do
 		{
-		}
+			joy_poll(0);
+		} while (!vdcwin_checkch() && !joyb[0]);
 	}
 
 	// Wipe right as the keypress that ends this section is detected -- see
@@ -1445,9 +1472,10 @@ void fli_itfli_demo()
 		{
 		}
 
-		while (!vdcwin_checkch())
+		do
 		{
-		}
+			joy_poll(0);
+		} while (!vdcwin_checkch() && !joyb[0]);
 	}
 
 	// Wipe right as the keypress that ends this section is detected -- see
@@ -1507,9 +1535,10 @@ void fli_hfli_demo()
 		{
 		}
 
-		while (!vdcwin_checkch())
+		do
 		{
-		}
+			joy_poll(0);
+		} while (!vdcwin_checkch() && !joyb[0]);
 	}
 
 	// Wipe right as the keypress that ends this section is detected -- see
@@ -1548,8 +1577,13 @@ char mono_color_cycle_wait()
 	{
 		do
 		{
+			joy_poll(0);
 			key = vdcwin_checkch();
-		} while (key == 0);
+		} while (key == 0 && !joyb[0]);
+		if (key == 0)
+		{
+			key = CH_ENTER; // joystick fire behaves like "any other key" -- advance
+		}
 
 		if (key == '+' || key == '=')
 		{
@@ -1901,36 +1935,209 @@ static const menu_entry menu_entries[9] = {
 	{'9', "Raster bar placement test", raster_place_test},
 };
 
-void main_menu()
-// Number-key-driven main menu -- loops showing the list, dispatching the
-// chosen section, and redrawing until ESC/STOP ends the demo. Same
-// vdcwin_checkch()/CH_ESC/CH_STOP exit convention raster_place_test()
-// already uses elsewhere in this file, so ESC/STOP inside a section
-// returns here (loop continues), while ESC/STOP on the menu itself ends
-// the whole demo.
+#define MENU_REPEAT_DELAY 15 // frames held before auto-repeat kicks in (~0.3s @ 50Hz)
+#define MENU_REPEAT_RATE 5    // frames between repeats once repeating (~10/s)
+#define GAP_TRIM 4            // lines shaved off the header-to-items gap -- live-tuning nudge, see main_menu()'s own comment
+
+char raster_bar_flat(char line, char color, char count)
+// Fills `count` consecutive rasterlines with one repeated colour -- the
+// flat-fill complement to raster_bar_segment()'s per-line palette walk,
+// built from the same raster_bar_line() primitive. Must be called between
+// raster_bar_begin()/raster_bar_end(), same as raster_bar_segment().
 {
+	while (count--)
+	{
+		raster_bar_line(line, color);
+		line--;
+	}
+	return line;
+}
+
+void main_menu()
+// Cursor-key/joystick-driven main menu with a raster-bar highlight (full
+// foreground+background gradient) behind the selected item. Runs in
+// VDC_TEXT_80x25_Mono_PAL (attribute mode OFF) specifically so the raster
+// sweep can drive BOTH colour nibbles at once -- in attribute mode (used
+// by vdc_header_bar()/system_diagnostic_screen()/vdc_mode_info_screen())
+// a raster bar can only ever change the background nibble, since each
+// character's own attribute-RAM entry overrides the foreground (confirmed
+// live, see the VDC_TEXT_80x25_Mono_PAL mode-table comment in
+// vdc_core.c). This screen therefore draws its own header directly
+// instead of calling vdc_header_bar(), and does not share code with the
+// other two screens' attribute-mode header -- see
+// eager-sniffing-feather.md for the full writeup of this trade-off.
+//
+// Text itself never changes colour on selection -- ALL of the highlight
+// effect (including the header's own white-to-grey text gradient) comes
+// from the per-frame raster sweep below, so nothing needs redrawing when
+// the selection moves, only the sweep's own selected-row target changes.
+//
+// Digit keys ('1'-'9') still select directly, unchanged. Cursor keys or
+// joystick move the highlighted row (shared edge-detect + delay-then-
+// repeat state machine so holding either doesn't double-advance); Return
+// or joystick fire (edge-detected against `prevjoyb` -- a level check
+// alone would immediately re-trigger a select the instant the menu is
+// re-entered while fire is still held) confirms. ESC/STOP semantics
+// unchanged -- still ends main_menu() entirely.
+{
+	// fg*16+bg combined VDCR_COLOR bytes, one per rasterline -- same
+	// convention idi8b_logo_demo()/title_screen() already use for their
+	// own raster bars. Header rows: green background bands (dark for the
+	// title row, light for the subtitle row) with the TEXT itself in a
+	// white-to-grey vertical gradient, both nibbles raster-driven.
+	static const char title_gradient[8] = {
+		16 * VDC_WHITE + VDC_DGREEN, 16 * VDC_WHITE + VDC_DGREEN,
+		16 * VDC_LGREY + VDC_DGREEN, 16 * VDC_LGREY + VDC_DGREEN,
+		16 * VDC_LGREY + VDC_DGREEN, 16 * VDC_DGREY + VDC_DGREEN,
+		16 * VDC_DGREY + VDC_DGREEN, 16 * VDC_DGREY + VDC_DGREEN,
+	};
+	static const char subtitle_gradient[8] = {
+		16 * VDC_WHITE + VDC_LGREEN, 16 * VDC_WHITE + VDC_LGREEN,
+		16 * VDC_LGREY + VDC_LGREEN, 16 * VDC_LGREY + VDC_LGREEN,
+		16 * VDC_LGREY + VDC_LGREEN, 16 * VDC_DGREY + VDC_LGREEN,
+		16 * VDC_DGREY + VDC_LGREEN, 16 * VDC_DGREY + VDC_LGREEN,
+	};
+	// Selected-item glow: cyan-to-blue background, yellow-to-red
+	// foreground, both fading top to bottom across the row -- driving
+	// both nibbles since attribute mode is off here.
+	static const char highlight_gradient[8] = {
+		16 * VDC_LYELLOW + VDC_LCYAN, 16 * VDC_LYELLOW + VDC_LCYAN,
+		16 * VDC_DYELLOW + VDC_DCYAN, 16 * VDC_DYELLOW + VDC_DCYAN,
+		16 * VDC_LRED + VDC_LBLUE, 16 * VDC_LRED + VDC_LBLUE,
+		16 * VDC_DRED + VDC_DBLUE, 16 * VDC_DRED + VDC_DBLUE,
+	};
+	static const char floor_color = 16 * VDC_LYELLOW + VDC_BLACK;
+	static const char gap_color = 16 * VDC_BLACK + VDC_BLACK;
+
 	char key, i;
+	char selected;
+	signed char dir;
+	char holdframes;
+	char prevjoyb;
+	char firepressed;
+	char line, row;
 
 	for (;;)
 	{
-		vdc_init(VDC_TEXT_80x25_PAL, 1);
+		vdc_init(VDC_TEXT_80x25_Mono_PAL, 1);
+		// Recalibrate -- this mode's colorlines differ from whatever mode
+		// last ran (e.g. VDC_TEXT_80x25_PAL for the diagnostic/info
+		// screens, or a hires mode for a just-finished demo section),
+		// matching idi8b_logo_demo()/mono_hires_xl_demo()'s own established
+		// pattern of recalibrating fresh after every genuinely different
+		// vdc_init().
+		raster_calibrate();
+		// Attribute mode off means no per-character ALTCHAR bit -- without
+		// this, mixed-case text falls back to the uppercase-only charset
+		// (see idi8b_logo_demo()'s own identical fix and its comment /
+		// memory: vdc_charset_selection_no_attribute_mode).
+		bnk_redef_charset(vdc_state.char_std, BNK_CHARROM, (char *)0xd800, 256);
 		vdc_cls();
-		vdc_header_bar("Main menu");
+
+		vdc_prints(1, 0, "VDC Maniac: Experiments with C128's greatest asset");
+		vdc_prints(61, 0, "IDreamIn8Bits.com");
+		i = (char)((80 - strlen("Main menu")) / 2);
+		vdc_prints(i, 1, "Main menu");
+
 		for (i = 0; i < 9; i++)
 		{
 			sprintf(linebuffer, "%c) %s", menu_entries[i].key, menu_entries[i].label);
 			vdc_prints(7, 5 + i, linebuffer);
 		}
-		vdc_prints(5, 16, "Press a number key to select, ESC/STOP to end the demo.");
+		vdc_prints(5, 16, "Cursor/joystick + RETURN/fire, or a number key. ESC/STOP to end.");
+
+		selected = 0;
+		holdframes = 0;
+		prevjoyb = 0;
 
 		while (vdcwin_checkch())
 		{
 		}
 
-		do
+		key = 0;
+		for (;;)
 		{
+			// One synced sweep per frame, top to bottom: header (rows
+			// 0-1, own gradient), blank gap (rows 2-4), the 9 menu-item
+			// rows (rows 5-13 -- floor colour, except the selected row,
+			// which gets the highlight glow), then the instruction rows
+			// (14-16). Calibrated empirically against raster_place_test()
+			// during planning (rasterline 153 landed on row 13, each row
+			// being 8 rasterlines apart -- hardware CSIZE=8) and nudged
+			// after live feedback that the highlight sat slightly low:
+			// the gap is trimmed by GAP_TRIM lines (stolen off the end,
+			// not the header, since the header is already anchored at
+			// the top of the 0-255 range raster_waitline() can express)
+			// to shift every row from the first menu item downward up by
+			// that amount.
+			raster_bar_begin();
+			line = 255;
+			line = raster_bar_segment(line, title_gradient, 8);
+			line = raster_bar_segment(line, subtitle_gradient, 8);
+			line = raster_bar_flat(line, gap_color, 24 - GAP_TRIM);
+			for (row = 0; row < 9; row++)
+			{
+				if (row == selected)
+				{
+					line = raster_bar_segment(line, highlight_gradient, 8);
+				}
+				else
+				{
+					line = raster_bar_flat(line, floor_color, 8);
+				}
+			}
+			line = raster_bar_flat(line, floor_color, 24);
+			raster_bar_end();
+
+			joy_poll(0);
 			key = vdcwin_checkch();
-		} while (key != CH_ESC && key != CH_STOP && !(key >= '1' && key <= '9'));
+
+			dir = 0;
+			if (key == CH_CURS_UP || joyy[0] == -1)
+			{
+				dir = -1;
+			}
+			else if (key == CH_CURS_DOWN || joyy[0] == 1)
+			{
+				dir = 1;
+			}
+
+			if (dir != 0)
+			{
+				if (holdframes == 0 || holdframes > MENU_REPEAT_DELAY)
+				{
+					selected = (selected + 9 + dir) % 9;
+					holdframes = (holdframes == 0) ? 1 : (MENU_REPEAT_DELAY - MENU_REPEAT_RATE + 1);
+				}
+				else
+				{
+					holdframes++;
+				}
+			}
+			else
+			{
+				holdframes = 0;
+			}
+
+			firepressed = joyb[0] && !prevjoyb;
+			prevjoyb = joyb[0];
+
+			if (key == CH_ENTER || firepressed)
+			{
+				key = CH_ENTER;
+				break;
+			}
+			if (key == CH_ESC || key == CH_STOP)
+			{
+				break;
+			}
+			if (key >= '1' && key <= '9')
+			{
+				selected = key - '1';
+				key = CH_ENTER;
+				break;
+			}
+		}
 
 		if (key == CH_ESC || key == CH_STOP)
 		{
@@ -1938,7 +2145,7 @@ void main_menu()
 			return;
 		}
 
-		menu_entries[key - '1'].fn();
+		menu_entries[selected].fn();
 	}
 }
 
@@ -2040,18 +2247,20 @@ void system_diagnostic_screen()
 	while (vdcwin_checkch())
 	{
 	}
-	while (!vdcwin_checkch())
+	do
 	{
-	}
+		joy_poll(0);
+	} while (!vdcwin_checkch() && !joyb[0]);
 
 	if (vdc_state.memsize != 64)
 	{
 		vdc_prints(5, 13, "This demo requires a VDC with 64 KB RAM.");
 		vdc_prints(5, 14, "Your VDC only has 16 KB -- exiting.");
 		vdc_prints(5, 16, "Press a key to continue.");
-		while (!vdcwin_checkch())
+		do
 		{
-		}
+			joy_poll(0);
+		} while (!vdcwin_checkch() && !joyb[0]);
 		krill_done();
 		vdc_exit();
 		demo_end_screen("This demo requires a VDC with 64 KB RAM.");
