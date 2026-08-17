@@ -906,10 +906,35 @@ void idi8b_logo_demo()
 // string instead, empirically matching what's actually wanted, rather
 // than re-deriving the theory further.
 {
-	static const char gradient16[16] = {15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0};
+	// NINTH STEP: single bouncing bar -> two mirrored bars ("Fire" always
+	// physically upper, "Ice" always physically lower, both centred on
+	// CENTER and driven by one shared bounce value t). They meet/overlap
+	// ("collide") near t==0 and separate toward the screen edges near
+	// t==AMPLITUDE. Which one is rendered "in front of" the logo (solid
+	// flash, wins any overlap) vs "behind" it (white ink, logo stays
+	// legible) is not fixed to either bar -- fire_is_front toggles every
+	// time they fully collide, so the two swap roles pass to pass. Built as
+	// a single merged per-frame colour buffer (resolving overlap by however
+	// fire_is_front says to) fed into the existing raster_bar_segment(), so
+	// this needed zero changes to vdc_raster.c -- see git history for the
+	// design note (plan "want-to-revisit-timning-zany-patterson.md" at the
+	// time of writing).
+	static const char fire[16] = {
+		VDC_WHITE, VDC_WHITE, VDC_LYELLOW, VDC_LYELLOW, VDC_DYELLOW, VDC_DYELLOW,
+		VDC_LRED, VDC_LRED, VDC_LRED, VDC_DRED, VDC_DRED, VDC_DRED,
+		VDC_BLACK, VDC_BLACK, VDC_BLACK, VDC_BLACK};
+	static const char ice[16] = {
+		VDC_WHITE, VDC_WHITE, VDC_LCYAN, VDC_LCYAN, VDC_DCYAN, VDC_DCYAN,
+		VDC_LBLUE, VDC_LBLUE, VDC_LBLUE, VDC_DBLUE, VDC_DBLUE, VDC_DBLUE,
+		VDC_BLACK, VDC_BLACK, VDC_BLACK, VDC_BLACK};
 	enum
 	{
 		DEFAULTCOLOR = (VDC_WHITE * 16) | VDC_BLACK,
+		BARLEN = 16,
+		CENTER = 158,
+		AMPLITUDE = 80,
+		CYCLE_FRAMES = 6,
+		BARBUFLEN = 2 * AMPLITUDE + BARLEN,
 		// Bounding box of idi8blogo.scrn's own logo content (rows/cols
 		// 0-indexed), found by inspecting the raw exported screen codes --
 		// the file itself is a full top-left-anchored 80x25 screen, not
@@ -928,10 +953,16 @@ void idi8b_logo_demo()
 		PRESENTSROW = DESTROW + CONTENTHEIGHT + 1
 	};
 	static const char presentstext[] = "presents....";
-	char upcolors[16];
-	char downcolors[16];
-	char rasterline = 100;
+	static char barcolors[BARBUFLEN];
+	char t = AMPLITUDE;
 	signed char direction = -1;
+	char fire_is_front = 1;
+	char cycle_offset = 0;
+	char cycle_counter = 0;
+	char upperTop, lowerTop, upperBottom, lowerBottom;
+	char count, i;
+	char inUpper, inLower;
+	char idx;
 	char line;
 	char r;
 
@@ -993,46 +1024,20 @@ void idi8b_logo_demo()
 	}
 	vdc_prints((80 - sizeof(presentstext) + 1) / 2, PRESENTSROW, presentstext);
 
-	// EIGHTH STEP: bounce range widened to the full 60-255 -- 255 is the
-	// hard ceiling, not just a chosen bound: raster_waitline() (above)
-	// compares `rasterline` against $dd06 -- CIA2 Timer B's LOW byte only,
-	// an 8-bit register -- so `line` parameters are `char` throughout this
-	// whole raster library. Going higher would mean also tracking $dd07
-	// (the timer's high byte) and reworking the sub-line NOP-jump-table
-	// timing, inside a routine explicitly documented elsewhere in this
-	// project as cycle-critical -- not worth the risk for this. 255 is as
-	// high as it goes.
-	//
-	// This also meant dropping the old fixed TOPCAP cap-line entirely: it
-	// was a constant (200) issued *before* the segment each frame, which
-	// only worked because the bounce never went above 195 -- with the
-	// segment itself now reaching up to 255, a fixed cap below that would
-	// violate raster_waitline()'s strictly-descending call order. Turns
-	// out it's not needed at all: $1a/VDCR_COLOR is never reset between
-	// frames, so the *bottom* cap line (still written every frame, right
-	// after the segment) already carries its white-ink value forward
-	// through vblank into the next frame's top portion, all the way up to
-	// wherever that frame's segment happens to start. One explicit priming
-	// write here, before the loop starts, covers the very first frame
-	// before any bottom cap has run yet.
-	//
-	// Ink also now alternates by direction (confirmed: increasing
-	// rasterline moves the bar toward the TOP of the screen -- raster_
-	// synch() re-arms the CIA2 countdown at the top of the frame, so a
-	// HIGHER target line is reached SOONER/EARLIER, i.e. higher on screen
-	// -- matching title_screen()'s own strictly-descending, top-to-bottom
-	// cap-line values as independent confirmation): white ink while
-	// climbing (upcolors -- same gradient16 backgrounds, foreground forced
-	// white, like the segment always had); foreground=background per line
-	// while falling (downcolors -- a solid colour flash, painting over the
-	// logo, same idea as the original "in front" bar from the very first
-	// version of this function).
-	for (r = 0; r < 16; r++)
-	{
-		upcolors[r] = (VDC_WHITE * 16) | gradient16[r];
-		downcolors[r] = (gradient16[r] * 16) | gradient16[r];
-	}
-
+	// EIGHTH STEP (kept from the single-bar version): ceiling is 255, not
+	// just a chosen bound -- raster_waitline() compares its line argument
+	// against $dd06, CIA2 Timer B's LOW byte only, an 8-bit register -- so
+	// `line` parameters are `char` throughout this whole raster library.
+	// Floor of 60 likewise carried over unchanged. CENTER/AMPLITUDE above
+	// were picked so upperTop's max (238) and lowerBottom's min (63) both
+	// stay safely inside this proven 60-255 range. $1a/VDCR_COLOR is never
+	// reset between frames (confirmed by the single-bar version's own
+	// EIGHTH STEP investigation) -- one priming write here, before the loop
+	// starts, covers the very first frame; every frame's own trailing
+	// raster_bar_line(line, DEFAULTCOLOR) call below (right after the merged
+	// segment) carries DEFAULTCOLOR forward through vblank into the next
+	// frame's top portion, all the way up to wherever that frame's own
+	// segment starts.
 	raster_bar_begin();
 	raster_bar_line(255, DEFAULTCOLOR);
 	raster_bar_end();
@@ -1043,10 +1048,48 @@ void idi8b_logo_demo()
 
 	do
 	{
-		rasterline = raster_bar_bounce(rasterline, 60, 255, &direction);
-		line = rasterline;
+		t = raster_bar_bounce(t, 0, AMPLITUDE, &direction);
+		if (t == 0)
+		{
+			fire_is_front = !fire_is_front;
+		}
+
+		upperTop = CENTER + t;
+		lowerTop = CENTER - t;
+		upperBottom = upperTop - (BARLEN - 1);
+		lowerBottom = lowerTop - (BARLEN - 1);
+		count = upperTop - lowerBottom + 1;
+
+		if (++cycle_counter >= CYCLE_FRAMES)
+		{
+			cycle_counter = 0;
+			cycle_offset = (cycle_offset + 1) % BARLEN;
+		}
+
+		for (i = 0; i < count; i++)
+		{
+			line = upperTop - i;
+			inUpper = (line >= upperBottom);
+			inLower = (line <= lowerTop && line >= lowerBottom);
+
+			if (inUpper && (fire_is_front || !inLower))
+			{
+				idx = fire[(upperTop - line + cycle_offset) % BARLEN];
+				barcolors[i] = fire_is_front ? (idx * 16) | idx : (VDC_WHITE * 16) | idx;
+			}
+			else if (inLower)
+			{
+				idx = ice[(lowerTop - line + cycle_offset) % BARLEN];
+				barcolors[i] = fire_is_front ? (VDC_WHITE * 16) | idx : (idx * 16) | idx;
+			}
+			else
+			{
+				barcolors[i] = DEFAULTCOLOR;
+			}
+		}
+
 		raster_bar_begin();
-		line = raster_bar_segment(line, direction > 0 ? upcolors : downcolors, 16);
+		line = raster_bar_segment(upperTop, barcolors, count);
 		raster_bar_line(line, DEFAULTCOLOR);
 		raster_bar_end();
 		joy_poll(0);
@@ -1887,25 +1930,44 @@ void mono_im960_demo()
 
 void demo_end_screen(const char *message)
 // Ends the program without ever returning to BASIC. Call after vdc_exit()
-// (and krill_done(), if KRILL); prints message centred, then loops forever
-// instead of `return`-ing from main().
+// (and krill_done(), if KRILL); prints message centred, waits for a
+// keypress or joystick fire, then triggers a full machine reset instead of
+// `return`-ing from main().
 //
-// Oscar64's own docs (oscar64.md, "Limits and Errors") document this as a
-// known limitation: "Basic zero page variables not restored on
-// stop/restore" -- any Oscar64 program that uses zero page leaves BASIC's
-// own zero-page state corrupted on return, and a clean READY prompt is not
-// guaranteed. Confirmed live in VICE: returning via `return 0` produced a
-// READY prompt that looked fine but could not reliably run further BASIC
-// commands, once this session's Krill zero-page work moved the loader's
-// window to $E0-$F5. Looping forever here instead of returning sidesteps
-// the whole problem -- press RESET or power off to leave, same as most
-// boot-sector-loaded C64/C128 demos already do.
+// Oscar64's own docs (oscar64.md, "Limits and Errors") document a known
+// limitation: "Basic zero page variables not restored on stop/restore" --
+// any Oscar64 program that uses zero page leaves BASIC's own zero-page
+// state corrupted on return, and a clean READY prompt is not guaranteed.
+// Jumping through the hardware RESET vector ($FFFC, same entry point the
+// physical RESET button/power-on uses -- see ~/.claude/c128_reference.md's
+// KERNAL jump table) is the standard demo-scene way to do this in software
+// instead of requiring the user to actually press the button. `krill_done()`/
+// `vdc_exit()` (called before this, at every call site) already restore
+// $314/$315 and default MMU banking, so KERNAL/BASIC ROM is banked in here
+// exactly as it would be for a real RESET.
+//
+// Live-tested in VICE and confirmed live by the user (2026-08-17): the
+// jump correctly resets the machine, and since the disk/D81 is still
+// mounted with its boot sector set to autostart, the KERNAL cold-start
+// this triggers re-runs that autoboot, which reloads and restarts the
+// whole demo -- press-key-to-reset therefore loops the demo end-to-end,
+// same as many boot-sector-loaded C64/C128 demos are designed to do. No
+// visible BASIC banner/READY prompt is expected or seen, because the
+// autoboot takes over before KERNAL would ever get there.
 {
     char col = (char)((80 - strlen(message)) / 2);
     vdc_prints(col, 12, message);
-    vdc_prints(28, 14, "Press RESET or power off");
-    while (1)
+    vdc_prints(24, 14, "Press a key or fire to reset the machine");
+
+    do
     {
+        joy_poll(0);
+    } while (!vdcwin_checkch() && !joyb[0]);
+
+    __asm
+    {
+        sei
+        jmp ($fffc)
     }
 }
 
@@ -1957,8 +2019,8 @@ static const menu_entry menu_entries[9] = {
 #define MENU_REPEAT_DELAY 15 // frames held before auto-repeat kicks in (~0.3s @ 50Hz)
 #define MENU_REPEAT_RATE 5    // frames between repeats once repeating (~10/s)
 #define MENU_GLIDE_STEP 3     // rasterlines/frame the highlight glides toward its target (~1 row/frame at 8 lines/row, i.e. a quick but visible slide, not a snap)
-#define MENU_ITEM_NUDGE 1     // small live-tuning correction for the item highlight vs its text (independent of the header's own row-1 fix)
-#define HEADER_NUDGE 1        // small live-tuning correction for the header band vs its text, on top of the whole-row row-1 shift
+#define MENU_ITEM_NUDGE 1     // small live-tuning correction for the item highlight vs its text (independent of the header's own row-1 fix) -- 2->1, shifts all rasters back down one line, per live feedback
+#define HEADER_NUDGE 1        // small live-tuning correction for the header band vs its text, on top of the whole-row row-1 shift -- 2->1, same reason as MENU_ITEM_NUDGE above
 
 char raster_bar_flat(char line, char color, char count)
 // Fills `count` consecutive rasterlines with one repeated colour -- the
@@ -2009,10 +2071,19 @@ void main_menu()
 // other two screens' attribute-mode header -- see
 // eager-sniffing-feather.md for the full writeup of this trade-off.
 //
-// Text itself never changes colour on selection -- ALL of the highlight
-// effect (including the header's own white-to-grey text gradient) comes
-// from the per-frame raster sweep below, so nothing needs redrawing when
-// the selection moves, only the sweep's own selected-row target changes.
+// Readable-raster redesign (2026-08-17, per explicit user feedback: the
+// original raster-gradient text wasn't clearly readable against a raster-
+// gradient background). Settled shape: header is a subtle 3-tone text
+// gradient on a flat background with a slow pulsing accent line at its
+// very top and very bottom pixel line; unselected items are plain flat
+// colour (an earlier same-session attempt gave every unselected item this
+// same subtle treatment and had to be reverted for a cycle-budget desync
+// bug -- see git history); the SELECTED item alone gets the header's same
+// subtle treatment (warm text gradient, pulsing top/bottom line) instead
+// of a plain flat highlight, so it's still clearly marked as selected
+// without the harsh two-nibble gradient the original design had. Selection
+// still glides smoothly between rows (`highlight_top` animation,
+// unchanged) rather than snapping.
 //
 // Digit keys ('1'-'9') still select directly, unchanged. Cursor keys or
 // joystick move the highlighted row (shared edge-detect + delay-then-
@@ -2022,38 +2093,68 @@ void main_menu()
 // re-entered while fire is still held) confirms. ESC/STOP semantics
 // unchanged -- still ends main_menu() entirely.
 {
-	// fg*16+bg combined VDCR_COLOR bytes, one per rasterline -- same
-	// convention idi8b_logo_demo()/title_screen() already use for their
-	// own raster bars. Header rows: green background bands (dark for the
-	// title row, light for the subtitle row) with the TEXT itself in a
-	// subtle white/light-grey gradient (both nibbles raster-driven) --
-	// kept to just these two shades per explicit user feedback that the
-	// original white/light-grey/dark-grey spread was too extreme to read
-	// comfortably.
-	static const char title_gradient[8] = {
-		16 * VDC_WHITE + VDC_DGREEN, 16 * VDC_WHITE + VDC_DGREEN,
-		16 * VDC_WHITE + VDC_DGREEN, 16 * VDC_WHITE + VDC_DGREEN,
-		16 * VDC_LGREY + VDC_DGREEN, 16 * VDC_LGREY + VDC_DGREEN,
-		16 * VDC_LGREY + VDC_DGREEN, 16 * VDC_LGREY + VDC_DGREEN,
+	// Every array below is a small (8-entry) compile-time constant, one
+	// entry per rasterline of a single row, read with plain sequential
+	// indexing -- exactly title_screen()'s own proven pattern, and nothing
+	// like the previous attempt's per-line phase/modulo lookup that caused
+	// a cycle-budget desync (see git history). The only thing that changes
+	// per frame is which *pre-existing* table entry a couple of scalar
+	// locals point at (pulse_highlight below) --
+	// an array read, not a computation, so it costs the same one
+	// instruction whether the sweep is running or not.
+	//
+	// Header text: 2-tone gradient (top to bottom), on a flat green
+	// background -- title darker green, subtitle lighter, like before.
+	// The two rows deliberately use different tone pairs now (live-tuned
+	// per row, not copy-pasted): title (darker DGREEN background) uses
+	// bright white/light-cyan; subtitle (lighter LGREEN background) uses
+	// dark-grey/dark-cyan instead -- against the lighter background the
+	// darker pair reads better. (Earlier single-pair attempts -- dark-grey
+	// for both, then light-grey for both -- were too low-contrast on one
+	// row or the other; per-row tone pairs is what actually worked.) No
+	// pulsing accent here (tried, per live user feedback it read as
+	// distracting rather than subtle -- unlike the selected item below,
+	// this is on screen constantly, not just while attention is on one
+	// row) -- flat header, full 8-line table read directly for both rows.
+	static const char title_combined[8] = {
+		16 * VDC_WHITE + VDC_DGREEN, 16 * VDC_WHITE + VDC_DGREEN, 16 * VDC_WHITE + VDC_DGREEN, 16 * VDC_WHITE + VDC_DGREEN,
+		16 * VDC_LCYAN + VDC_DGREEN, 16 * VDC_LCYAN + VDC_DGREEN, 16 * VDC_LCYAN + VDC_DGREEN, 16 * VDC_LCYAN + VDC_DGREEN,
 	};
-	static const char subtitle_gradient[8] = {
-		16 * VDC_WHITE + VDC_LGREEN, 16 * VDC_WHITE + VDC_LGREEN,
-		16 * VDC_WHITE + VDC_LGREEN, 16 * VDC_WHITE + VDC_LGREEN,
-		16 * VDC_LGREY + VDC_LGREEN, 16 * VDC_LGREY + VDC_LGREEN,
-		16 * VDC_LGREY + VDC_LGREEN, 16 * VDC_LGREY + VDC_LGREEN,
+	static const char subtitle_combined[8] = {
+		16 * VDC_DGREY + VDC_LGREEN, 16 * VDC_DGREY + VDC_LGREEN, 16 * VDC_DGREY + VDC_LGREEN, 16 * VDC_DGREY + VDC_LGREEN,
+		16 * VDC_DCYAN + VDC_LGREEN, 16 * VDC_DCYAN + VDC_LGREEN, 16 * VDC_DCYAN + VDC_LGREEN, 16 * VDC_DCYAN + VDC_LGREEN,
 	};
-	// Selected-item glow: cyan-to-blue background (top to bottom), text in
-	// a subtle light-yellow/dark-yellow gradient only -- per explicit user
-	// feedback, the earlier red-to-yellow spread was too hard to read;
-	// this is a much gentler two-shade fade, no red at all.
-	static const char highlight_gradient[8] = {
-		16 * VDC_LYELLOW + VDC_LCYAN, 16 * VDC_LYELLOW + VDC_LCYAN,
-		16 * VDC_LYELLOW + VDC_DCYAN, 16 * VDC_LYELLOW + VDC_DCYAN,
-		16 * VDC_DYELLOW + VDC_LBLUE, 16 * VDC_DYELLOW + VDC_LBLUE,
+	// Selection (CORRECTED 2026-08-17 -- the subtle pulsing-edge/gradient
+	// treatment below belongs to the SELECTED item only, not to every
+	// unselected one; an earlier pass in this same session had that
+	// backwards): warm yellow -> orange(-ish) -> red text gradient (top to
+	// bottom across its own 8 lines -- dyellow/lred are the closest this
+	// palette has to "orange"; LRED not DRED at the bottom -- DRED-on-DBLUE
+	// was live-tested too low-contrast to read comfortably, exactly the
+	// problem this redesign exists to avoid), flat dark-blue background,
+	// with the same subtle pulsing-line treatment as the header at its own
+	// top and bottom pixel line. highlight_combined's index 0 and index 7
+	// are never read (same reasoning as title_combined/subtitle_combined)
+	// -- those two lines are drawn live instead, pulsing.
+	static const char highlight_combined[8] = {
+		16 * VDC_LYELLOW + VDC_DBLUE, 16 * VDC_LYELLOW + VDC_DBLUE,
 		16 * VDC_DYELLOW + VDC_DBLUE, 16 * VDC_DYELLOW + VDC_DBLUE,
+		16 * VDC_LRED + VDC_DBLUE, 16 * VDC_LRED + VDC_DBLUE,
+		16 * VDC_LRED + VDC_DBLUE, 16 * VDC_LRED + VDC_DBLUE,
 	};
+	static const char pulse_table[8] = {
+		VDC_DBLUE, VDC_DBLUE, VDC_LBLUE, VDC_WHITE, VDC_WHITE, VDC_LBLUE, VDC_DBLUE, VDC_DBLUE,
+	};
+	// Unselected items: back to plain flat colour, same as the original
+	// (proven-safe) design -- the subtle effect above is for the one
+	// selected row only.
 	static const char floor_color = 16 * VDC_LYELLOW + VDC_BLACK;
 	static const char gap_color = 16 * VDC_BLACK + VDC_BLACK;
+
+	enum
+	{
+		PULSE_FRAMES = 6 // frames between pulse-phase steps -- ~1s per full breathe cycle at 8 steps and 50Hz
+	};
 
 	char key, i;
 	char selected;
@@ -2065,6 +2166,8 @@ void main_menu()
 	char target_top, highlight_top;
 	char before_count, after_count;
 	char items_top, items_bottom;
+	char pulse_phase, pulse_counter;
+	char pulse_highlight;
 
 	// Set once, not per redraw pass -- retains the last-chosen item across
 	// a dispatched section returning here, instead of always resetting to
@@ -2122,6 +2225,9 @@ void main_menu()
 		// target so the highlight doesn't visibly slide in from row 0.
 		highlight_top = items_top;
 
+		pulse_phase = 0;
+		pulse_counter = 0;
+
 		while (vdcwin_checkch())
 		{
 		}
@@ -2155,26 +2261,65 @@ void main_menu()
 				}
 			}
 
+			// Pulse phase: advances once every PULSE_FRAMES frames, well
+			// outside the sweep below -- this and the table read right
+			// after it are the *only* per-frame colour computation
+			// anywhere in this function; everything the sweep itself
+			// touches is a pre-existing constant table or a plain scalar.
+			if (++pulse_counter >= PULSE_FRAMES)
+			{
+				pulse_counter = 0;
+				pulse_phase = (pulse_phase + 1) % 8;
+			}
+			pulse_highlight = pulse_table[pulse_phase];
+
 			raster_bar_begin();
-			line = raster_bar_segment(vdc_row_to_rasterline(1) + HEADER_NUDGE, title_gradient, 8);
-			line = raster_bar_segment(line, subtitle_gradient, 8);
+			// Header: both rows read straight from their own flat 8-line
+			// constant table, no live pulse.
+			line = vdc_row_to_rasterline(1) + HEADER_NUDGE;
+			line = raster_bar_segment(line, title_combined, 8);
+			line = raster_bar_segment(line, subtitle_combined, 8);
 			// True gap between the header and the item area (gap_color --
 			// black on black, nothing is printed there so it doesn't
-			// matter that this isn't floor_color).
+			// matter that this isn't an item colour).
 			line = raster_bar_flat(line, gap_color, line - items_top);
 			// Unselected item rows above the (possibly still-animating)
 			// highlight -- floor_color, not gap_color, since these DO have
 			// visible text (yellow-on-black) that gap_color's black-on-
-			// black foreground would otherwise hide.
+			// black foreground would otherwise hide. Last of these lines
+			// is instead drawn with the highlight's own (non-pulsing) blue
+			// background -- the selected item's background starting one
+			// pixel line earlier than its text/pulse actually does, per
+			// live feedback -- skipped entirely when the highlight is
+			// already at the very top row (before_count==0, nothing above
+			// it to borrow a line from).
 			before_count = line - highlight_top;
-			line = raster_bar_flat(line, floor_color, before_count);
-			line = raster_bar_segment(line, highlight_gradient, 8);
-			// Unselected item rows below the highlight, down to the last
-			// item row (+1: items_bottom is the last line to actually
-			// colour, inclusive, not "one past" like every other target
-			// in this sweep).
+			if (before_count > 0)
+			{
+				line = raster_bar_flat(line, floor_color, before_count - 1);
+				raster_bar_line(line, (VDC_LYELLOW * 16) | VDC_DBLUE);
+				line--;
+			}
+			// The SELECTED item only: pulsing top line, warm gradient body,
+			// pulsing bottom line -- same pattern as the header block
+			// above, just for this one 8-line row instead of two rows.
+			raster_bar_line(line, (VDC_LYELLOW * 16) | pulse_highlight);
+			line--;
+			line = raster_bar_segment(line, &highlight_combined[1], 6);
+			raster_bar_line(line, (VDC_LRED * 16) | pulse_highlight);
+			line--;
+			// Symmetric one-line extension below the highlight (see above),
+			// then the remaining unselected item rows down to the last item
+			// row (+1: items_bottom is the last line to actually colour,
+			// inclusive, not "one past" like every other target in this
+			// sweep).
 			after_count = line - items_bottom + 1;
-			line = raster_bar_flat(line, floor_color, after_count);
+			if (after_count > 0)
+			{
+				raster_bar_line(line, (VDC_LYELLOW * 16) | VDC_DBLUE);
+				line--;
+				line = raster_bar_flat(line, floor_color, after_count - 1);
+			}
 			line = raster_bar_flat(line, floor_color, 24);
 			raster_bar_end();
 
