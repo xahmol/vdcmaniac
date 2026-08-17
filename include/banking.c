@@ -334,6 +334,10 @@ char sid_krill_irq_saved[2];
 // See its own comment in banking.h.
 unsigned sid_music_framecount;
 
+// See their own comments in banking.h.
+int sid_rate_accum;
+int sid_rate_inc;
+
 __asm sid_music_interrupt
 // SID play + Krill chain trampoline. Installed at $314 by sid_music_init()
 // below, AFTER krill_init() has already installed krill_interrupt there --
@@ -371,7 +375,7 @@ sid_krill_chain:
     jmp $ff33
 }
 
-void sid_music_init()
+void sid_music_init(char is_ntsc)
 // Initialise SID music: bank to where the tune lives (matches
 // raster_irq_playframe()'s own bank-switch, defines.h's SIDINIT/SIDPLAY),
 // reset the SID chip, call the tune's init entry point (song 0), then chain
@@ -380,6 +384,17 @@ void sid_music_init()
 // structured this way. Call once, after krill_init() has already installed
 // krill_interrupt (krill.c) -- this saves whatever's there at that point
 // and chains onward to it, so ordering matters.
+//
+// is_ntsc is the host machine's own detected video standard (caller passes
+// g_is_ntsc, set earlier by system_diagnostic_screen()'s detect_ntsc()) --
+// used here, together with defines.h's SID_TUNE_USES_CIA_SPEED/
+// SID_TUNE_IS_NTSC (the tune's own PSID-header-derived tempo properties),
+// to pick the rate-accumulator delta raster_irq_playframe() (vdc_raster.c)
+// will consume every IRQ. A vsync-tempo tune (SID_TUNE_USES_CIA_SPEED==0)
+// always gets delta=0 regardless of is_ntsc -- it's designed to follow
+// whatever rate it's called at, correct on either host with no correction.
+// A CIA-tempo tune needs correction only when its own default rate doesn't
+// match this host's standard.
 //
 // sei/cli bracket the bank-switch below for the same reason
 // raster_irq_playframe() (vdc_raster.c) does: BNK_1_IO banks out KERNAL ROM
@@ -402,6 +417,16 @@ void sid_music_init()
 	}
 	mmu.cr = old;
 	sid_music_framecount = 0;
+
+	sid_rate_accum = 0;
+	if (!SID_TUNE_USES_CIA_SPEED)
+		sid_rate_inc = 0;
+	else if (SID_TUNE_IS_NTSC == is_ntsc)
+		sid_rate_inc = 0;
+	else if (SID_TUNE_IS_NTSC)
+		sid_rate_inc = SID_RATE_DELTA_NTSC_ON_PAL;
+	else
+		sid_rate_inc = SID_RATE_DELTA_PAL_ON_NTSC;
 
 	// Save krill_interrupt's own address (already installed by krill_init()
 	// by this point), then chain sid_music_interrupt in ahead of it.

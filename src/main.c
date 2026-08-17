@@ -2438,7 +2438,7 @@ int main(void)
 		printf("krill loadcompd failed: musick\n");
 		exit(1);
 	}
-	sid_music_init();
+	sid_music_init(g_is_ntsc);
 
 	idi8b_logo_demo();
 

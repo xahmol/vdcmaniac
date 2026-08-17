@@ -217,6 +217,29 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 #define SIDINIT 0x2080
 #define SIDPLAY 0x2087
 
+// Per-tune tempo properties, derived from Maniac.sid's own PSID v2 header
+// (fetched from the HVSC URL above and inspected directly -- the header is
+// stripped from assets/music.prg, so it can't answer this at runtime).
+// These drive sid_music_init()'s rate-accumulator setup (banking.c) so
+// playback tempo is correct regardless of tune/machine PAL-NTSC combination
+// -- see TODO.md history and vdc_raster.c's raster_irq_playframe().
+//
+// IMPORTANT for future tune swaps: derive these from the PSID "speed"
+// field (offset 0x12-0x15, one bit per subtune, song 1 = bit 0), NOT the
+// "flags" field's clock-standard bits (offset 0x76-0x77, bits 2-3) -- for
+// Maniac.sid those flags bits read 00/"Unknown", which would give a false
+// negative. The speed field is authoritative: per the PSID v2 spec, a 0
+// bit means "vertical blank interrupt" (the tune follows whatever rate
+// it's called at -- correct on any host, needs SID_TUNE_USES_CIA_SPEED=0
+// and no further tuning), and a 1 bit means "CIA 1 timer interrupt
+// (default 60Hz)" -- the tune drives its own fixed-rate tempo, ignoring
+// the host's actual vsync rate entirely. Maniac.sid's speed field is
+// 0x00000001 (song 1's bit set) -- confirmed CIA-timer tempo, defaulting
+// to NTSC-style 60Hz, matching the prior session's independent by-ear
+// finding that this tune needs NTSC-rate playback.
+#define SID_TUNE_USES_CIA_SPEED 1 // 1=CIA-timer tempo (fixed, needs correction to match); 0=vsync tempo (follows host automatically, SID_TUNE_IS_NTSC below is then irrelevant)
+#define SID_TUNE_IS_NTSC 1        // only meaningful when SID_TUNE_USES_CIA_SPEED==1: which fixed rate the tune's CIA tempo defaults to
+
 // References to steering chars
 #define CH_CURS_UP 145    // Petscii control code for Cursor Up
 #define CH_CURS_DOWN 17   // Petscii control code for Cursor Down

@@ -302,8 +302,11 @@ __interrupt void raster_irq_playframe()
 // already initialized via sid_music_init().
 //
 // Called from krill_interrupt (krill.c), once per VIC raster interrupt
-// (every frame, ~50/60Hz) -- NOT from foreground code any more. This is
-// what makes music keep playing *during* an active krill_loadcompd() call
+// (every frame, ~50/60Hz) -- zero, one, or two SIDPLAY calls happen per
+// IRQ, per the rate accumulator below, so the tune's own tempo stays
+// correct even when it doesn't match the host's frame rate. NOT from
+// foreground code any more. This is what makes music keep playing *during*
+// an active krill_loadcompd() call
 // (the whole point of using Krill in the first place: it keeps interrupts
 // enabled throughout a background load), not just during sections that
 // happen to have their own per-frame foreground loop. __interrupt (not
@@ -344,6 +347,35 @@ __interrupt void raster_irq_playframe()
 // bank-restore/RTS, eventually crashing into the KERNAL's BRK handler --
 // exactly the symptom observed, and only fixed by moving here.
 {
+    // Rate accumulator: decide how many SIDPLAY calls are due this IRQ,
+    // from common-RAM state only, BEFORE the bank switch below -- keeps the
+    // KERNAL-banked-out window exactly as short as it needs to be. See
+    // banking.h's own comment on sid_rate_accum/sid_rate_inc and
+    // sid_music_init() (banking.c) for how sid_rate_inc is chosen from the
+    // tune's own PSID-header-derived tempo properties (defines.h) vs. the
+    // host's detected video standard. plays is 1 on most IRQs (both
+    // matched-standard and no-adjustment-needed cases collapse sid_rate_inc
+    // to 0, which never trips either branch below -- identical to this
+    // function's pre-accumulator behaviour); 2 when the tune's native rate
+    // is faster than the host's frame rate and enough debt has accrued to
+    // catch up; 0 when it's slower and enough debt has accrued to hold
+    // back.
+    char plays = 1;
+    sid_rate_accum += sid_rate_inc;
+    if (sid_rate_accum >= SID_RATE_SCALE)
+    {
+        sid_rate_accum -= SID_RATE_SCALE;
+        plays = 2;
+    }
+    else if (sid_rate_accum <= -SID_RATE_SCALE)
+    {
+        sid_rate_accum += SID_RATE_SCALE;
+        plays = 0;
+    }
+
+    if (plays == 0)
+        return;
+
     char old = mmu.cr;
     // Defensive sei, no matching cli: hardware sets I=1 on IRQ entry, but
     // that's only a safe assumption if NOTHING earlier in the chain up to
@@ -357,27 +389,37 @@ __interrupt void raster_irq_playframe()
     // same as it always would.
     __asm { sei }
     mmu.cr = BNK_1_IO;
-    // Restart the tune every SID_RESTART_FRAMES frames instead of playing
-    // one more frame -- Maniac.sid's own composed length/loop point was
-    // never measured, and if its own internal loop-back jump is one of the
-    // handful of addresses sidreloc's relocation left "status undetermined"
-    // (see project memory), it may not loop on its own at all. Restarting
-    // from our own side sidesteps needing to know either way -- see
-    // banking.h's own comment on SID_RESTART_FRAMES for the exact threshold
-    // (a rough guess, not measured against this tune specifically).
-    if (++sid_music_framecount >= SID_RESTART_FRAMES)
+    while (plays > 0)
     {
-        sid_music_framecount = 0;
-        sid_resetsid();
-        __asm
+        // Restart the tune every SID_RESTART_FRAMES play calls instead of
+        // playing one more frame -- Maniac.sid's own composed length/loop
+        // point was never measured, and if its own internal loop-back jump
+        // is one of the handful of addresses sidreloc's relocation left
+        // "status undetermined" (see project memory), it may not loop on
+        // its own at all. Restarting from our own side sidesteps needing to
+        // know either way -- see banking.h's own comment on
+        // SID_RESTART_FRAMES for the exact threshold (a rough guess, not
+        // measured against this tune specifically). Never do a restart and
+        // a second play in the same IRQ: drop any remaining due play and
+        // zero the accumulator, both to cap worst-case handler length and
+        // to avoid carrying a stale debt across the tune's own restart.
+        if (++sid_music_framecount >= SID_RESTART_FRAMES)
         {
-            lda #$00
-            jsr SIDINIT
+            sid_music_framecount = 0;
+            sid_resetsid();
+            __asm
+            {
+                lda #$00
+                jsr SIDINIT
+            }
+            sid_rate_accum = 0;
+            break;
         }
-    }
-    else
-    {
-        __asm { jsr SIDPLAY }
+        else
+        {
+            __asm { jsr SIDPLAY }
+        }
+        plays--;
     }
     mmu.cr = old;
 }

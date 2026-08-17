@@ -117,19 +117,39 @@ __noinline void bnk_cpyfromvdc(char dcr, volatile char *dp, unsigned vdcsrc, uns
 __noinline void bnk_redef_charset(unsigned vdcdest, char scr, volatile char *sp, unsigned size);
 __noinline bool bnk_load(char device, char bank, const char *start, const char *fname);
 __noinline bool bnk_save(char device, char bank, const char *start, const char *end, const char *fname);
-__noinline void sid_music_init();
+__noinline void sid_music_init(char is_ntsc);
 __noinline void sid_resetsid();
 
-// Frame counter incremented once per call to raster_irq_playframe()
-// (vdc_raster.c) -- used there to restart the tune (re-run SIDINIT) after
-// SID_RESTART_FRAMES frames, since Maniac.sid's own composed length/loop
-// point isn't known precisely and this project has no per-tune "has the
-// song ended" telemetry. Declared here (not local to raster_irq_playframe())
-// so it lives in banking.c's existing bcode1/bdata1/bbss1 segment next to
-// the rest of the SID state, matching this project's own "anything touched
-// from interrupt context must live in common RAM" rule.
+// Frame counter incremented once per actual SIDPLAY call inside
+// raster_irq_playframe() (vdc_raster.c) -- used there to restart the tune
+// (re-run SIDINIT) after SID_RESTART_FRAMES calls, since Maniac.sid's own
+// composed length/loop point isn't known precisely and this project has no
+// per-tune "has the song ended" telemetry. Counts play calls, not IRQs --
+// correct even now that the rate accumulator below can call SIDPLAY zero,
+// one, or two times per IRQ. Declared here (not local to
+// raster_irq_playframe()) so it lives in banking.c's existing
+// bcode1/bdata1/bbss1 segment next to the rest of the SID state, matching
+// this project's own "anything touched from interrupt context must live in
+// common RAM" rule.
 extern unsigned sid_music_framecount;
-#define SID_RESTART_FRAMES 15000 // ~5 minutes at 50Hz PAL -- widened from an initial 6000 (~2 min) guess that live-tested as cutting the tune off before it finished; still not measured against the tune's actual length, just a safer interim margin -- narrow this once the real length is known
+#define SID_RESTART_FRAMES 15000 // ~4-5 minutes depending on tune/machine standard match -- widened from an initial 6000 (~2 min) guess that live-tested as cutting the tune off before it finished; still not measured against the tune's actual length, just a safer interim margin -- narrow this once the real length is known
+
+// Rate accumulator state for retiming SID playback to the tune's own native
+// rate when it doesn't match the host machine's VIC-frame rate (defines.h's
+// SID_TUNE_USES_CIA_SPEED/SID_TUNE_IS_NTSC, set once by sid_music_init()
+// below; consumed every IRQ by raster_irq_playframe(), vdc_raster.c). Must
+// live in common RAM (bbss1) for the same reason sid_music_framecount does
+// -- raster_irq_playframe() runs partly with mmu.cr=BNK_1_IO, a genuinely
+// different physical RAM bank. sid_rate_accum is signed: it holds a
+// positive debt when the tune's native rate is faster than the host's
+// frame rate (extra SIDPLAY calls needed to catch up) or a negative debt
+// when slower (calls need to be skipped to hold the tune back) -- see
+// vdc_raster.c's raster_irq_playframe() for the consuming logic.
+extern int sid_rate_accum;
+extern int sid_rate_inc;
+#define SID_RATE_SCALE 10000
+#define SID_RATE_DELTA_NTSC_ON_PAL 1935   // NTSC-tempo tune (59.826Hz) on a PAL machine (50.1245Hz): ratio 1.19354, error -0.03%
+#define SID_RATE_DELTA_PAL_ON_NTSC (-1622) // PAL-tempo tune (50.1245Hz) on an NTSC machine (59.826Hz): ratio 0.83784, error +0.02%
 
 // Fastload
 __noinline bool fastload_mapdir(const char * fnames);

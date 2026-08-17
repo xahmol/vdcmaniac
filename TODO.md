@@ -27,25 +27,54 @@ records for history. Items below are grouped by whether they block release.
   keypress. Mitigated (joystick only trusted as fallback when
   `keyb_key == 0`) but not live-stress-tested.
 
-## Parked (do not pick up unprompted)
+## Before release (continued)
 
-- [ ] **SID NTSC/PAL tempo mismatch.** `Maniac.sid` was composed for NTSC
-  (~60Hz) and plays back at PAL's 50Hz — a ~17% tempo slowdown. Root cause
-  is confirmed (not an IRQ-timing issue); the fix itself (call `SIDPLAY`
-  at the tune's native rate, e.g. 6 times per 5 real frames) was never
-  implemented. Explicitly parked by request ("Park SID for now. First fix
-  images."). A separate CIA1-retiming attempt was tried and fully
-  reverted after live IRQ-storm failures — see memory
-  `vdcmaniac_sid_cia1_retime` for the resume checklist and root-cause
-  findings before attempting again.
+- [ ] **SID rate-accumulator fix: real PAL hardware pass still outstanding
+  (only real hardware this project can currently test on).** Implemented
+  and live-verified in VICE this session (see plan
+  `want-to-revisit-timning-zany-patterson.md`): `raster_irq_playframe()`
+  (`include/vdc_raster.c`) now calls `SIDPLAY` zero, one, or two times per
+  IRQ via a signed fixed-point rate accumulator, generalized for any
+  combination of tune-native-standard × machine-standard (per-tune
+  properties `SID_TUNE_USES_CIA_SPEED`/`SID_TUNE_IS_NTSC` in
+  `include/defines.h`, derived from `Maniac.sid`'s actual PSID header
+  "speed" field, fetched from HVSC and decoded this session — confirmed
+  CIA-timer tempo, not vsync).
+  **PAL path (the real-hardware-testable case): fully verified.**
+  Live-measured in VICE via the binary monitor: `sid_rate_inc` correctly
+  resolves to `1935`, `sid_music_framecount` grew at ~59.9/61.2 calls/sec
+  (target NTSC 59.826Hz) versus the old 50.1Hz PAL rate; demo boots through
+  diagnostic screen → logo → title → main menu → a VDC-FLI picture load
+  with no hang/crash, picture rendered correctly, music kept advancing
+  through the `krill_loadcompd()` load. Still needs one real `make deploy`
+  pass on actual C128 hardware to close this out (VICE-only so far).
+  **NTSC path: code-verified correct, tempo unverifiable in this
+  environment.** `sid_rate_inc` correctly resolves to `0` (matched
+  standard, no correction needed) on both WSLg x128 and native Windows
+  VICE, confirmed via direct register inspection — the logic is right.
+  Actual playback tempo couldn't be confirmed by ear: both VICE builds,
+  tested independently (ruling out host performance — native Windows
+  VICE used only 50% of one core, not saturated), paced the emulation at
+  ~51 calls/sec instead of NTSC's ~59.8, despite the running program
+  correctly detecting/reporting NTSC on-screen. This looks like a VICE
+  quirk in how `-model ntsc` (command-line) drives internal timing, not a
+  vdcmaniac bug -- but since no NTSC hardware is available to this project,
+  it can't be fully closed out beyond "code and PAL behaviour are both
+  correct, NTSC audio timing accepted as unverifiable for now." Revisit
+  only if NTSC hardware becomes available, or if the VICE quirk is worth
+  chasing on its own for unrelated reasons.
 
-## Unresolved, low priority
+## Resolved this session
 
-- [ ] **Windows VICE "Failed to mute device #11" report.** Surfaced when
-  Krill's loader activates on the user's own Windows VICE build. Almost
-  certainly a local VICE drive-sound/TDE config issue (this project's
-  build only ever attaches a d81 at unit 8, never 11), not a bug in this
-  repo — not yet confirmed either way.
+- [x] **Windows VICE "Failed to mute device #11" report — root cause
+  found, not what it looked like.** Not an audio-device issue: Krill's
+  loader needs True Drive Emulation to run its drive-side install code
+  (`M-E`/`M-R` commands), and this Windows VICE install had TDE off by
+  default, causing Krill's install to hang silently (confirmed live via
+  `-binarymonitor`: `VDriveCommand: Warning - M-E 020a (+14) (needs TDE)`
+  in the log, matching a hang at the "loading assets" screen). Fixed by
+  launching with `-drive8truedrive` (or enabling True Drive Emulation for
+  drive 8 in VICE's own settings permanently). Not a bug in this repo.
 
 ## Staged, not yet used (future modes/features, not currently planned work)
 
