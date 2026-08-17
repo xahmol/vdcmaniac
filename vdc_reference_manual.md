@@ -553,20 +553,6 @@ unconditionally sets `cia2.pra = 0x07`, directly conflicting with
 protocol needs for its whole active session) — see memory:
 `krill_cia_init_conflict`.
 
-### RLE-to-VDC decompression (in progress)
-
-A planned technique, not yet wired into any real asset: decode a
-PackBits-style RLE stream directly into VDC memory via `vdc_block_fill()`
-for repeat runs (see "Hardware block copy/fill" above), never
-materializing a decompressed copy in CPU RAM — unlike any LZ-family
-cruncher (including Krill's own `loadcompd` options), which *must* decode
-to ordinary CPU RAM first (back-reference decompression needs fast random
-access, which VDC RAM's `$D600`/`$D601` select-then-poll protocol can't
-provide). Test-first validation (Python round-trip encoder +
-isolated C-side decoder correctness test, both passing) is done; see
-`/home/xahmol/.claude/plans/rle-vdc-blockfill-compression.md` for the full
-plan and `tools/rle_test.py` for the reference implementation.
-
 ---
 
 ## Quick-reference checklist for a new mode
