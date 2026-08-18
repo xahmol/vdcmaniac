@@ -65,9 +65,11 @@ MAINSRC = src/main.c
 MAIN_SRCS = src/main.c \
             include/banking.c include/vdc_core.c \
             include/vdc_win.c include/vdc_raster.c \
+            include/vdc_textscroller.c include/vdc_softscroll.c \
             include/defines.h include/banking.h \
             include/vdc_core.h include/vdc_win.h \
             include/vdc_raster.h include/peekpoke.h \
+            include/vdc_textscroller.h include/vdc_softscroll.h \
             include/krill.c include/krill.h
 
 # Deployment to Ultimate II+

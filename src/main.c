@@ -15,6 +15,8 @@
 #include "vdc_win.h"
 #include "vdc_raster.h"
 #include "peekpoke.h"
+#include "vdc_textscroller.h"
+#include "vdc_softscroll.h"
 #include "krill.h"
 
 // Buffer for attribute screen calculations
@@ -1971,6 +1973,661 @@ void demo_end_screen(const char *message)
     }
 }
 
+char raster_bar_flat(char line, char color, char count); // forward decl -- raster_bar_flat() itself is defined later in this file
+
+// softscroll_pan_pre()/softscroll_pan_post() -- see credits_screen()'s own
+// comment for why this exists instead of calling vdc_softscroll_right()
+// directly.
+//
+// Same register math as vdc_softscroll_right() (vdc_softscroll.c), but split
+// around a single shared sync point instead of doing its own -- see
+// softscroll_pan_pre()'s own comment below for the two-waits-racing problem
+// this solves.
+//
+// (This code was briefly, wrongly, suspected of hanging the program when
+// this section first ran from its real call site -- reverting it made no
+// difference, which correctly ruled it out. The actual cause was a buffer
+// overflow in credits_screen()'s own message-sizing, unrelated to this
+// pan-step logic entirely; see credits_screen()'s own comment.)
+void softscroll_pan_pre(struct VDCSoftScrollSettings *settings, char step)
+// Call BEFORE raster_bar_begin(). Computes the new hscroll value (written
+// later, by the post half) and, on the boundary-crossing path only (1-in-8
+// calls), writes the new display address right away -- at this point in
+// the loop we're deep in active display (the previous frame's vblank,
+// confirmed by that frame's own raster_bar_end(), has long since passed by
+// the time this frame's own loop bookkeeping/keypress-polling has run),
+// matching the same active-display precondition vdc_softscroll_right()'s
+// own vdc_wait_no_vblank() call used to enforce with an explicit wait.
+{
+    if (settings->hscroll > step - 1)
+    {
+        settings->hscroll -= step;
+    }
+    else
+    {
+        if ((settings->xoff + 1) < settings->width - vdc_state.width)
+        {
+            settings->hscroll = 8 - step + settings->hscroll_def % step;
+            settings->xoff++;
+            settings->addr_offset++;
+            vdc_set_disp_address(vdc_state.base_text + settings->addr_offset, vdc_state.base_attr + settings->addr_offset);
+        }
+    }
+}
+
+void softscroll_pan_post(struct VDCSoftScrollSettings *settings)
+// Call immediately after raster_bar_end() returns -- rides its
+// vdc_wait_vblank() as the single shared sync point instead of softscroll
+// doing its own second one.
+{
+    vdc_reg_write(VDCR_HSCROLL, settings->hscroll_base + settings->hscroll);
+}
+
+void softscroll_buffer_shift_chunk(struct VDCSoftScrollSettings *settings, unsigned shift, unsigned char row, unsigned char plane, unsigned off, unsigned char n)
+// Shifts and pushes `n` bytes of ONE row's ONE plane (0=char, 1=attr),
+// starting at byte offset `off` within that row's own preserved span --
+// from column `shift` back to column `off`, both the Bank-1-side shift and
+// the VDC push. The finest-grained unit of a buffer shift; call it once
+// per frame with a small, fixed `n` (see credits_screen()'s own
+// SHIFT_CHUNK), stepping `off` across a row's full preserved span, then
+// `plane` (0 then 1), then `row` (0 to settings->height-1), until the
+// whole shift is done -- see credits_screen()'s own state machine for how.
+//
+// This replaces an earlier version of this function (softscroll_buffer_
+// shift_row(), doing a whole row -- both planes, full width -- in one
+// call) that was ITSELF already a improvement over an even earlier
+// whole-buffer-at-once version, and still not enough: live feedback
+// showed the raster bars were still visibly disturbed with a whole row's
+// worth of work (up to ~280 bytes across 4 bnk_cpytovdc()/bnk_memcpy()
+// calls) landing in a single frame. Cutting to one small chunk of one row
+// of one plane per frame is the same "keep every frame's extra work small
+// and bounded" principle txtscr_cupid_render_letter_step() already uses, taken
+// further because a VDC-write's per-byte ready-flag poll (bnk_cpytovdc(),
+// vdc_write()) turned out to be costly enough that even modest amounts of
+// it, landing together, were still enough to disturb the cycle-critical
+// raster sweep running every frame alongside it.
+//
+// dest < src here always (shift > 0 whenever the caller uses this), so
+// bnk_memcpy()'s plain ascending byte-by-byte copy is safe (never
+// overwrites a source byte before it's read) -- same reasoning as any
+// left-shifting memmove. The bnk_cpytovdc() push is safe to do
+// immediately, mid-shift, even though the display is still actively
+// showing the OLD scroll position during the many frames a shift spreads
+// across: it's writing to columns starting at `off` (always < preserve,
+// which is always <= vdc_state.width), while the currently-visible window
+// is [shift, shift+vdc_state.width) -- given shift is always picked close
+// to the buffer's own max width, these never overlap, so nothing on
+// screen is disturbed until the caller finalises (resets addr_offset to
+// 0) once the whole shift is done.
+{
+    unsigned vdcsize = settings->width * settings->height;
+    unsigned planebase = (plane == 0) ? 0 : (vdcsize + 48);
+    unsigned rowbase = planebase + (unsigned)row * settings->width;
+
+    bnk_memcpy(settings->cr, settings->source + rowbase + off,
+               settings->cr, settings->source + rowbase + shift + off,
+               n);
+
+    if (plane == 0)
+    {
+        bnk_cpytovdc(vdc_state.base_text + (unsigned)row * settings->width + off,
+                     settings->cr, settings->source + rowbase + off, n);
+    }
+    else
+    {
+        bnk_cpytovdc(vdc_state.base_attr + (unsigned)row * settings->width + off,
+                     settings->cr, settings->source + rowbase + off, n);
+    }
+}
+
+void credits_screen()
+// End-credits section: Cupid font scroller + 16-line background colour
+// bars, mirrored-hue-cycling, drifting slowly upward across the whole
+// reachable screen height and wrapping (attribute mode -- background
+// nibble only). Runs after main_menu() returns (ESC/STOP), before the
+// final krill_done()/vdc_exit()/demo_end_screen() teardown -- see main().
+//
+// REDESIGNED A THIRD TIME (live-diagnosed root cause, this time on the
+// *scroller* side, not the raster side): live feedback asked "what's
+// costly in the scroller calc, would dropping sine help" -- answer no,
+// sine is a single array lookup, negligible. The real cost was always
+// txtscr_cupid_scroll_do()'s per-frame vdcwin_scroll_left(): 2 VDC
+// hardware block-copy operations per row of the scroll window, and
+// vdc_block_copy_page() (vdc_core.c) triggers a copy by writing VDCR_DSIZE
+// and returns immediately -- it does not wait for the copy to finish
+// internally. Isolating the scroller entirely (disabled, raster running
+// alone) proved the raster bars are perfectly stable on their own;
+// re-enabling the scroller reintroduced the instability regardless of how
+// much settling delay was added afterward (tried 1 and 3 frames -- real,
+// measured improvement each time, never fully clean). Band-aiding the
+// symptom (more waiting) had diminishing returns; the actual fix is
+// architectural: stop doing a block-copy every frame at all.
+//
+// This version pre-renders the whole message into a flat VDC-softscroll-
+// shaped buffer ONCE (txtscr_cupid_render(), including the per-letter sine
+// row-offset baked in at render time -- a one-time cost has no per-frame
+// budget to blow), then every frame just calls vdc_softscroll_left(),
+// which is 1-2 synchronous register writes in the common case and no
+// block-copy at all -- see vdc_softscroll.c. No more alternating
+// scroll/raster turns, no more settling delay -- both run every frame.
+{
+    // Endless stream of short segments (chunks[], cycling forever) fed
+    // into the scroll buffer ONE LETTER AT A TIME, in the background, as
+    // part of the main per-frame loop below (txtscr_cupid_render_letter_step(),
+    // vdc_textscroller.c) -- not one whole segment rendered in a single
+    // synchronous burst the way this section's two earlier designs both
+    // did. That mattered for two escalating reasons, both live-diagnosed
+    // here: (1) a single long message overflows vdc_softscroll's own real
+    // width ceiling (a ~1063-column first draft silently truncated on
+    // storage into the then-`char` sc.width field, desyncing the rendered
+    // buffer from the row stride vdc_softscroll_init() thought it had --
+    // glyph-shaped garbage smeared across the display); splitting into
+    // short chunks fixed that. (2) even after that fix, swapping a whole
+    // chunk in at once -- one big txtscr_cupid_render() + bnk_cpytovdc()
+    // pair, run between two frames' worth of raster_bar_begin()/end() --
+    // took long enough to visibly freeze the raster bars for its whole
+    // duration ("moving rasters visibly freeze"). Per-letter filling
+    // spreads that same total work across many frames instead, each call
+    // small enough (see txtscr_cupid_render_letter_step()'s own comment) to
+    // run safely every frame without a dedicated "outside the raster
+    // bracket" placement rule.
+    //
+    // Each chunk's own trailing "     " is the only separation between
+    // them -- reads as a natural word gap in one continuous flow, not a
+    // pause, since nothing about this design ever resets/blanks the
+    // display position (see the main loop below). entry_pad is used only
+    // once, to seed the buffer before the per-letter stream (which starts
+    // at chunks[0], stream_chunk=0/stream_pos=0, right after it) supplies
+    // any real text -- a real 28-space entry pad since there's no on-screen
+    // content yet to flow from at that point. Not baked into chunks[0]
+    // itself, so it's never repeated on later laps around the cycle.
+    static const char entry_pad[] = "                            ";
+    static const char chunk0[] = "VDC MANIAC by Xander Mol     ";
+    static const char chunk1[] = "coded with Oscar64 by drmortalwombat     ";
+    static const char chunk2[] = "fast loading via Krill     ";
+    static const char chunk3[] = "artwork: Van Gogh, Hokusai, Wikimedia Commons     ";
+    static const char chunk4[] = "music: Maniac by Michael Sembello, 1983, SID cover by Paul Kleimeyer     ";
+    static const char chunk5[] = "thanks for watching!     ";
+    static const char *const chunks[] = {chunk0, chunk1, chunk2, chunk3, chunk4, chunk5};
+    enum
+    {
+        CHUNK_COUNT = 6,
+        // Wide enough for vdc_state.width (the on-screen window) plus a
+        // long comfortable lookahead margin for the background fill to
+        // stay ahead of the scroll consuming it -- well inside the range
+        // already confirmed clean live in VICE (a ~241-column single
+        // message ran correctly at this exact call site).
+        BUFFER_WIDTH = 220
+    };
+    struct VDCSoftScrollSettings sc;
+    unsigned fill_col;
+    unsigned char stream_chunk, stream_pos;
+    unsigned char letter_phase;
+    unsigned char lw, ch;
+    // Background fill for the CURRENT letter runs in two spread-out
+    // stages, each its own state machine: first RENDER (Bank-1 side,
+    // txtscr_cupid_render_letter_step(), CUPID_RENDER_STEPS separate
+    // frames, one row per frame -- live cycle measurement, this session,
+    // found a whole-letter render in one call cost over 2x this VDC
+    // revision's entire ~48-line VBLANK window on average), then PUSH to
+    // VDC (bnk_cpytovdc(), which does poll the VDC
+    // ready flag, CUPID_BAND_H*2 (rows x planes) separate frames, one
+    // row/plane per frame -- live feedback: even a single letter's whole
+    // push together was still enough to visibly disturb the raster bars).
+    // fill_rendering/fill_active: which stage (if any) is in progress;
+    // fill_col only advances (committing the letter) once the push stage's
+    // every row/plane is done -- see the main loop's own comment.
+    unsigned char fill_rendering = 0, fill_render_step = 0;
+    unsigned char fill_active = 0, fill_row = 0, fill_plane = 0;
+    unsigned fill_letter_col = 0;
+    unsigned char fill_letter_w = 0;
+    unsigned char fill_ch = 0;
+    // Shift state: while shifting is set, the main loop spends each frame
+    // on one small SHIFT_CHUNK-sized step of softscroll_buffer_shift_
+    // chunk() instead of the usual pan-step/background-fill work -- see
+    // the loop's own comment for why, and SHIFT_CHUNK's own comment for
+    // why this small.
+    unsigned char shifting = 0, shift_row = 0, shift_plane = 0;
+    unsigned shift_amount = 0, shift_preserve = 0, shift_off = 0;
+    // just_resumed: set to skip exactly one frame's background-fill
+    // attempt -- both right after a shift finishes, AND for the very
+    // first frame of the whole loop (both start with hscroll==0, hitting
+    // softscroll_pan_pre()'s own boundary-crossing branch immediately, so
+    // both need the same one-frame decoupling from also starting a letter
+    // push -- see the loop's own comment at the point it's checked).
+    unsigned char just_resumed = 1;
+    enum
+    {
+        // Bytes of one row/one plane shifted+pushed per frame while a
+        // shift is in progress -- small enough to keep the raster bars
+        // undisturbed (live-tested clean at this granularity), but large
+        // enough that the whole shift (a fixed total amount of work,
+        // roughly shift_preserve*2 planes*CUPID_BAND_H rows bytes -- only
+        // the band rows are ever actually shifted, see the shift-completion
+        // check's own comment) doesn't take so many frames that the
+        // scroll-position freeze during it (see
+        // credits_screen()'s own comment on why it's frozen) becomes its
+        // own visible problem -- live feedback: "visible pauses ... bars
+        // keep moving but scroller stands still". SHIFT_CHUNK=8 kept the
+        // pause several seconds long; live cycle measurement (this session)
+        // found SHIFT_CHUNK=24 cost ~27-34 lines out of this VDC revision's
+        // measured ~48-line VBLANK budget -- comfortable room to go
+        // further. Combined with the band-row-only shift fix above
+        // (BAND_ROW's own comment, ~3.6x less total work on its own),
+        // live-measured exact pause length at each step: SHIFT_CHUNK=24
+        // gave 56 frames (1.12s) per shift; 32 gave 42 frames (0.84s),
+        // consistently, across repeated shifts -- adjust further only
+        // after re-measuring, not by guessing, if the pause still feels
+        // long or the bars start showing it.
+        SHIFT_CHUNK = 32,
+        // Rows processed per frame by both the letter-render stage
+        // (txtscr_cupid_render_letter_step()) and the letter-push stage
+        // (bnk_cpytovdc(), above) -- live cycle measurement (this session)
+        // put a single row's cost at well under 1 line out of a ~48-line
+        // VBLANK budget for either stage, so batching several per frame
+        // costs essentially nothing extra in raster-bar-safety terms. Not
+        // 1: a from-scratch one-row-per-frame version doubled a letter's
+        // total render+push latency (26 frames vs. the previous single-
+        // call-render design's ~15), which ate almost all of the buffer's
+        // margin for staying ahead of the scroll position -- live-
+        // diagnosed as the fill visibly crawling behind the scroll and
+        // desyncing. FILL_ROW_BATCH=3 brings total per-letter latency back
+        // down to ~9 frames (12/3 render + 14/3 push, rounded up), better
+        // than the original margin, while still nowhere near the
+        // whole-letter-in-one-frame cost that caused the raster jitter in
+        // the first place.
+        FILL_ROW_BATCH = 3
+    };
+    // Background-only palette (foreground nibble irrelevant in attribute
+    // mode) -- all seven VDC hues at low intensity (I bit off, the "D"-
+    // prefixed constants), deliberately excluding black (no gaps) and every
+    // high-intensity/"L"-prefixed colour (the Cupid font glyphs -- see
+    // vdc_textscroller.c's colour tables -- only ever use LGREEN/LYELLOW/
+    // LGREY/WHITE, all high-intensity, so keeping the bars low-intensity
+    // guarantees contrast against the text regardless of which bar is
+    // behind it). Ordered by actual hue angle (red -> yellow -> green ->
+    // cyan -> blue -> purple -> grey) and then mirrored back down (purple
+    // -> blue -> cyan -> green -> yellow) instead of just wrapping straight
+    // from purple back to red -- a plain wrap still reads as a real jump
+    // (purple and red sit on opposite sides of the wheel), while the
+    // mirrored palindrome makes every step, including the one from the end
+    // of the array back to the start, a neighbouring hue: a smooth
+    // triangle-wave sweep with no seam anywhere in the cycle. DGREY, being
+    // achromatic, sits alone at the peak (visited once per cycle, not
+    // mirrored) as the turning point between the rising and falling hue
+    // sweep.
+    static const char bar_palette[12] = {
+        VDC_DRED, VDC_DYELLOW, VDC_DGREEN, VDC_DCYAN,
+        VDC_DBLUE, VDC_DPURPLE, VDC_DGREY, VDC_DPURPLE,
+        VDC_DBLUE, VDC_DCYAN, VDC_DGREEN, VDC_DYELLOW,
+    };
+    enum
+    {
+        RANGE_TOP = 255,
+        RANGE_BOTTOM = 60,
+        RANGE_LEN = RANGE_TOP - RANGE_BOTTOM + 1, // 196
+        BAND_H = 16,
+        PHASE_EVERY = 3, // frames between line_phase steps -- "slowly"
+        PALETTE_COUNT = 12
+    };
+    unsigned char line_phase = 0, phase_counter = 0;
+    unsigned char bar_index = 0, bi;
+    char line, first_h, remaining;
+    // Text glyph band row (distinct from BAND_H above, the RASTER bar
+    // height -- unrelated, just an unlucky name clash) and the widest any
+    // Cupid glyph ever gets (cupid_letter_width[]'s own max) -- used by
+    // the per-letter background fill in the main loop below.
+    enum
+    {
+        BAND_ROW = 8,
+        BAND_LETTER_MAX_W = 5
+    };
+
+    // Own mode switch, not inherited from the caller -- matches every other
+    // section's own convention (see title_screen()/mono_colorize_demo()/
+    // fli_color_demo() et al); main_menu(), which runs immediately before
+    // this, already leaves VDC_TEXT_80x25_PAL active, but a full vdc_init()
+    // here doesn't depend on that being true.
+    vdc_init(VDC_TEXT_80x25_PAL, 1);
+
+    vdc_cls();
+
+    // total_height=25 to match VDC_TEXT_80x25_PAL's own row count exactly
+    // -- vdc_softscroll_init() remaps the whole screen's addressing to
+    // this buffer, so every row it scans needs real content, not just the
+    // CUPID_BAND_H rows the glyphs actually occupy (see txtscr_cupid_
+    // render()'s own comment -- this was live-diagnosed as screen-wide
+    // corruption below the scroller line before this fix). band_row=8
+    // roughly centres the band vertically. entry_pad (not chunks[0]) is
+    // used here -- see its own comment -- since this is the one place an
+    // entry pad is actually still wanted (nothing precedes it on screen);
+    // this one-time, pre-loop render is the same full-buffer burst the
+    // earlier whole-chunk designs used throughout, which is fine here
+    // specifically because nothing is animating yet for it to visibly
+    // freeze -- the per-frame loop, and its no-large-bursts rule, hasn't
+    // started.
+    fill_col = txtscr_cupid_measure(entry_pad);
+    txtscr_cupid_render(BNK_1_FULL, (char *)MEM_SCREEN, entry_pad, BUFFER_WIDTH, 25, BAND_ROW, 0);
+    sc.cr = BNK_1_FULL;
+    sc.source = (char *)MEM_SCREEN;
+    sc.width = BUFFER_WIDTH;
+    sc.height = 25;
+    if (!vdc_softscroll_init(&sc, VDC_TEXT_80x25_PAL))
+    {
+        printf("softscroll init failed (buffer too big)\n");
+        return;
+    }
+    // Stream cursor: the per-frame background fill below starts supplying
+    // real text from here, right after the entry pad rendered above --
+    // chunks[0] (not padded, unlike the old first_chunk this replaced), so
+    // "VDC MANIAC by Xander Mol" is never shown twice in a row.
+    stream_chunk = 0;
+    stream_pos = 0;
+    letter_phase = 0;
+    // No raster_calibrate() here -- it's already run once, early in main()
+    // (system_diagnostic_screen()), and its results (raster_timer_reload/
+    // raster_cycles_per_line_x1000) are cached in globals for the whole
+    // program run; recalibrating is redundant, so simply not done here.
+
+    // No frame cap -- runs until keypress/joystick fire, same convention as
+    // every other section's own exit loop and demo_end_screen()'s own wait.
+    // Chunks cycle continuously (wrapping back to chunk 0 after the last
+    // one) rather than freezing once the sequence has played through once.
+    for (;;)
+    {
+        // Scroll position is frozen (softscroll_pan_pre() skipped) for the
+        // few frames a buffer shift is in progress -- see the shift
+        // handling below for why. The raster bars are NOT affected either
+        // way -- they run unconditionally every frame, which is the whole
+        // point of spreading the shift out in the first place.
+        if (!shifting)
+        {
+            softscroll_pan_pre(&sc, 1);
+        }
+
+        raster_bar_begin();
+        line = RANGE_TOP;
+        first_h = BAND_H - line_phase;
+        line = raster_bar_flat(line, bar_palette[bar_index], first_h);
+        remaining = RANGE_LEN - first_h;
+        bi = bar_index + 1;
+        if (bi >= PALETTE_COUNT)
+        {
+            bi = 0;
+        }
+        while (remaining >= BAND_H)
+        {
+            line = raster_bar_flat(line, bar_palette[bi], BAND_H);
+            remaining -= BAND_H;
+            bi++;
+            if (bi >= PALETTE_COUNT)
+            {
+                bi = 0;
+            }
+        }
+        if (remaining > 0)
+        {
+            line = raster_bar_flat(line, bar_palette[bi], remaining);
+        }
+        raster_bar_end();
+        softscroll_pan_post(&sc);
+
+        if (shifting)
+        {
+            // One small SHIFT_CHUNK-byte step per frame, of one row's one
+            // plane at a time (see softscroll_buffer_shift_chunk()'s own
+            // comment for why this small, and why it's safe to run while
+            // the display is still showing the old scroll position).
+            unsigned char n = (unsigned char)((shift_preserve - shift_off) < SHIFT_CHUNK ? (shift_preserve - shift_off) : SHIFT_CHUNK);
+            softscroll_buffer_shift_chunk(&sc, shift_amount, shift_row, shift_plane, shift_off, n);
+            shift_off += n;
+            if (shift_off >= shift_preserve)
+            {
+                shift_off = 0;
+                if (shift_plane == 0)
+                {
+                    shift_plane = 1;
+                }
+                else
+                {
+                    shift_plane = 0;
+                    shift_row++;
+                    if (shift_row >= BAND_ROW + CUPID_BAND_H)
+                    {
+                        // Every row/plane done -- finalise: the buffer's
+                        // front now holds exactly what was already on
+                        // screen (that's what shift_preserve covers), so
+                        // this reset is invisible, same reasoning the old
+                        // whole-chunk rebase relied on. Only BAND_ROW..
+                        // BAND_ROW+CUPID_BAND_H-1 were ever actually
+                        // shifted, not all sc.height rows -- every row
+                        // outside that band is permanently blank (nothing
+                        // but txtscr_cupid_render_letter_step() ever writes
+                        // to the buffer, and it only ever touches the band),
+                        // so shifting blank into blank there would have been
+                        // pure wasted work: same reasoning txtscr_cupid_
+                        // render_letter_step()'s own comment already
+                        // establishes for the render side. Cuts total shift
+                        // work (and so the scroll-frozen pause) by
+                        // sc.height/CUPID_BAND_H, about 3.6x at this
+                        // section's own 25-row buffer.
+                        sc.addr_offset = 0;
+                        sc.hscroll = 0;
+                        sc.xoff = 0;
+                        vdc_set_disp_address(vdc_state.base_text, vdc_state.base_attr);
+                        vdc_reg_write(VDCR_HSCROLL, sc.hscroll_base + sc.hscroll_def);
+                        fill_col = shift_preserve;
+                        shifting = 0;
+                        just_resumed = 1;
+                    }
+                }
+            }
+        }
+        else
+        {
+            // just_resumed: the frame scrolling (re)starts -- right after
+            // a shift finishes, AND the very first frame of the whole
+            // loop, both starting with hscroll==0 -- is already doing more
+            // than a typical frame, since softscroll_pan_pre() immediately
+            // hits its own boundary-crossing branch on exactly that
+            // condition. Skip ALSO starting a letter push that same frame.
+            // Live-diagnosed as (part of) "at restart bars temporarily are
+            // unstable": the coincidence of both landing together, not the
+            // scroll-resume or the fill individually.
+            if (just_resumed)
+            {
+                just_resumed = 0;
+            }
+            else if (fill_active)
+            {
+                // Letter fully rendered (Bank-1 side) and waiting to reach
+                // VDC -- push up to FILL_ROW_BATCH rows of one plane this
+                // frame, not all CUPID_BAND_H*2 of them together. Live
+                // feedback: even one letter's whole push landing in a
+                // single frame (up to 14 small bnk_cpytovdc() calls) was
+                // still enough to visibly disturb the raster bars.
+                // FILL_ROW_BATCH itself (not 1): live cycle measurement put
+                // a single row's push at ~0.57 lines out of a ~48-line
+                // VBLANK budget -- comfortable room to do several rows a
+                // frame -- and a from-scratch single-row-per-frame version
+                // was live-diagnosed to fall behind the scroll (see
+                // FILL_ROW_BATCH's own comment below).
+                unsigned char fbi;
+                for (fbi = 0; fbi < FILL_ROW_BATCH && fill_active; fbi++)
+                {
+                    if (fill_plane == 0)
+                    {
+                        bnk_cpytovdc(vdc_state.base_text + (unsigned)(BAND_ROW + fill_row) * sc.width + fill_letter_col,
+                                     sc.cr, sc.source + (unsigned)(BAND_ROW + fill_row) * sc.width + fill_letter_col, fill_letter_w);
+                    }
+                    else
+                    {
+                        bnk_cpytovdc(vdc_state.base_attr + (unsigned)(BAND_ROW + fill_row) * sc.width + fill_letter_col,
+                                     sc.cr, sc.source + (unsigned)sc.width * sc.height + 48 + (unsigned)(BAND_ROW + fill_row) * sc.width + fill_letter_col, fill_letter_w);
+                    }
+                    fill_row++;
+                    if (fill_row >= CUPID_BAND_H)
+                    {
+                        fill_row = 0;
+                        if (fill_plane == 0)
+                        {
+                            fill_plane = 1;
+                        }
+                        else
+                        {
+                            // Whole letter now on VDC -- only now does
+                            // fill_col actually advance (committing it), so
+                            // nothing reading fill_col in the meantime (the
+                            // shift trigger below included) ever sees a
+                            // half-pushed letter as if it were already
+                            // fully there.
+                            fill_col += fill_letter_w;
+                            fill_active = 0;
+                        }
+                    }
+                }
+            }
+            else if (fill_rendering)
+            {
+                // Letter render in progress (Bank-1 side) -- up to
+                // FILL_ROW_BATCH rows this frame, not the whole letter at
+                // once. Live cycle measurement, this session: a
+                // whole-letter render in a single call cost over 2x this
+                // VDC revision's entire VBLANK window on average, often
+                // enough to be the dominant source of raster jitter -- this
+                // replaces the single txtscr_cupid_render_letter() call the
+                // earlier design used here. A first cut at one row per
+                // frame (FILL_ROW_BATCH==1) was live-diagnosed as its own
+                // regression: it roughly doubled this letter's total
+                // render+push pipeline latency (26 frames vs. the previous
+                // design's ~15), eating almost all of the buffer's
+                // stay-ahead-of-scroll margin -- visible as the fill
+                // position visibly crawling and drifting behind the scroll
+                // until the buffer desynced. FILL_ROW_BATCH restores
+                // comfortable throughput while each frame's own cost stays
+                // a small fraction of the measured ~48-line VBLANK budget.
+                unsigned char fri;
+                for (fri = 0; fri < FILL_ROW_BATCH && fill_rendering; fri++)
+                {
+                    txtscr_cupid_render_letter_step(BNK_1_FULL, (char *)MEM_SCREEN, sc.width, sc.height, BAND_ROW, fill_letter_col, fill_ch, letter_phase, fill_render_step);
+                    fill_render_step++;
+                    if (fill_render_step >= CUPID_RENDER_STEPS)
+                    {
+                        // Whole letter now rendered (Bank-1 side) -- hand
+                        // off to the push stage above; letter_phase only
+                        // advances here (once per letter, after its render
+                        // is fully committed), same reasoning fill_col's
+                        // own advance point uses.
+                        fill_rendering = 0;
+                        fill_row = 0;
+                        fill_plane = 0;
+                        fill_active = 1;
+                        letter_phase++;
+                    }
+                }
+            }
+            // Start a new letter: try to extend the buffer by one more.
+            // BAND_LETTER_MAX_W margin: don't even attempt a letter that
+            // couldn't possibly fit -- skipping the stream-cursor
+            // advance/lookup entirely when it's obviously not going to fit
+            // avoids reading (and discarding) a letter it can't yet place.
+            else if (fill_col + BAND_LETTER_MAX_W <= sc.width)
+            {
+                ch = (unsigned char)chunks[stream_chunk][stream_pos];
+                if (ch == 0)
+                {
+                    stream_chunk++;
+                    if (stream_chunk >= CHUNK_COUNT)
+                    {
+                        stream_chunk = 0;
+                    }
+                    stream_pos = 0;
+                    ch = (unsigned char)chunks[stream_chunk][stream_pos];
+                }
+                lw = txtscr_cupid_letter_width(ch);
+                if (fill_col + lw <= sc.width)
+                {
+                    fill_letter_col = fill_col;
+                    fill_letter_w = lw;
+                    fill_ch = ch;
+                    fill_render_step = 0;
+                    fill_rendering = 1;
+                    stream_pos++;
+                }
+            }
+
+            // Buffer nearly exhausted (same threshold softscroll_pan_pre()'s
+            // own boundary-crossing branch uses to stop advancing xoff) --
+            // begin a shift: content is already rendered well ahead of the
+            // scroll position by the background fill above, so capturing
+            // shift_amount/shift_preserve now and spreading the actual
+            // work over many small SHIFT_CHUNK-sized steps (above) is pure
+            // data movement, no rendering, and never blocks the raster
+            // bars for more than one small chunk's worth of work at a time.
+            if ((unsigned)(sc.xoff + 1) >= (unsigned)(sc.width - vdc_state.width))
+            {
+                shift_amount = sc.addr_offset;
+                shift_preserve = fill_col - shift_amount;
+                // Start at BAND_ROW, not 0 -- see the shift-completion
+                // check below for why only the CUPID_BAND_H band rows ever
+                // need shifting.
+                shift_row = BAND_ROW;
+                shift_plane = 0;
+                shift_off = 0;
+                shifting = 1;
+                // Abandon any in-progress letter push -- the shift's own
+                // reset/renumbering of fill_col below makes fill_letter_
+                // col meaningless afterward regardless, and fill_col
+                // itself was never advanced for this letter (only once its
+                // push fully completes), so the shift's own preserve range
+                // correctly excludes it. stream_pos was already advanced
+                // past it at render time, though, so this one letter is
+                // silently skipped rather than retried -- a rare (once per
+                // shift at most) single-letter gap in the credits text,
+                // not worth the extra bookkeeping to avoid. Same reasoning
+                // covers a letter still mid-render (fill_rendering) --
+                // stream_pos was already advanced for it too, back when its
+                // render was started.
+                fill_active = 0;
+                fill_rendering = 0;
+            }
+        }
+
+        if (++phase_counter >= PHASE_EVERY)
+        {
+            phase_counter = 0;
+            line_phase++;
+            if (line_phase >= BAND_H)
+            {
+                line_phase = 0;
+                bar_index++;
+                if (bar_index >= PALETTE_COUNT)
+                {
+                    bar_index = 0;
+                }
+            }
+        }
+
+        joy_poll(0);
+        if (vdcwin_checkch() || joyb[0])
+        {
+            break;
+        }
+    }
+
+    // Per explicit request: leave the background properly black again on
+    // exit, not whatever bar colour happened to be showing last --
+    // $1A/VDCR_COLOR persists across frames (same behaviour documented
+    // throughout this project's other raster effects), so without this
+    // the next screen would inherit a stray coloured background until it
+    // did its own first colour write.
+    raster_bar_begin();
+    raster_bar_line(RANGE_TOP, VDC_BLACK);
+    raster_bar_end();
+
+    vdc_softscroll_exit(&sc, VDC_TEXT_80x25_PAL);
+}
+
 // Main menu
 //
 // Replaces the old flat, non-interactive sequence of demo-section calls in
@@ -2615,6 +3272,14 @@ int main(void)
 	// number of times) instead of being called directly in a fixed sequence
 	// -- see main_menu()/menu_entries[] above.
 	main_menu();
+
+	// End credits, once the user leaves the menu (ESC/STOP) -- own
+	// vdc_init()/exit-on-keypress loop/vdc_softscroll_exit() cleanup, same
+	// self-contained convention as every menu entry above. Doesn't need
+	// Krill (no krill_loadcompd() calls), so it runs fine either side of
+	// krill_done() below; kept before it only to match every other
+	// section's own placement ahead of the one-time final teardown.
+	credits_screen();
 
 	// One-time teardown for the whole run -- see the krill_loadcode()/
 	// krill_init() comment near the top of main().

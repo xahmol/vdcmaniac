@@ -67,7 +67,7 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 */
 
 #ifndef VDC_TEXTSCROLLERL_H
-#define VVDC_TEXTSCROLLERL_H
+#define VDC_TEXTSCROLLERL_H
 
 #include "vdc_win.h"
 
@@ -95,6 +95,47 @@ struct TXTSCRScrollText {
     char count_col;
     char count_softx;
 };
+
+// Cupid PETSCII font scroller: per-character-cell horizontal scroll (via
+// vdcwin_scroll_left(), VDC hardware block-copy -- no wide virtual buffer,
+// no pixel-fine VDCR_HSCROLL) with a subtle per-letter vertical sine
+// bounce. Glyph data/geometry/credit: see vdc_textscroller.c's own header
+// comment above the font tables.
+#define CUPID_FONT_H 5 // glyph height in text rows
+// Scroll/render window height: CUPID_FONT_H + 2*max|cupid_sin_row|
+// clearance. Was 9 (for the original +/-2 sine amplitude); cupid_sin_row
+// was later capped to +/-1 (live feedback: the bounce was too strong) but
+// this wasn't shrunk to match until also live-diagnosed as unnecessary
+// per-frame VDC bus work. 7 is the exact fit for +/-1.
+#define CUPID_BAND_H 7
+#define CUPID_BASE_OFFSET 1 // row within the band the glyph's own row 0 sits at when row_offset==0
+// Total per-frame steps txtscr_cupid_render_letter_step() needs to render
+// one whole letter (CUPID_BAND_H blank-row steps + CUPID_FONT_H glyph-row
+// steps) -- see that function's own comment.
+#define CUPID_RENDER_STEPS (CUPID_BAND_H + CUPID_FONT_H)
+void txtscr_cupid_init(struct TXTSCRCupidScroll *settings, const char *textscr, char xs, char ys, char xw);
+void txtscr_cupid_scroll_do(struct TXTSCRCupidScroll *settings);
+
+struct TXTSCRCupidScroll {
+    const char *textscr;  // message, NUL-terminated, loops back to the start
+    struct VDCWin win;    // scroll window; height is fixed at CUPID_BAND_HEIGHT
+    unsigned count_char;  // index into textscr of the letter now entering
+    char count_col;       // column within that letter's glyph (0..width-1)
+    char letter_phase;    // sine phase -- advances once per new letter, not per frame/column
+    signed char row_offset; // this letter's sampled sine row offset, reused for all its columns
+};
+
+// Pre-rendered variant, for use with vdc_softscroll.c instead of the
+// per-column live-blit pair above -- see vdc_textscroller.c's own comment
+// above these two functions for why (the live-blit path's per-frame
+// hardware block-copy was diagnosed as the actual source of raster
+// instability this session; this path does all its VDC-bitmap-shaped work
+// once, up front, and lets vdc_softscroll's cheap register-only panning
+// handle the steady-state per-frame motion).
+unsigned txtscr_cupid_measure(const char *text);
+void txtscr_cupid_render(char cr, char *dest, const char *text, unsigned width, char total_height, char band_row, unsigned start_col);
+unsigned char txtscr_cupid_letter_width(unsigned char ch);
+void txtscr_cupid_render_letter_step(char cr, char *dest, unsigned width, char total_height, char band_row, unsigned col, unsigned char ch, unsigned char letter_phase, unsigned char step);
 
 #pragma compile("vdc_textscroller.c")
 

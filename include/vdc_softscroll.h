@@ -67,7 +67,7 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 */
 
 #ifndef VDC_SOFTSCROLL_H
-#define VDC_SOFTSCROL_H
+#define VDC_SOFTSCROLL_H
 
 // Function prototypes
 char vdc_softscroll_init(struct VDCSoftScrollSettings *settings , char mode);
