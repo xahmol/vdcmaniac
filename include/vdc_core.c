@@ -121,7 +121,7 @@ struct VDCBootBaseline
 static struct VDCBootBaseline vdc_boot;
 
 // VDC mode settings. Credits to Tokra.
-struct VDCModeSet vdc_modes[19] =
+struct VDCModeSet vdc_modes[20] =
     {
         // VDC_TEXT_80x25_PAL: standard 80x25 text mode, PAL -- this
         // project's default/baseline mode (main() switches here first,
@@ -322,7 +322,37 @@ struct VDCModeSet vdc_modes[19] =
         // character's own colour-RAM entry overrides the raster's
         // foreground nibble -- only the background nibble still applies
         // globally). Confirmed via live testing earlier this session.
-        {80, 25, 0, 0, 0, 0x0000, 0x0800, 0x1000, 0x1800, 0x2000, 0x3000, 0x4000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x26, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x20, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0x7e, 255}}};
+        {80, 25, 0, 0, 0, 0x0000, 0x0800, 0x1000, 0x1800, 0x2000, 0x3000, 0x4000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x26, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x20, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0x7e, 255}},
+        // VDC_HIRES_640x200_Mono_VSCROLL: width/height (640,200) describe
+        // the visible WINDOW only -- the STORED bitmap vscroll_demo()
+        // loads is taller (see its own comment). char_std/char_alt/
+        // extended all 0x0000, VDC-IMONO's own established pattern
+        // (vdc_set_mode() skips charset setup when char_std==0), to free
+        // the VDC RAM a real charset would otherwise occupy. base_text=
+        // 0x0000 is where the stored bitmap starts; vscroll_demo() moves
+        // the DISPLAYED window within it every frame via its own
+        // display-address writes.
+        //
+        // PIVOTED (2026-08-18) from horizontal to VERTICAL panning: an
+        // earlier version of this row used VDC-FLI's CSIZE=1/ROWINC-per-
+        // frame-toggle timing to support panning through a bitmap WIDER
+        // than the 640px display (ROWINC only applies once per CHARACTER
+        // ROW on real VDC hardware, not once per scanline, so a wider-
+        // than-display stride needs CSIZE=1 to correct at every line --
+        // see fli_color_demo()'s own identical technique). That mechanism
+        // was proven to render correctly in short bursts but never fully
+        // stabilised (intermittent garbling, root cause never isolated
+        // despite extensive live debugging) -- abandoned per explicit
+        // user decision rather than keep chasing it. Panning through a
+        // bitmap TALLER than 640x200 instead needs no such trick: the
+        // stored bitmap's stride is exactly 640px/80 bytes per row, same
+        // as the display's own width, so plain whole-row display-address
+        // writes (vdc_set_disp_address(), no ROWINC/CSIZE involvement at
+        // all) select which 200-line vertical slice is visible -- this is
+        // just VDC_HIRES_640x200_Mono_PAL's own proven, non-interlaced
+        // timing (register row identical to that mode, VDCR_ROWINC never
+        // touched).
+        {640, 200, 1, 0, 1, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x26, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x20, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0x7e, VDCR_HSCROLL, 0x07, 255}}};
 
 char screen_width()
 // Return screenwidth 40 or 80

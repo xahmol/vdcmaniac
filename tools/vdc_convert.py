@@ -405,15 +405,18 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "--mode",
-        choices=["fli", "hfli", "ihfli", "itfli", "imono", "im800", "titlescreen"],
+        choices=["fli", "hfli", "ihfli", "itfli", "imono", "im800", "titlescreen", "vscroll"],
         required=True,
     )
     ap.add_argument("--input", required=True, help="Source image (any Pillow-readable format, any size/aspect)")
     ap.add_argument("--out-prefix", required=True, help="Output path prefix; writes <prefix>.bit/.col or <prefix>.bit")
     ap.add_argument("--crop-top", type=int, default=None, help="Override fit_to_size()'s center crop with this source-pixel top offset (for portrait photos where the subject sits above center)")
+    ap.add_argument("--crop-left", type=int, default=None, help="Trim this many source pixels off the LEFT edge before fit_to_size() runs -- for vscroll mode, whose own source is proportionally narrower than the target (so fit_to_size takes its top/bottom-crop branch and always keeps the full source width); shifts the visible frame right, e.g. away from a decorative border pillar.")
     args = ap.parse_args()
 
     img = Image.open(args.input)
+    if args.crop_left:
+        img = img.crop((args.crop_left, 0, img.width, img.height))
 
     if args.mode == "fli":
         width, height = 480, 252
@@ -476,6 +479,52 @@ def main():
         with open(args.out_prefix + ".odd", "wb") as f:
             f.write(HEADER + bytes(odd))
         print(f"wrote {args.out_prefix}.eve ({len(even)} bytes) and .odd ({len(odd)} bytes)")
+    elif args.mode == "vscroll":
+        # VDC-VSCROLL (src/main.c vscroll_demo()): stored bitmap TALLER
+        # than the 640x200 mode it's actually displayed through (see
+        # VDC_HIRES_640x200_Mono_VSCROLL's own comment, vdc_core.c) --
+        # was named/attempted as a WIDER-than-display horizontal pan
+        # first (working title "panorama"), abandoned after the CSIZE/
+        # ROWINC mechanism it needed proved unstable; renamed once the
+        # effect settled on vertical scrolling instead, since "panorama"
+        # no longer fit. Non-interlaced, so unlike imono/im800 above,
+        # there's no INTERLACE reason to split fields -- split into
+        # top/mid/bottom PHYSICAL thirds instead purely for
+        # krill_loadcompd() staging-size reasons (live-diagnosed,
+        # 2026-08-18): its in-place decompression writes directly into
+        # the destination as it goes, and any single Bank-1 staging call
+        # (MEM_SCREEN=$4000) spanning across $b000 runs straight through
+        # Oscar64's own C runtime stack ($b000-$be99 in this build's own
+        # .map), corrupting live return addresses mid-decompress. Each
+        # chunk here stays at or under ~20800 bytes, comfortably clear of
+        # that boundary. Pass --crop-top 0 for source images where the
+        # composition's dramatic focal point sits at the very top (e.g.
+        # Kinryuzan Temple's giant lantern) -- the default centre crop
+        # would otherwise eat into it instead of less interesting content
+        # further down.
+        #
+        # height=798 (live-tuned, twice): first raised from an initial
+        # 600 to fit both the lantern AND the gate/crowd below it in the
+        # same 640:height crop window, then raised again to 798 -- this
+        # mode's own near-ceiling (65536 VDC RAM bytes / 80 bytes-per-row
+        # = 819 rows max at this width, no charset/attribute overhead
+        # since char_std=0; 798 leaves a small safety margin and stays a
+        # clean multiple of 3 for the chunk split below). Split into
+        # THREE equal thirds, not two halves -- each krill_loadcompd()
+        # chunk must stay under the ~28672-byte safe-chunk ceiling
+        # documented above, and half of 798 rows' worth would exceed it.
+        width, height = 640, 798
+        img = fit_to_size(img, width, height, crop_top=args.crop_top)
+        bitmap = convert_imono(img, width, height)
+        third = len(bitmap) // 3
+        top, mid, bot = bitmap[:third], bitmap[third:2 * third], bitmap[2 * third:]
+        with open(args.out_prefix + ".top", "wb") as f:
+            f.write(HEADER + top)
+        with open(args.out_prefix + ".mid", "wb") as f:
+            f.write(HEADER + mid)
+        with open(args.out_prefix + ".bot", "wb") as f:
+            f.write(HEADER + bot)
+        print(f"wrote {args.out_prefix}.top/.mid/.bot ({len(top)}/{len(mid)}/{len(bot)} bytes)")
     elif args.mode == "imono":
         width, height = 720, 700
         img = fit_to_size(img, width, height, crop_top=args.crop_top)

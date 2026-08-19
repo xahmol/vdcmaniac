@@ -116,6 +116,7 @@ KRILL_COMPRESSED_ASSETS = -write idi8bcmp idi8bcmp \
          -write im8001evk im8001evk -write im8001odk im8001odk \
          -write im8002evk im8002evk -write im8002odk im8002odk \
          -write im8003evk im8003evk -write im8003odk im8003odk \
+         -write vscrtop vscrtop -write vscrmid vscrmid -write vscrbot vscrbot \
          -write musick musick
 
 # Generated picture assets (see tools/vdc_convert.py) -- regenerated from
@@ -153,6 +154,7 @@ bootsect.bin: $(MAIN).prg $(GENERATED_ASSETS)
 	   assets/imono1evk assets/imono1odk assets/imono2evk assets/imono2odk assets/imono3evk assets/imono3odk \
 	   assets/im8001evk assets/im8001odk assets/im8002evk assets/im8002odk \
 	   assets/im8003evk assets/im8003odk \
+	   assets/vscrtop assets/vscrmid assets/vscrbot \
 	   assets/musick build/krill
 #	cp assets/chars*.prg build/krill
 

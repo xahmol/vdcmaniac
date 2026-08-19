@@ -129,6 +129,14 @@ et al in src/main.c), converted via tools/vdc_convert.py:
 
     Third picture: "Maupi", the author's own cat (not Commons-sourced).
 
+-   VDC-VSCROLL:
+
+    "Kinryuzan Temple, Asakusa" (Asakusa Kinryuzan), print #99 from One
+    Hundred Famous Views of Edo, 1856, Utagawa Hiroshige, public domain
+    (author died 1858). High-resolution scan from The Met's Open Access
+    collection (object 56689):
+    https://www.metmuseum.org/art/collection/search/56689
+
 -   Scott Hutter - VDC Core functions inspiration:
 
     https://github.com/Commodore64128/vdc_gui/blob/master/src/vdc_core.c
