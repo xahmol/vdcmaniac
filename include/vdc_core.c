@@ -615,8 +615,40 @@ void vdc_init(char mode, char extmem)
     }
     else
     {
+        // Blanked before vdc_reset_boot_registers() below, not after --
+        // that call writes DISP_ADDR/ATTR_ADDR/HSCROLL/VSCROLL/etc back to
+        // the boot baseline while the display is still fully live showing
+        // the OUTGOING mode, and reinterpreting that mode's own bitmap
+        // memory through the boot baseline's (typically plain 80x25 text
+        // screen) addressing is its own brief visible glitch if the
+        // display isn't already off first. See the disable call below
+        // (after this whole if/else) for the other, larger source of the
+        // same class of bug, covered for both branches.
+        vdc_disable_display();
         vdc_reset_boot_registers();
     }
+
+    // Blanked for the remainder of this function (redundant with the
+    // else branch's own call above on that path, needed here for the
+    // first-ever-call path, which has no prior blanking yet) --
+    // vdc_set_mode() below always re-enables the display at its own end
+    // regardless (see its own final vdc_enable_display() call), so every
+    // existing caller's behaviour by the time vdc_init() returns is
+    // unchanged; this just hides what happens in between. Live-diagnosed
+    // (2026-08-19) as a real, general bug, not just cosmetic:
+    // vdc_detect_mem_size() below unconditionally ends with its own
+    // vdc_cls() call, which runs BEFORE vdc_set_mode() has updated
+    // vdc_state to the mode being switched TO -- so it clears using
+    // whatever mode is being switched FROM, still fully live on screen at
+    // that point. For a caller switching AWAY FROM a bitmap mode INTO any
+    // new mode, that's a brief but real flash of text-mode fill bytes
+    // over the outgoing picture, visible regardless of whether the
+    // destination mode's own caller does any of its own blanking (that
+    // only covers what happens AFTER vdc_init() returns, not during it)
+    // -- reported live as corruption on leaving hires sections, and
+    // separately on entering plasma_demo() (whose own vdc_init() call had
+    // no surrounding blanking of its own).
+    vdc_disable_display();
 
     // Init screen colors
     vdc_bgcolor(VDC_BLACK);
@@ -638,14 +670,29 @@ void vdc_init(char mode, char extmem)
     // Set 2 Mhz mode
     fastmode(1);
 
-    // Set screen mode
+    // Set screen mode. vdc_set_mode() unconditionally ends with its own
+    // vdc_enable_display() -- fine for a standalone call, but for a bitmap
+    // mode it does NOT vdc_cls() first (that only runs for !bitmap modes),
+    // so this would otherwise flash the previous mode's leftover VDC RAM,
+    // reinterpreted through the new mode's geometry, until whatever the
+    // caller does next (extmem setup below, or the caller's own load/fill)
+    // gets a chance to blank it again. Re-disable immediately to close that
+    // window; the extmem branch and the final vdc_enable_display() below
+    // are the only re-enable left in this function.
     vdc_set_mode(mode);
+    vdc_disable_display();
 
-    // If 64 KB VDC and extmem is requested, enable it.
+    // If 64 KB VDC and extmem is requested, enable it. NOTE: vdc_set_extended_memsize()
+    // early-returns (skipping its own vdc_enable_display()) if memory is already
+    // extended -- which it commonly already is, since vdc_set_mode() above may have
+    // called it internally (its own regset-driven extmem check). So don't rely on
+    // it for the enable; always end this function with exactly one unconditional
+    // vdc_enable_display() below instead.
     if (vdc_state.memsize == 64 && extmem)
     {
         vdc_set_extended_memsize();
     }
+    vdc_enable_display();
 }
 
 void vdc_exit()

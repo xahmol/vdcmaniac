@@ -116,6 +116,16 @@ void init_plasma(char mode)
 		return;
 	}
 
+	// Blanked for the pattern-fill loop below -- vdc_init() already
+	// re-enabled the display before returning (see its own comment), so
+	// without this the fill would paint visibly onto a live screen --
+	// live-reported (2026-08-19) as brief corruption on entering both
+	// plasma_demo() and rotate_demo() (init_rotate() has the identical
+	// pattern below), same class of bug as every krill-loaded picture
+	// section already fixed, just never covered here since this fill is
+	// procedural, not an asset load.
+	vdc_disable_display();
+
 	dp = vdc_state.base_text;
 
 	for (y = 0; y < vdc_state.charheight; y++)
@@ -126,6 +136,16 @@ void init_plasma(char mode)
 			dp += vdc_state.charwidth;
 		}
 	}
+
+	// Deliberately staying blanked here -- this fill loop only populates
+	// base_text (the bitmap pattern). base_attr/swap_attr (the colour
+	// planes) are left holding whatever the previous mode's leftover VDC
+	// RAM had, and don't get real data until doplasma0()/doplasma1() run
+	// for the first time in plasma_demo()'s own loop. Re-enabling here (as
+	// this used to) exposed that garbage colour data as "corruption on
+	// screen fill" (live-reported 2026-08-19) even after the fill-loop-
+	// visibility bug above was fixed. plasma_demo() now owns the enable,
+	// once the first real attribute write has actually landed.
 
 	for (int i = 0; i < 256; i++)
 	{
@@ -265,6 +285,11 @@ void plasma_demo(char mode)
 		doplasma0();
 		vdc_wait_vblank();
 		setattraddress(vdc_state.base_attr);
+		// First time through, base_attr has just received its first real
+		// data from doplasma0() above and the display was still off (see
+		// init_plasma()'s comment) -- safe to enable now. Harmless to call
+		// every iteration afterward (idempotent register write).
+		vdc_enable_display();
 		doplasma1();
 		vdc_wait_vblank();
 		setattraddress(vdc_state.swap_attr);
@@ -293,6 +318,10 @@ void init_rotate(char mode)
 		return;
 	}
 
+	// Blanked for the pattern-fill loop below -- see init_plasma()'s own
+	// identical comment (2026-08-19).
+	vdc_disable_display();
+
 	dp = vdc_state.base_text;
 
 	for (y = 0; y < vdc_state.charheight; y++)
@@ -303,6 +332,12 @@ void init_rotate(char mode)
 			dp += vdc_state.charwidth;
 		}
 	}
+
+	// Deliberately staying blanked here -- see init_plasma()'s identical
+	// comment. This fill loop only populates base_text; base_attr (the
+	// colour plane) still holds the previous mode's leftover VDC RAM until
+	// rotate_demo()'s own loop pushes real Screen[] data to it for the
+	// first time. rotate_demo() now owns the enable.
 
 	memset(Screen, 0, 4000);
 }
@@ -404,6 +439,12 @@ void rotate_demo(char mode)
 		{
 			vdc_write(Screen[pos]);
 		}
+
+		// First time through, base_attr has just received its first real
+		// data from the write-out above and the display was still off (see
+		// init_rotate()'s comment) -- safe to enable now. Harmless to call
+		// every iteration afterward (idempotent register write).
+		vdc_enable_display();
 
 		joy_poll(0);
 	} while (!vdcwin_checkch() && !joyb[0]);
@@ -793,6 +834,18 @@ void title_screen()
 	// comment for why this convention moved there).
 	vdc_init(VDC_HIRES_640x400_Mono_PAL, 1);
 
+	// Blanked for the duration of the VDC push below -- vdc_init() already
+	// re-enabled the display before returning, so without this the
+	// still-loading/not-yet-pushed framebuffer (whatever vdc_init()'s own
+	// mode switch left behind) would be visible for the push's own
+	// duration. Live-diagnosed (2026-08-19) as a general issue across
+	// every section that loads picture data after vdc_init(), not just
+	// this one -- see vscroll_demo()'s own comment for the specific,
+	// worse case (vdc_detect_mem_size()'s own vdc_cls() call, inside
+	// vdc_init() itself, corrupting a picture loaded before it) that
+	// first surfaced this.
+	vdc_disable_display();
+
 	// Deliberately NOT recalibrating here: this function's bar-position
 	// constants (182, 181, 176..117, 114, 85, 84 below) were hand-tuned
 	// against the static default raster_timer_reload (62, see
@@ -807,6 +860,8 @@ void title_screen()
 
 	// Copy data to VDC
 	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 0x8000);
+
+	vdc_enable_display();
 
 	// Ensure that no keypress is still in buffer
 	while (vdcwin_checkch())
@@ -1319,21 +1374,30 @@ void fli_color_demo()
 			return;
 		}
 
+		// Blanked for the CSIZE force-write and the VDC push below --
+		// vdc_init() already re-enabled the display before returning, and
+		// this mode's own 8x-height-until-the-toggle-starts gap (see the
+		// CSIZE comment below) used to be worked around by forcing CSIZE
+		// early instead; disabling the display outright is the more
+		// general fix (2026-08-19, applied across every picture-loading
+		// section -- see vscroll_demo()'s own comment for the specific
+		// case, a vdc_init()-internal vdc_cls() call, that first surfaced
+		// this as a real bug, not just cosmetic).
+		vdc_disable_display();
+
 		// CSIZE (register 9) is deliberately absent from this mode's
 		// vdc_modes[] row (see its comment in vdc_core.c) -- vdc_set_mode()'s
 		// regset loop therefore leaves it at whatever the *previous* mode
 		// set it to (height 8 for every mode that ran before this one), not
 		// the height-1 this mode needs. The per-frame toggle below corrects
-		// that once it starts, but vdc_init() already re-enabled the
-		// display, and there's a real gap between here and the toggle
-		// loop's first pass (both bnk_cpytovdc() calls, plus the
-		// keypress-drain wait below) where the picture would otherwise show
-		// at 8x the intended height. Force it to height 1 now so that gap
-		// is never visibly wrong.
+		// that once it starts; force it to height 1 now so the toggle's own
+		// first pass isn't starting from the wrong height.
 		vdc_reg_write(VDCR_CSIZE, 0xe0);
 
 		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 15120);
 		bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN + 15120, 15120);
+
+		vdc_enable_display();
 
 		while (vdcwin_checkch())
 		{
@@ -1466,6 +1530,11 @@ void fli_ihfli_demo()
 			return;
 		}
 
+		// Blanked for the four interleaved load+push pairs below -- see
+		// title_screen()'s own comment on this same general fix
+		// (2026-08-19).
+		vdc_disable_display();
+
 		bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 9600);
 
 		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, co_names[pic]))
@@ -1488,6 +1557,8 @@ void fli_ihfli_demo()
 			exit(1);
 		}
 		bnk_cpytovdc(0x5780, BNK_1_FULL, (char *)MEM_SCREEN, 19200);
+
+		vdc_enable_display();
 
 		while (vdcwin_checkch())
 		{
@@ -1546,6 +1617,11 @@ void fli_itfli_demo()
 			return;
 		}
 
+		// Blanked for the four interleaved load+push pairs below -- see
+		// title_screen()'s own comment on this same general fix
+		// (2026-08-19).
+		vdc_disable_display();
+
 		bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 7680);
 
 		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, co_names[pic]))
@@ -1568,6 +1644,8 @@ void fli_itfli_demo()
 			exit(1);
 		}
 		bnk_cpytovdc(0x4100, BNK_1_FULL, (char *)MEM_SCREEN, 23040);
+
+		vdc_enable_display();
 
 		while (vdcwin_checkch())
 		{
@@ -1623,6 +1701,10 @@ void fli_hfli_demo()
 			return;
 		}
 
+		// Blanked for the two load+push pairs below -- see title_screen()'s
+		// own comment on this same general fix (2026-08-19).
+		vdc_disable_display();
+
 		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 32000);
 
 		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, colnames[pic]))
@@ -1631,6 +1713,8 @@ void fli_hfli_demo()
 			exit(1);
 		}
 		bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 16000);
+
+		vdc_enable_display();
 
 		while (vdcwin_checkch())
 		{
@@ -1770,6 +1854,10 @@ void mono_hires_xl_demo()
 			return;
 		}
 
+		// Blanked for the two load+push pairs below -- see title_screen()'s
+		// own comment on this same general fix (2026-08-19).
+		vdc_disable_display();
+
 		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 31500);
 
 		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, od_names[pic]))
@@ -1788,6 +1876,8 @@ void mono_hires_xl_demo()
 		// comment already assumed (63000 bytes across the two fields either
 		// way), just not contiguous.
 		bnk_cpytovdc(0x82c8, BNK_1_FULL, (char *)MEM_SCREEN, 31500);
+
+		vdc_enable_display();
 
 		while (vdcwin_checkch())
 		{
@@ -1863,6 +1953,10 @@ void mono_im800_demo()
 			return;
 		}
 
+		// Blanked for the two load+push pairs below -- see title_screen()'s
+		// own comment on this same general fix (2026-08-19).
+		vdc_disable_display();
+
 		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 30000);
 
 		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, od_names[pic]))
@@ -1871,6 +1965,8 @@ void mono_im800_demo()
 			exit(1);
 		}
 		bnk_cpytovdc(0x7e2c, BNK_1_FULL, (char *)MEM_SCREEN, 30000);
+
+		vdc_enable_display();
 
 		while (vdcwin_checkch())
 		{
@@ -1929,15 +2025,19 @@ void mono_im960_demo()
 		return;
 	}
 
-	// HSTART (register 34): this mode's own vdc_modes[] row sets it to 6
-	// (Tokra's own value), via the regset[] loop inside vdc_set_mode() --
-	// but vdc_set_mode()'s own final step, vdc_enable_display(), always
+	// Blanked for the two load+push pairs below -- see title_screen()'s
+	// own comment on this same general fix (2026-08-19). HSTART (register
+	// 34) is managed explicitly here rather than via vdc_enable_display()
+	// at the end: this mode's own vdc_modes[] row sets it to 6 (Tokra's
+	// own value) via the regset[] loop inside vdc_set_mode(), but
+	// vdc_set_mode()'s own final step, vdc_enable_display(), always
 	// overwrites HSTART with the captured boot baseline (see
-	// vdc_boot_hstart in vdc_core.c) *after* the regset loop runs. Without
-	// this re-poke, this mode's own intended HSTART value would never
-	// actually take effect. See this mode's vdc_modes[] row comment for
-	// the full explanation.
-	vdc_reg_write(VDCR_HSTART, 0x06);
+	// vdc_boot_hstart in vdc_core.c) right after -- so vdc_enable_display()
+	// itself is the wrong "turn it back on" call for this one mode; the
+	// direct HSTART=0x06 write below both re-enables the display AND
+	// restores this mode's own intended value in one step. See this
+	// mode's vdc_modes[] row comment for the full explanation.
+	vdc_disable_display();
 
 	bnk_cpytovdc(0x8160, BNK_1_FULL, (char *)MEM_SCREEN, 32400);
 
@@ -1947,6 +2047,8 @@ void mono_im960_demo()
 		exit(1);
 	}
 	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 32400);
+
+	vdc_reg_write(VDCR_HSTART, 0x06);
 
 	while (vdcwin_checkch())
 	{
@@ -2089,6 +2191,15 @@ void vscroll_demo()
     // Makefile's KRILL_COMPRESSED_ASSETS comment).
     vdc_init(VDC_HIRES_640x200_Mono_VSCROLL, 1);
 
+    // Blanked for the load below and the initial register setup further
+    // down, re-enabled only once VSCROLL/DISP_ADDR are already showing
+    // pan_y's own correct starting position -- see title_screen()'s own
+    // comment on this same general fix (2026-08-19), applied here too on
+    // top of the load-order fix below (which fixed the DATA being
+    // corrupted; this additionally hides the load's own brief in-progress
+    // flicker, now that the data underneath it is correct).
+    vdc_disable_display();
+
     // Loaded and pushed to VDC AFTER vdc_init(), not before -- live-
     // diagnosed 2026-08-19 as the actual cause of the reported top-of-
     // screen corruption, and unrelated to any of the four register-write-
@@ -2210,6 +2321,8 @@ void vscroll_demo()
     vdc_pass_vblank();
     vdc_set_disp_address(prev_addr, prev_addr);
     vdc_reg_write(VDCR_VSCROLL, vscroll_base | (char)(pan_y & 7));
+
+    vdc_enable_display();
 
     while (vdcwin_checkch())
     {
