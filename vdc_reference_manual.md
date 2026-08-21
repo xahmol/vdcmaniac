@@ -10,9 +10,12 @@ live, not copied from a datasheet. Three parts:
    (`include/vdc_core.c`), what it's for, and why its particular register
    values are what they are.
 3. **Advanced techniques** — things that aren't obvious from the register
-   table alone: interlace, the per-frame CSIZE trick, charset swapping,
-   extended memory, hardware block copy, and the register-leak class of bug
-   that cost the most debugging time in this whole project.
+   table alone: why register write ORDER (not just final value) matters
+   — the single most expensive lesson this project has learned — plus
+   interlace, the per-frame CSIZE trick, charset swapping, the bitmap
+   attribute plane's own byte format, extended memory, hardware block
+   copy, and the register-leak/stale-state bug classes that cost the
+   most debugging time otherwise.
 
 Companion documents, not duplicated here: `raster_lib_manual.md` (the two
 raster-bar mechanisms in detail), `oscar64manual.md` (compiler-level
@@ -126,10 +129,10 @@ raster-bar library exploits this).
 
 ---
 
-## Part 2: Modes — `vdc_modes[19]`
+## Part 2: Modes — `vdc_modes[23]`
 
 Every mode this project supports is one row of `struct VDCModeSet
-vdc_modes[19]` in `include/vdc_core.c`, selected by the `enum VDCMode`
+vdc_modes[23]` in `include/vdc_core.c`, selected by the `enum VDCMode`
 index and applied via `vdc_init(mode, extmem)` → `vdc_set_mode(mode)`.
 
 ### The struct
@@ -193,6 +196,10 @@ because they're doing anything picture-format-special with it.
 | `VDC_HIRES_800x600_IM800_PAL` | 800×600 | yes | no | **on** | yes | `mono_im800_demo()` (VDC-IM800) |
 | `VDC_HIRES_960x540_IM960_PAL` | 960×540 | yes | no | **on** | yes | `mono_im960_demo()` (VDC-IM960, needs RGBtoHDMI hardware — not run in the demo) |
 | `VDC_TEXT_80x25_Mono_PAL` | 80×25 text | no | no | off | no | `idi8b_logo_demo()` |
+| `VDC_HIRES_640x200_Mono_VSCROLL` | 640×200 window (stored 640×798) | yes | no | off | yes | `vscroll_demo()` (VDC-VSCROLL) |
+| `VDC_HIRES_640x200_Mono_PANORAMA_R27` | 640×200 window (stored 1608×200) | yes | no | off | yes | `panorama_demo()` (VDC-PANORAMA) |
+| `VDC_HIRES_640x200_Mono_PANORAMA_R27_ATTR` | same as above, attribute mode ON | yes | yes | off | yes | unused diagnostic (see "Register write ORDER" below) |
+| `VDC_HIRES_640x200_Mono_PANORAMA2D` | 640×200 window (stored 904×426) | yes | no | off | yes | `panorama2d_demo()` (VDC-PANORAMA 2D) |
 
 `VDC_HIRES_640x400_HFLI_PAL`'s missing `LACE` entry is a real gap by this
 manual's own "boot-baseline register leaks" definition below — `LACE` isn't
@@ -265,9 +272,96 @@ that sets those registers for this mode — they have to exactly match where
 the picture is actually loaded, unlike IHFLI/ITFLI where the two are
 allowed to diverge.
 
+### VDC-SCROLL family (VSCROLL / PANORAMA / PANORAMA2D) — panning beyond the 640×200 window
+
+Three modes, three demo functions (`vscroll_demo()`, `panorama_demo()`,
+`panorama2d_demo()`), one shared idea: the visible window stays a plain
+640×200 bitmap, but the *stored* bitmap is taller (VSCROLL: 640×798),
+wider (PANORAMA: 1608×200), or both (PANORAMA2D: 904×426), and a scripted
+waypoint bounce/tour pans a 640×200 "window" through it. None of the
+three modes' own `vdc_modes[]` rows differ from each other's timing —
+same non-interlaced 640×200 family every other plain hires mono mode
+uses (`colorlines=0`, no charset/attribute overhead). What differs is
+entirely in how each demo function drives `DISP_ADDR`/`ROWINC`/`HSCROLL`
+at runtime — see "Register write ORDER matters" immediately below, the
+single most important lesson this family produced.
+
 ---
 
 ## Part 3: Advanced techniques
+
+### Register write ORDER matters — not just the final values
+
+**The most expensive lesson of the whole VDC-SCROLL family, and worth
+leading with rather than burying as a footnote.** On real 8563/8568
+silicon, several registers' effects depend on what OTHER registers
+already held at the moment they're written — not just on their own
+final value. Get the order wrong and the chip can end up in a
+corrupted internal addressing state that *persists even after every
+register is subsequently set to its "correct" value* — making the bug
+look like the register or the technique doesn't work at all, when
+really it's a one-time sequencing mistake with a lasting effect.
+
+**The flagship example: R27 (`ROWINC`) and `DISP_ADDR`.** A multi-day
+investigation into whether R27 could give correct per-scanline
+addressing for a bitmap wider than the display (needed for
+`panorama_demo()`) found the technique reliably producing a wavy/
+diagonal-shear distortion on real hardware, in *every* test, regardless
+of which `ROWINC` value was used — including `ROWINC=0`, where the
+register contributes nothing at all. That last fact was the real clue:
+if the distortion persisted even with R27 fully inert, R27's value was
+never the cause. The actual bug: the test mode's own `vdc_modes[]` row
+baked `VDCR_ROWINC` directly into its `regset[]` table. `vdc_set_mode()`
+applies a row in a fixed order — `DISP_ADDR`/`ATTR_ADDR` are set from
+`base_text`/`base_attr` FIRST, then `regset[]` is walked (see Part 2's
+"The struct" above) — so the baked `ROWINC` write landed while
+`DISP_ADDR` still held a throwaway `(0,0)` value, before the calling
+code ever got a chance to correct it to the real, final offset. Writing
+a nonzero `ROWINC` against a not-yet-final `DISP_ADDR` corrupted
+internal addressing state that then persisted regardless of what both
+registers were set to afterward. The fix: never bake `ROWINC` into a
+mode's own `regset[]` row — write it via an explicit
+`vdc_reg_write(VDCR_ROWINC, value)` call, strictly AFTER
+`vdc_set_disp_address()` has already set the real, final offset. Once
+fixed, R27 behaves exactly as the C128 Programmer's Reference Guide
+describes ("increments the address of the bit-mapped data from one
+scan line to the next") — the register itself was never the problem.
+
+**A second, independent example, same underlying class of bug.**
+`panorama2d_demo()` (the combined horizontal+vertical pan) writes a
+single combined `DISP_ADDR` (row × stride + column offset) plus
+`VDCR_HSCROLL` every frame its vertical component moves — which is
+almost every frame. An early version wrote these two registers back-to-
+back with no framing at all, reasoning that a single combined write
+made the usual crossing-only safety dance unnecessary. Live result:
+jarring, jumpy motion. The proven, working `panorama_demo()` NEVER
+writes `DISP_ADDR` and `HSCROLL` together without wrapping the
+`DISP_ADDR` write in `vdc_wait_no_vblank()` → `vdc_set_disp_address()` →
+`vdc_wait_vblank()` first (the same pair `vdc_softscroll_right()`/
+`vdc_softscroll_left()`, `include/vdc_softscroll.c`, already use around
+a byte crossing) — its own non-crossing steps skip `DISP_ADDR`
+entirely rather than write it unframed. `panorama2d_demo()`'s vertical
+component broke that invariant by writing `DISP_ADDR` nearly every
+frame without the framing. Fixed by applying the same wait-no-vblank/
+write/wait-vblank sequence around every `DISP_ADDR` write that's
+followed by an `HSCROLL` write in the same step, with no exceptions.
+
+**The general rule**: when a register's own hardware effect depends on
+another register's CURRENT value (address-generation registers reading
+other address registers internally, essentially — `ROWINC` vs
+`DISP_ADDR`, `HSCROLL` vs `DISP_ADDR`, and by extension any future
+register pairing not yet hit), write the dependency FIRST, confirm (or
+frame with an explicit vblank wait) that it has taken effect, THEN write
+the dependent register — every time, unconditionally, not just when a
+crossing/change is judged likely. When refactoring working register-
+write code for size or reuse, bake this ordering into whatever shared
+helper does the actual writing, rather than leaving it to each caller to
+remember to apply conditionally — a caller that skips it under the
+"this case doesn't need it" assumption is exactly how both examples
+above happened. And re-test the ACTUAL hardware behaviour after any such
+refactor, even when it "should" be behaviour-preserving — see project
+memory `vdcmaniac_r27_real_hardware_quirk_found.md` for the fuller
+diagnostic history of both examples above.
 
 ### Interlace: two different ways to reassemble a split picture
 
@@ -392,6 +486,52 @@ alone (register-table comparisons against BASIC source, exhaustive
 `Screen[]`/VDC-memory content scans) had failed to find the
 `rotate_demo_shift_bug` for an entire prior session.
 
+### Stale `vdc_state` mid-`vdc_init()` — a sibling bug class
+
+A close relative of the register-leak class above, but about the C-side
+`vdc_state` struct instead of VDC registers: `vdc_init(mode, extmem)`
+calls `vdc_detect_mem_size()` (which probes for 16 vs 64KB VDC RAM)
+BEFORE `vdc_set_mode(mode)` — and `vdc_set_mode()` is what actually
+updates `vdc_state.width`/`.height`/`.bitmap` to describe the mode being
+switched TO. Anything that runs in that window and reads those fields
+gets the OUTGOING mode's values, not the new mode's.
+
+`vdc_detect_mem_size()` used to end with its own `vdc_cls()` call, which
+internally clears `vdc_state.width` × `vdc_state.height` characters.
+Because of the ordering above, this was clearing using the OUTGOING
+mode's dimensions on every single `vdc_init()` call, project-wide. Two
+real bugs stemmed from this, found on two different dates:
+
+- **Visual (2026-08-19)**: switching AWAY from a bitmap mode INTO any
+  new mode showed a brief flash of text-mode fill bytes over the
+  outgoing picture, since the display was still enabled while this
+  wrong-geometry clear ran. Fixed by wrapping the whole
+  `vdc_detect_mem_size()`-through-`vdc_set_mode()` stretch of
+  `vdc_init()` in `vdc_disable_display()` — which hid the clear from
+  view, but left it still happening, now invisibly.
+- **Performance (2026-08-22)**: with the clear now invisible but still
+  real work, exiting a TALL outgoing mode became noticeably, sometimes
+  "extremely", slow — live-reported for VDC-IHFLI (640×480) returning
+  to text mode after showing a picture; VDC-ITFLI (576) and VDC-IMONO
+  (700) would have been worse still, just not separately reported
+  before the fix. The real fix (once found) was simpler than either
+  workaround: remove the `vdc_cls()` call from `vdc_detect_mem_size()`
+  entirely. It was always fully redundant regardless of the sizing bug
+  — `vdc_set_mode()` (called immediately afterward) already does its
+  own CORRECTLY-sized `vdc_cls()` for any `!bitmap` (text) destination,
+  and every bitmap-mode destination's own caller overwrites the whole
+  screen itself (`bnk_cpytovdc()`/`vdc_wipe_transition()`) before ever
+  re-enabling the display. Nothing ever relied on this clear for
+  correctness — only on the (invisible) blanking it happened to run
+  behind, and that blanking still guards the rest of `vdc_init()`
+  regardless.
+
+**Takeaway**: anything added to the pre-`vdc_set_mode()` stretch of
+`vdc_init()` must not depend on `vdc_state`'s mode-describing fields —
+they're stale there by construction. Prefer operations that don't need
+current-mode geometry in that window; if one genuinely does, move it to
+after `vdc_set_mode()` runs instead.
+
 ### Narrow-field readback noise
 
 Several registers have fewer meaningful bits than a full byte —
@@ -451,6 +591,53 @@ respectively — explaining why `char_alt` is conventionally
 above) that second copy is unreachable via normal rendering and exists
 only as an artifact of how `vdc_restore_charsets()` happens to work.
 `idi8b_logo_demo()` in `src/main.c` is the worked example of the real fix.
+
+### The bitmap attribute plane's own byte format
+
+Every colour-cell mode this project has (VDC-FLI, VDC-HFLI, VDC-IHFLI,
+VDC-ITFLI, VDC Spectrum) packs its per-cell attribute byte as
+`(background<<4)|foreground` — background in the HIGH nibble, foreground
+in the LOW nibble. This is the real hardware convention for the VDC's
+own bitmap ATTRIBUTE PLANE specifically. It is **not** the same
+convention register 26 (`VDCR_COLOR`) uses — that single, global
+register packs the opposite way (foreground high, background low) — and
+it is also the opposite of what the C128 Programmer's Reference Guide's
+own text-mode attribute-byte diagram might suggest by analogy (that
+diagram describes bits 7:4 as charset-select/reverse/underline/flash
+flags for TEXT mode, not a colour nibble at all — bitmap mode has no
+character to underline or flash, so the hardware repurposes those upper
+bits as the background colour instead).
+
+**Why this was hard to pin down**: the project's own converter
+(`tools/vdc_convert.py`) originally used the wrong nibble order, and the
+first "ground-truth" verification attempt — rendering the converter's
+own output back through the SAME convention it was encoded with, and
+comparing to the source photo — passed cleanly. That's circular
+reasoning, not verification: decoding data with the same convention it
+was encoded with will always look self-consistent, regardless of
+whether that convention matches the real hardware. Floyd-Steinberg
+dithering makes this especially deceptive, since a consistent decode
+always looks like a clean picture and an inconsistent one always looks
+like noise — but neither outcome, on its own, says anything about
+whether the ENCODING matched real hardware. Only genuinely external
+evidence — real hardware, an independently-implemented emulator, or an
+authoritative register-level reference — can validate a hardware-
+interface convention like this one. The correct nibble order was only
+confirmed once real-hardware photos were compared directly against
+both nibble orders side by side.
+
+**A second, unrelated bug briefly muddied this same investigation**:
+VDC-FLI uniquely loads its bitmap and colour data to two different
+staging offsets in the same load pass (`MEM_SCREEN` and
+`MEM_SCREEN+15120`) — a TSCrunch in-place-compression rebuild that baked
+the WRONG destination address into the colour file's own header
+corrupted it deterministically, independent of nibble order entirely.
+This looked, at first, like "the nibble swap makes FLI worse" — actually
+two unrelated bugs stacked on top of each other. **Takeaway**: when
+regenerating any colour-cell asset, verify that mode's own
+`krill_loadcompd()` destination argument before reusing a blanket
+"bake `MEM_SCREEN`" helper across every mode — FLI's colour file
+specifically needs `MEM_SCREEN+15120`.
 
 ### Extended (64KB) memory
 
@@ -576,7 +763,19 @@ protocol needs for its whole active session) — see memory:
    `ATTR_ADDR`/`HSTART`) that a later mode might not also set, add it to
    `vdc_reset_boot_registers()`'s capture/restore list rather than hoping
    nothing downstream depends on the boot default.
-5. Test live, and if anything looks torn/shifted/wrong, reach for a VICE
+5. If a register's effect depends on another register's current value
+   (`ROWINC` vs `DISP_ADDR`, `HSCROLL` vs `DISP_ADDR` — see "Register
+   write ORDER matters"), write the dependency first, then the dependent
+   register — every time, not just when a caller judges it's needed.
+   Never bake such a register into a mode's own `regset[]` row if
+   `vdc_set_mode()`'s own DISP_ADDR-then-regset sequencing would apply it
+   before the real value is set.
+6. If the mode uses per-cell colour attributes, use
+   `(background<<4)|foreground` for the attribute plane byte — see "The
+   bitmap attribute plane's own byte format" — and don't trust a
+   self-consistent encode/decode round-trip test as proof; verify against
+   real hardware or an independent reference instead.
+7. Test live, and if anything looks torn/shifted/wrong, reach for a VICE
    monitor `io d600` register dump compared against a known-working
    reference *before* re-deriving values from first principles again —
    it's found the actual root cause faster than static analysis every

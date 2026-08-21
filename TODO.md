@@ -115,28 +115,6 @@ this one.
   Revisit only if there's a specific reason to want the other two modes'
   own tradeoffs.
 
-## After release
-
-- [ ] **Write a comprehensive VDC coding manual** distilling every
-  hardware insight this project accumulated (attribute byte nibble
-  order, R27/ROWINC sequencing and its init-order pitfall, DISP_ADDR+
-  VSCROLL tearing vs. DISP_ADDR-only vertical scroll, interlace VSYNC
-  field alignment, real-hardware-vs-emulator discrepancies found, etc.)
-  once the whole demo is confirmed functional end-to-end. Draw from the
-  per-topic project memory records
-  (`~/.claude/projects/-home-xahmol-git-vdcmaniac/memory/`) as the raw
-  material rather than re-deriving anything from scratch. **Must
-  explicitly call out that on real hardware, the ORDER in which VDC
-  registers are written is extremely important** -- not just their
-  final values. The R27/ROWINC bug is the clearest example: baking
-  ROWINC into a mode's own init table (applied before DISP_ADDR is set
-  to its real value) corrupted addressing state that persisted even
-  after both registers were later corrected -- the exact same
-  register values, written in the wrong order, produced consistently
-  broken output; written in the right order (DISP_ADDR first, then the
-  dependent register), it worked perfectly every time. Treat this as a
-  general rule to lead with, not a footnote specific to R27.
-
 ## Explicitly out of scope (won't do)
 
 - **VDC-IM960 (960x540 mono).** Code kept (`mono_im960_demo()`) but not

@@ -100,3 +100,15 @@ USB port is numbered differently. `deploy3` uses its own dedicated path
 | `make deploy2` | Upload to second Ultimate II+ (requires `ULTIP2` in `.env`) |
 | `make deploy3` | Upload build to a real-hardware test machine (requires `ULTIP3` in `.env`) |
 | `make docs` | Regenerate `README.pdf` from `README.md` (requires pandoc) |
+
+## License
+
+This project's own code is licensed under the [GNU General Public
+License v3.0](LICENSE). Krill's fastloader (`krill/`) and TSCrunch
+(`krill/loader/tools/tscrunch/`) are vendored third-party components
+under their own, separate, permissive attribution-required licenses --
+both are credited in-demo (the end-credits scroller) and in this
+README's own Inspiration section, per their own license terms. Every
+picture/artwork/music asset has its own individual attribution and
+licence noted in `include/defines.h`'s credit block -- see "On
+pictures" above.
