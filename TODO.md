@@ -18,12 +18,13 @@ records for history. Items below are grouped by whether they block release.
   while a scan is mid-flight could in principle register as a phantom
   keypress. Mitigated (joystick only trusted as fallback when
   `keyb_key == 0`) but not live-stress-tested.
-- [ ] **Live playtest still owed for the un-grouped menu entries** (Plasma
-  effect, Colour rotation effect, VDC-VSCROLL). The main menu's other five
-  entries (VDC-FLI, VDC-IFLI, VDC-mono, VDC Spectrum, End demo) are all
-  individually live-confirmed correct end to end (real hardware/VICE/z64k);
-  these three weren't touched by the recent restructuring and haven't been
-  independently re-checked since.
+- [ ] **Live playtest still owed for Plasma effect / Colour rotation
+  effect.** VDC-SCROLL (VDC-VSCROLL + VDC-PANORAMA + VDC-PANORAMA 2D) is
+  now real-hardware-confirmed end to end. The main menu's other six
+  entries (VDC-FLI, VDC-IFLI, VDC-mono, VDC-SCROLL, VDC Spectrum, End
+  demo) are all individually live-confirmed correct; these two weren't
+  touched by the recent restructuring and haven't been independently
+  re-checked since.
 
 ## Before release (continued)
 
@@ -113,6 +114,28 @@ this one.
   chosen as the low-risk option needing no new/unproven VDC timing.
   Revisit only if there's a specific reason to want the other two modes'
   own tradeoffs.
+
+## After release
+
+- [ ] **Write a comprehensive VDC coding manual** distilling every
+  hardware insight this project accumulated (attribute byte nibble
+  order, R27/ROWINC sequencing and its init-order pitfall, DISP_ADDR+
+  VSCROLL tearing vs. DISP_ADDR-only vertical scroll, interlace VSYNC
+  field alignment, real-hardware-vs-emulator discrepancies found, etc.)
+  once the whole demo is confirmed functional end-to-end. Draw from the
+  per-topic project memory records
+  (`~/.claude/projects/-home-xahmol-git-vdcmaniac/memory/`) as the raw
+  material rather than re-deriving anything from scratch. **Must
+  explicitly call out that on real hardware, the ORDER in which VDC
+  registers are written is extremely important** -- not just their
+  final values. The R27/ROWINC bug is the clearest example: baking
+  ROWINC into a mode's own init table (applied before DISP_ADDR is set
+  to its real value) corrupted addressing state that persisted even
+  after both registers were later corrected -- the exact same
+  register values, written in the wrong order, produced consistently
+  broken output; written in the right order (DISP_ADDR first, then the
+  dependent register), it worked perfectly every time. Treat this as a
+  general rule to lead with, not a footnote specific to R27.
 
 ## Explicitly out of scope (won't do)
 

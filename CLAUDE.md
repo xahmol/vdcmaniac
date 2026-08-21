@@ -20,12 +20,13 @@ number of times) — three grouped real-photo VDC colour-mode showcases
 (VDC-FLI: FLI+HFLI non-interlace; VDC-IFLI: IHFLI+ITFLI interlace;
 VDC-mono: IMONO+IM800, each entry cycling every photo from both of its
 component modes), a real-ZX-Spectrum-picture showcase (VDC Spectrum), two
-procedural effects (plasma, colour rotation), a scripted vertical scroll
-(VDC-VSCROLL), and "End demo + credits". The raster-bar placement
-diagnostic isn't in this list — it's reachable only via a `T` keypress,
-handled as a special case alongside ESC/STOP rather than through
-`menu_entries[]` (see `vdcmaniac_menu_raster_highlight` project memory
-for why the row budget is constrained). Before the menu, `main()` runs a
+procedural effects (plasma, colour rotation), a scripted-scroll trio
+(VDC-SCROLL: vertical, then horizontal, then a combined 4-corner
+diagonal tour — see `menu_scroll_family()`), and "End demo + credits".
+The raster-bar placement diagnostic (`raster_place_test()`) was retired
+(2026-08-21) to reclaim code-size budget for VDC-SCROLL's third section
+— its code is still in the repo, unused, but it's no longer reachable
+from anywhere in the running demo. Before the menu, `main()` runs a
 fixed intro sequence once: system diagnostics (PAL/NTSC, VDC revision,
 64KB check), an idi8b logo section, and a title screen.
 
@@ -108,20 +109,28 @@ rebuild otherwise).
   `rotate_demo()`/`init_rotate()`/`rotup()`/`rotdown()` cycle a fixed VDC
   bitmap's colour/attribute table for movement/rainbow effects without
   touching pixel data.
-- `vscroll_demo()` (VDC-VSCROLL) steps a tall (640x798) monochrome bitmap
-  through the 640x200 display window a whole 8-scanline row at a time via
-  `DISP_ADDR`. Deliberately no `VDCR_VSCROLL` sub-pixel smoothing — that
-  was tried extensively and reliably tore on real hardware/z64k regardless
-  of write timing; see project memory
-  (`vdcmaniac_vscroll_dispaddr_latch_lag.md`) if revisiting.
-- `r27_scroll_test_demo()` is a **temporary** test scaffold (VDC-PANORAMA
-  attempt 3, Phase 0 only) called directly from `main()` before
-  `main_menu()`, not wired into `menu_entries[]` — proves R27/ROWINC
-  addressing for a wider-than-display bitmap. See the plan file
-  (`~/.claude/plans/want-to-revisit-timning-zany-patterson.md`) for the
-  phased build this is one step of.
-- `raster_bar()`/`raster_place_test()`/`main_menu()`'s own highlight sweep
-  are all built on `include/vdc_raster.c`'s `raster_synch()`/
+- `menu_scroll_family()` (VDC-SCROLL) chains three scripted-scroll
+  sections under one menu row: `vscroll_demo()` steps a tall (640x798)
+  monochrome bitmap through the 640x200 display window a whole
+  8-scanline row at a time via `DISP_ADDR` (deliberately no `VDCR_VSCROLL`
+  sub-pixel smoothing — that was tried extensively and reliably tore on
+  real hardware/z64k regardless of write timing; see project memory
+  `vdcmaniac_vscroll_dispaddr_latch_lag.md` if revisiting); `panorama_demo()`
+  pans a bitmap wider than the display using VDC register 27
+  (`VDCR_ROWINC`) for per-scanline addressing plus `VDCR_HSCROLL` for
+  sub-byte motion; `panorama2d_demo()` combines both into a diagonal
+  4-corner tour of a bitmap both wider and taller than the display. The
+  R27 mechanism only works if `VDCR_ROWINC` is written via an explicit
+  call strictly *after* `DISP_ADDR` already holds its real value, never
+  baked into a mode's own `vdc_modes[]` regset row — see project memory
+  `vdcmaniac_r27_real_hardware_quirk_found.md` for why (an earlier
+  version of exactly that mistake caused a multi-day "R27 doesn't work
+  on real hardware" investigation that turned out to be self-inflicted,
+  not a chip quirk). `load_chunk_to_vdc()`/`krill_load_or_die()`
+  (defined just above `vscroll_demo()`) are shared asset-loading helpers
+  used project-wide, not just by this family.
+- `raster_bar()`/`main_menu()`'s own highlight sweep are built on
+  `include/vdc_raster.c`'s `raster_synch()`/
   `raster_waitline()` — CIA2-timer-based cycle-exact raster-position
   sync, reused via `raster_bar_begin()`/`raster_bar_line()`/
   `raster_bar_segment()`/`raster_bar_end()` (which also holds interrupts

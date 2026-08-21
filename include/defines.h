@@ -52,6 +52,14 @@ Code and resources from others used:
     the same published technique (those files carry no license permitting
     reuse of the code itself).
 
+-   Turbo Rascal Syntax Error (TRSE) demoscene tooling/technique writeups
+    (lemonspawn.com/turbo-rascal-syntax-error-expected-but-begin/): the
+    sine-table plasma (plasma_demo()/init_plasma()) and colour-cycling
+    (rotate_demo()/init_rotate()/rotup()/rotdown()) effects are the same
+    underlying algorithm/code shown there, translated from TRSE's own
+    Pascal-like source language into Oscar64 C for this project's own VDC
+    bitmap/palette layout -- a port, not an independent reimplementation.
+
 -   GoDot (github.com/godot64/GoDot), a C128 VDC paint/image-processing
     suite: its "BASIC 8"/iPaint picture-format saver/loader source
     (savers/s_IPaint.a, savers/s_Basic8Mode1.a, loaders/l_Basic8Select.a)
@@ -158,6 +166,45 @@ et al in src/main.c), converted via tools/vdc_convert.py:
     (author died 1858). High-resolution scan from The Met's Open Access
     collection (object 56689):
     https://www.metmuseum.org/art/collection/search/56689
+
+-   VDC-PANORAMA:
+
+    "Nine Dragons" (九龍圖卷), Chen Rong, 1244, ink and colour on paper,
+    Museum of Fine Arts, Boston -- public domain (artist died ca. 1266).
+    A genuine Chinese handscroll (emakimono-style, 46.3 x 1496.4 cm --
+    designed to be viewed by continuous horizontal unrolling, the exact
+    real-world precedent for this section's own R27-based horizontal
+    pan), high-resolution scan (30020x1116) from Wikimedia Commons
+    (PD-Art tag, reproduction of a pre-1931-published public-domain
+    work), not the museum's own restrictively-licensed reproduction:
+    https://commons.wikimedia.org/wiki/File:Chen_Rong_-_Nine_Dragons.jpg
+
+    Cropped to a single dramatic passage (dragons emerging from cloud
+    and a swirling wave, source region x=[10006,20012] of the full
+    scroll) and converted via tools/vdc_convert.py --mode panorama
+    (plain Floyd-Steinberg 1-bit dither, same convert_imono() every
+    other mono mode uses) -- see assets/source/panorama_chenrong_
+    ninedragons.jpg. `assets/source/panorama_hiroshige_nihonbashi.jpg`
+    is an unrelated leftover from an earlier, abandoned horizontal-pan
+    attempt (see vscroll_demo()'s own comment) and is not used by
+    anything.
+
+-   VDC-PANORAMA 2D:
+
+    "The Last Stand of the Kusunoki at Shijōnawate" (楠家勇士四條縄手にて討死),
+    Utagawa Kuniyoshi, 1857, colour woodblock triptych, British Museum
+    (1907,0531,0.229.1-3) -- public domain (artist died 1861). A dramatic
+    night battle scene (samurai under a hail of arrows against a black
+    sky), chosen for this combined horizontal+vertical pan specifically
+    for its strong black/white graphic contrast once dithered mono, and
+    its wide-but-not-extreme aspect (1902x896, 2.123:1) closely matching
+    this mode's own stored bitmap (904x426, 2.122:1) with almost no crop.
+    High-resolution scan from Wikimedia Commons (PD-Japan/PD-Art-two):
+    https://commons.wikimedia.org/wiki/File:The_last_stand_of_the_Kusunoki_at_Shijonawate.jpg
+
+    Converted via tools/vdc_convert.py --mode panorama2d (plain
+    Floyd-Steinberg 1-bit dither) -- see assets/source/panorama2d_
+    kuniyoshi_kusunoki.jpg.
 
 -   VDC Spectrum:
 

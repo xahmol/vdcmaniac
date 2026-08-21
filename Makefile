@@ -41,7 +41,17 @@ VERSION           = v$(VERSION_MAJOR)$(VERSION_MINOR)-$(VERSION_TIMESTAMP)
 # Common compile flags
 #   -i=include       : add include/ to header search path
 #   -tm=c128e        : target Commodore 128 80-column mode
-#   -O2              : optimise
+#   -O2              : optimise -- briefly switched to -Os (2026-08-21)
+#                      to fit the VDC-SCROLL family's third section
+#                      (panorama2d_demo()) within the "main" region's
+#                      budget; reverted the same day after that switch
+#                      broke Krill's own overlay load ("LOADING OVERLAY
+#                      FILE FAILED", both VICE and real hardware) --
+#                      root cause not fully pinned down before reverting,
+#                      but reliably reproduced under -Os and gone under
+#                      -O2. Retiring raster_place_test() (unused
+#                      diagnostic, see its own comment) freed enough
+#                      budget to fit everything at -O2 instead.
 #   -dNOFLOAT        : disable float support (saves space)
 #   -dVERSION        : pass version string to source
 CFLAGS  = -i=include \
@@ -130,6 +140,8 @@ KRILL_COMPRESSED_ASSETS = -write idi8bcmp idi8bcmp \
          -write im8002evk im8002evk -write im8002odk im8002odk \
          -write im8003evk im8003evk -write im8003odk im8003odk \
          -write vscrtop vscrtop -write vscrmid vscrmid -write vscrbot vscrbot \
+         -write panorama1lftk panorama1lftk -write panorama1midk panorama1midk -write panorama1rgtk panorama1rgtk \
+         -write panorama2ak panorama2ak -write panorama2bk panorama2bk -write panorama2ck panorama2ck \
          -write spec1btk spec1btk -write spec1clk spec1clk \
          -write spec2btk spec2btk -write spec2clk spec2clk \
          -write spec3btk spec3btk -write spec3clk spec3clk \
@@ -171,6 +183,8 @@ bootsect.bin: $(MAIN).prg $(GENERATED_ASSETS)
 	   assets/im8001evk assets/im8001odk assets/im8002evk assets/im8002odk \
 	   assets/im8003evk assets/im8003odk \
 	   assets/vscrtop assets/vscrmid assets/vscrbot \
+	   assets/panorama1lftk assets/panorama1midk assets/panorama1rgtk \
+	   assets/panorama2ak assets/panorama2bk assets/panorama2ck \
 	   assets/spec1btk assets/spec1clk assets/spec2btk assets/spec2clk assets/spec3btk assets/spec3clk \
 	   assets/musick build/krill
 #	cp assets/chars*.prg build/krill

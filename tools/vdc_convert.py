@@ -695,7 +695,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "--mode",
-        choices=["fli", "hfli", "ihfli", "itfli", "imono", "im800", "titlescreen", "vscroll", "spectrum"],
+        choices=["fli", "hfli", "ihfli", "itfli", "imono", "im800", "titlescreen", "vscroll", "panorama", "panorama2d", "spectrum"],
         required=True,
     )
     ap.add_argument("--input", required=True, help="Source image (any Pillow-readable format, any size/aspect)")
@@ -828,6 +828,61 @@ def main():
         with open(args.out_prefix + ".bot", "wb") as f:
             f.write(HEADER + bot)
         print(f"wrote {args.out_prefix}.top/.mid/.bot ({len(top)}/{len(mid)}/{len(bot)} bytes)")
+    elif args.mode == "panorama":
+        # VDC-PANORAMA (src/main.c panorama_demo()): stored bitmap WIDER
+        # than the 640x200 mode it's actually displayed through (see
+        # VDC_HIRES_640x200_Mono_PANORAMA_R27's own comment, vdc_core.c),
+        # using VDC register 27 (ROWINC) for per-scanline addressing
+        # beyond the display's own native 80-byte stride -- see project
+        # memory vdcmaniac_r27_real_hardware_quirk_found.md for the
+        # init-order fix this needed to work reliably on real hardware.
+        # Plain Floyd-Steinberg 1-bit dither, same convert_imono() every
+        # other mono mode uses -- no interlace/field split needed (this
+        # mode is non-interlaced). width=1608 (201 bytes/row * 8, not a
+        # round 1600) so the resulting bitmap splits into three EXACTLY
+        # equal thirds below (200*201=40200, divisible by 3) -- purely
+        # cosmetic tidiness, a 1-2 byte uneven remainder would work fine
+        # too. Split for krill_loadcompd() staging-size reasons, same as
+        # vscroll mode above (each chunk must stay clear of Oscar64's own
+        # C runtime stack at $b000).
+        width, height = 1608, 200
+        img = fit_to_size(img, width, height, crop_top=args.crop_top)
+        bitmap = convert_imono(img, width, height)
+        third = len(bitmap) // 3
+        left, mid, right = bitmap[:third], bitmap[third:2 * third], bitmap[2 * third:]
+        with open(args.out_prefix + ".lft", "wb") as f:
+            f.write(HEADER + left)
+        with open(args.out_prefix + ".mid", "wb") as f:
+            f.write(HEADER + mid)
+        with open(args.out_prefix + ".rgt", "wb") as f:
+            f.write(HEADER + right)
+        print(f"wrote {args.out_prefix}.lft/.mid/.rgt ({len(left)}/{len(mid)}/{len(right)} bytes)")
+    elif args.mode == "panorama2d":
+        # VDC-PANORAMA 2D (src/main.c panorama2d_demo()): stored bitmap
+        # both WIDER and TALLER than the 640x200 display, combining
+        # panorama_demo()'s horizontal R27/HSCROLL addressing with
+        # vscroll_demo()'s vertical DISP_ADDR-only addressing into a
+        # single diagonal tour of all four corners. width=904, height=426
+        # (aspect 2.122:1, chosen to closely match the Kuniyoshi triptych
+        # source's own 1902:896=2.123:1 -- almost no crop needed) --
+        # 904*426=385104 px total, 904/8*426=48138 bytes, comfortably
+        # under the 65536-byte VDC RAM ceiling with room to spare. Same
+        # plain Floyd-Steinberg 1-bit dither as every other mono mode.
+        # Split into THREE equal thirds (48138/3=16046 exactly, since
+        # 426 rows is divisible by 3) for krill_loadcompd() staging-size
+        # reasons, same as vscroll/panorama modes above.
+        width, height = 904, 426
+        img = fit_to_size(img, width, height, crop_top=args.crop_top)
+        bitmap = convert_imono(img, width, height)
+        third = len(bitmap) // 3
+        a, b, c = bitmap[:third], bitmap[third:2 * third], bitmap[2 * third:]
+        with open(args.out_prefix + ".a", "wb") as f:
+            f.write(HEADER + a)
+        with open(args.out_prefix + ".b", "wb") as f:
+            f.write(HEADER + b)
+        with open(args.out_prefix + ".c", "wb") as f:
+            f.write(HEADER + c)
+        print(f"wrote {args.out_prefix}.a/.b/.c ({len(a)}/{len(b)}/{len(c)} bytes)")
     elif args.mode == "imono":
         width, height = 720, 700
         img = fit_to_size(img, width, height, crop_top=args.crop_top)

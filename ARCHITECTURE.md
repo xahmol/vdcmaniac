@@ -28,7 +28,6 @@ cia_init() / bnk_init() / krill_loadcode() / krill_init()
 system_diagnostic_screen()   // PAL/NTSC, VDC revision, 64KB check
 idi8b_logo_demo()            // logo + bouncing dual-bar raster effect; SID playback starts here
 title_screen()                // prerendered hires title image + raster bars
-r27_scroll_test_demo()        // TEMPORARY test scaffold, see its own section below
 main_menu()                   // loops until ESC/STOP or "End demo + credits"
 menu_end_demo() -> demo_end_screen()   // never returns
 ```
@@ -46,14 +45,15 @@ why the original 6 individual photo-mode rows are grouped into 3 here:
 | 3 | VDC-mono (720x700/800x600, mono, interlace: IMONO+IM800) | `menu_mono_family()` |
 | 4 | Plasma effect | `menu_plasma_demo()` -> `plasma_demo()` |
 | 5 | Colour rotation effect | `menu_rotate_demo()` -> `rotate_demo()` |
-| 6 | VDC-VSCROLL (640x200 window, scripted hires scroll) | `vscroll_demo()` |
+| 6 | VDC-SCROLL (640x200 window, scripted vert.+horiz. scroll: VSCROLL+PANORAMA+PANORAMA 2D) | `menu_scroll_family()` |
 | 7 | VDC Spectrum (256x192, real ZX Spectrum pictures) | `spectrum_demo()` |
 | E | End demo + credits | `menu_end_demo()` -> `credits_screen()` |
 
-Raster bar placement test (the original key `9`) is no longer a menu row
-at all — it's a diagnostic, not a showcase mode, and is now reachable
-only via a `T` keypress handled as a special case in `main_menu()`'s own
-key-handling loop (alongside ESC/STOP), not through `menu_entries[]`.
+Raster bar placement test (`raster_place_test()`, formerly reachable via
+a `T` keypress) was retired (2026-08-21) to reclaim code-size budget for
+VDC-SCROLL's third section — the function is left in the codebase,
+unused, as a diagnostic snippet for future raster-timing work, but is no
+longer reachable from anywhere in the running demo.
 
 ### Picture showcase sections (keys 1-3, 7)
 
@@ -105,14 +105,16 @@ without RGBtoHDMI hardware (matches Tokra's own readme caveat), and
 colorize's own keypress-detection mechanism was never made reliable. Both
 kept for possible future real-hardware work, not menu-wired.
 
-### `raster_place_test()` — the raster-sync calibration tool
+### `raster_place_test()` — archived raster-sync calibration tool
 
-A 16-line colour raster bar, nudgeable up/down with cursor keys while it
-prints the live rasterline number, until ESC/STOP. Built directly on
-`raster_synch()`/`raster_waitline()` (`vdc_raster.c`) — this is the tool
-used to hand-verify the CIA2-timer raster-sync constants
+**Not called from anywhere** (retired 2026-08-21, see the menu table
+note above). A 16-line colour raster bar, nudgeable up/down with cursor
+keys while it prints the live rasterline number, until ESC/STOP. Built
+directly on `raster_synch()`/`raster_waitline()` (`vdc_raster.c`) — this
+was the tool used to hand-verify the CIA2-timer raster-sync constants
 (`raster_timer_reload`, calibrated automatically at runtime by
-`raster_calibrate()`) actually line up on real hardware.
+`raster_calibrate()`) actually line up on real hardware. Left in the
+codebase as a diagnostic snippet for any future raster-timing work.
 
 ### `title_screen()`
 
@@ -135,28 +137,71 @@ Cycles a fixed VDC hires image's attribute/colour table to fake
 movement/rainbow effects without touching pixel data, via a software
 `Screen[4000]` shadow buffer pushed to VDC attribute RAM each frame.
 
-### `vscroll_demo()` (VDC-VSCROLL)
+### `menu_scroll_family()` — VDC-SCROLL (`vscroll_demo()`/`panorama_demo()`/`panorama2d_demo()`)
 
-Steps a tall (640x798) monochrome bitmap through the 640x200 display
-window a whole 8-scanline row at a time via `DISP_ADDR`, on a
-scripted waypoint bounce (`PanWaypoint`). Deliberately no `VDCR_VSCROLL`
-sub-pixel smoothing — a combined `DISP_ADDR`+`VSCROLL` smooth scroll (the
-standard technique for this effect) was tried extensively and reliably
-tore on real hardware and z64k regardless of write order or timing
-relative to vblank; see project memory
-(`vdcmaniac_vscroll_dispaddr_latch_lag.md`) before revisiting.
+Three scripted-scroll sections chained under one menu row, each panning
+a monochrome bitmap larger than the 640x200 display window along a
+different axis, on an auto-playing waypoint bounce/tour. Any key/fire
+skips to the next section; ESC/STOP returns straight to the main menu;
+each section also auto-advances on its own once its own `LOOP_COUNT`
+full cycles complete with no input at all (component functions return
+`char` — 1 on early ESC/STOP exit, 0 on normal completion — same
+convention `menu_fli_family()` etc. use, checked by `menu_scroll_family()`
+to decide whether to keep chaining).
 
-### `r27_scroll_test_demo()` — temporary test scaffold
+- **`vscroll_demo()` (vertical)**: steps a tall (640x798) bitmap through
+  the display window a whole 8-scanline row at a time via `DISP_ADDR`
+  alone, no `VDCR_VSCROLL` sub-pixel smoothing — a combined
+  `DISP_ADDR`+`VSCROLL` smooth scroll (the standard technique for this
+  effect) was tried extensively and reliably tore on real hardware and
+  z64k regardless of write order or timing relative to vblank; see
+  project memory (`vdcmaniac_vscroll_dispaddr_latch_lag.md`) before
+  revisiting.
+- **`panorama_demo()` (horizontal)**: pans a bitmap wider than the
+  display (`VDC_HIRES_640x200_Mono_PANORAMA_R27` mode) using VDC
+  register 27 (`ROWINC`) for per-scanline addressing beyond the
+  display's own native 80-byte stride, plus `VDCR_HSCROLL` for sub-byte
+  (0-7px) smooth motion between byte crossings. This mechanism went
+  through two earlier, fully abandoned attempts (CSIZE/ROWINC raster
+  toggling, then a CPU shift-and-refill) before a genuinely new idea —
+  driving R27 directly — was tried and proven live on real hardware; see
+  project memory `vdcmaniac_horizontal_pan_abandoned_twice.md` and
+  `vdcmaniac_r27_real_hardware_quirk_found.md` for the full history,
+  including the one hard rule this mode depends on: `VDCR_ROWINC` must
+  only ever be written via an explicit call *after* `DISP_ADDR` already
+  holds its real value, never baked into a mode's own `vdc_modes[]`
+  regset row (which gets applied before the caller can correct
+  `DISP_ADDR`) — an early version of exactly this mistake was the real
+  cause of a multi-day "R27 doesn't work on real hardware" investigation
+  that turned out to be a self-inflicted init-order bug, not a chip
+  quirk.
+- **`panorama2d_demo()` (both axes)**: combines the above two mechanisms
+  — vertical `DISP_ADDR` stepping and horizontal `DISP_ADDR`+`HSCROLL`
+  stepping — into one diagonal glide touring all four corners of a
+  bitmap both wider and taller than the display
+  (`VDC_HIRES_640x200_Mono_PANORAMA2D` mode, 904x426), two full tours per
+  visit. Both axes recompute a single combined `DISP_ADDR` each frame
+  rather than issuing two separate address writes.
 
-**Not menu-wired** — called directly from `main()`, right before
-`main_menu()`. VDC-PANORAMA attempt 3, Phase 0 only: proves whether R27
-(`VDCR_ROWINC`) gives correct per-scanline addressing for a bitmap wider
-than the 640px display (live-confirmed: yes). No motion yet, just a
-static barcode test pattern with a keypress to continue into the normal
-menu. See the plan file
-(`~/.claude/plans/want-to-revisit-timning-zany-patterson.md`) for the
-phased build this is one step of, and project memory
-(`vdcmaniac_r27_phase0_confirmed.md`) for the finding itself.
+Shared helpers (all `static`, defined just above `vscroll_demo()`):
+`load_chunk_to_vdc()` (one `krill_loadcompd()`-into-Bank-1 +
+`bnk_cpytovdc()`-push pair, used by all three sections' own three-way
+picture-chunk splits) and `krill_load_or_die(dest, fname)` (project-wide
+— every asset load site in `main.c` uses this, not just this family) wrap
+the "load, report+exit(1) on failure" boilerplate that used to be spelled
+out at ~24 call sites individually. `panorama_step_offset()` (pure
+offset/hscroll arithmetic, no register writes) and
+`panorama_write_addr_hscroll()` (writes `DISP_ADDR` — framed by
+`vdc_wait_no_vblank()`/`vdc_wait_vblank()` whenever it actually changes —
+then `VDCR_HSCROLL`, unconditionally, in that order) are shared between
+`panorama_demo()` and `panorama2d_demo()`; the safety framing lives
+inside `panorama_write_addr_hscroll()` itself rather than being left to
+each caller to apply conditionally — an earlier version split this the
+other way and shipped a real regression (`panorama2d_demo()`'s own
+per-frame vertical `DISP_ADDR` change hit the unprotected
+`DISP_ADDR`+`HSCROLL` combination far more often than
+`panorama_demo()`'s rare byte crossings ever did, reported live as
+jarring/jumpy motion) before landing on this shape.
 
 ### `credits_screen()`
 

@@ -89,6 +89,12 @@ char colors[] = {
 };
 
 // Plasma demo routines
+// This and the colour-rotation effect below (rotate_demo()/init_rotate()/
+// rotup()/rotdown()) are ported from the same TRSE (Turbo Rascal Syntax
+// Error) demo code discussed at lemonspawn.com/turbo-rascal-syntax-error-
+// expected-but-begin/ -- translated from TRSE's own Pascal-like source
+// language into Oscar64 C for this project's own VDC bitmap/palette
+// layout, not an independent reimplementation.
 void init_plasma(char mode)
 // Init plasma hires screen
 {
@@ -466,6 +472,11 @@ void rotate_demo(char mode)
 }
 
 // Raster
+// ARCHIVED (2026-08-21): not called from anywhere (used to be reachable
+// via a 'T' key special case in main_menu(), retired to reclaim code-size
+// budget for the VDC-SCROLL family's third section -- see MENU_COUNT's
+// own comment). Kept in the codebase, unused, as a diagnostic snippet
+// for any future raster-timing/placement work -- not menu-wired.
 void raster_place_test()
 {
 	static const char gradient16[16] = {15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0};
@@ -771,6 +782,12 @@ void raster_bar(char upper, char lower, char length)
 //	} while (!vdcwin_checkch());
 // }
 
+// Forward decl -- defined later in this file (with load_chunk_to_vdc(),
+// its own related helper), used from here on as the standard
+// "krill_loadcompd() an asset, report and exit(1) on failure" call
+// throughout every asset-loading section below.
+static void krill_load_or_die(unsigned dest, const char *fname);
+
 void title_screen()
 {
 	char color[16] = {
@@ -816,16 +833,8 @@ void title_screen()
 	// Named even/odd, not top/bottom: these are interlace fields (even
 	// source rows / odd source rows), not a physical top-half/bottom-half
 	// split -- see tools/vdc_convert.py's own comment on this mode.
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "titleevk"))
-	{
-		printf("krill loadcompd failed: titleevk\n");
-		exit(1);
-	}
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN + 16000, "titleodk"))
-	{
-		printf("krill loadcompd failed: titleodk\n");
-		exit(1);
-	}
+	krill_load_or_die(MEM_SCREEN, "titleevk");
+	krill_load_or_die(MEM_SCREEN + 16000, "titleodk");
 
 	// Init proper hires mode
 	// Must match the resolution the vdce-scrtit.eve/.odd assets were
@@ -1114,11 +1123,7 @@ void idi8b_logo_demo()
 	// function's actual destination -- the checked-in asset's own header was
 	// a placeholder $8000) and compressed (see Makefile's
 	// KRILL_COMPRESSED_ASSETS comment for the exact conversion steps).
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "idi8bcmp"))
-	{
-		printf("krill loadcompd failed: idi8bcmp\n");
-		exit(1);
-	}
+	krill_load_or_die(MEM_SCREEN, "idi8bcmp");
 
 	vdc_cls();
 	for (r = SRC_MINROW; r <= SRC_MAXROW; r++)
@@ -1398,16 +1403,8 @@ char fli_color_demo()
 
 		// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
 		// KRILL_COMPRESSED_ASSETS comment.
-		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, bitnames[pic]))
-		{
-			printf("krill loadcompd failed: %s\n", bitnames[pic]);
-			exit(1);
-		}
-		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN + 15120, colnames[pic]))
-		{
-			printf("krill loadcompd failed: %s\n", colnames[pic]);
-			exit(1);
-		}
+		krill_load_or_die(MEM_SCREEN, bitnames[pic]);
+		krill_load_or_die(MEM_SCREEN + 15120, colnames[pic]);
 
 		// Wipe here too -- the info screen (text mode) needs to be cleared
 		// before switching to this mode's own bitmap geometry, otherwise it
@@ -1632,11 +1629,7 @@ char fli_ihfli_demo()
 
 		// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
 		// KRILL_COMPRESSED_ASSETS comment.
-		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, ce_names[pic]))
-		{
-			printf("krill loadcompd failed: %s\n", ce_names[pic]);
-			exit(1);
-		}
+		krill_load_or_die(MEM_SCREEN, ce_names[pic]);
 
 		vdc_wipe_transition();
 
@@ -1653,25 +1646,13 @@ char fli_ihfli_demo()
 
 		bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 9600);
 
-		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, co_names[pic]))
-		{
-			printf("krill loadcompd failed: %s\n", co_names[pic]);
-			exit(1);
-		}
+		krill_load_or_die(MEM_SCREEN, co_names[pic]);
 		bnk_cpytovdc(0x0230, BNK_1_FULL, (char *)MEM_SCREEN, 9600);
 
-		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, be_names[pic]))
-		{
-			printf("krill loadcompd failed: %s\n", be_names[pic]);
-			exit(1);
-		}
+		krill_load_or_die(MEM_SCREEN, be_names[pic]);
 		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 19200);
 
-		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, bo_names[pic]))
-		{
-			printf("krill loadcompd failed: %s\n", bo_names[pic]);
-			exit(1);
-		}
+		krill_load_or_die(MEM_SCREEN, bo_names[pic]);
 		bnk_cpytovdc(0x5780, BNK_1_FULL, (char *)MEM_SCREEN, 19200);
 
 		vdc_enable_display();
@@ -1722,11 +1703,7 @@ char fli_itfli_demo()
 
 		// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
 		// KRILL_COMPRESSED_ASSETS comment.
-		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, ce_names[pic]))
-		{
-			printf("krill loadcompd failed: %s\n", ce_names[pic]);
-			exit(1);
-		}
+		krill_load_or_die(MEM_SCREEN, ce_names[pic]);
 
 		vdc_wipe_transition();
 
@@ -1743,25 +1720,13 @@ char fli_itfli_demo()
 
 		bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 7680);
 
-		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, co_names[pic]))
-		{
-			printf("krill loadcompd failed: %s\n", co_names[pic]);
-			exit(1);
-		}
+		krill_load_or_die(MEM_SCREEN, co_names[pic]);
 		bnk_cpytovdc(0x0000, BNK_1_FULL, (char *)MEM_SCREEN, 7680);
 
-		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, be_names[pic]))
-		{
-			printf("krill loadcompd failed: %s\n", be_names[pic]);
-			exit(1);
-		}
+		krill_load_or_die(MEM_SCREEN, be_names[pic]);
 		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 23040);
 
-		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, bo_names[pic]))
-		{
-			printf("krill loadcompd failed: %s\n", bo_names[pic]);
-			exit(1);
-		}
+		krill_load_or_die(MEM_SCREEN, bo_names[pic]);
 		bnk_cpytovdc(0x4100, BNK_1_FULL, (char *)MEM_SCREEN, 23040);
 
 		vdc_enable_display();
@@ -1812,11 +1777,7 @@ char fli_hfli_demo()
 
 		// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
 		// KRILL_COMPRESSED_ASSETS comment.
-		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, bitnames[pic]))
-		{
-			printf("krill loadcompd failed: %s\n", bitnames[pic]);
-			exit(1);
-		}
+		krill_load_or_die(MEM_SCREEN, bitnames[pic]);
 
 		vdc_wipe_transition();
 
@@ -1832,11 +1793,7 @@ char fli_hfli_demo()
 
 		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 32000);
 
-		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, colnames[pic]))
-		{
-			printf("krill loadcompd failed: %s\n", colnames[pic]);
-			exit(1);
-		}
+		krill_load_or_die(MEM_SCREEN, colnames[pic]);
 		bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 16000);
 
 		vdc_enable_display();
@@ -1902,11 +1859,7 @@ void spectrum_demo()
 
 		vdc_mode_info_screen("VDC Spectrum", "256 x 192 ZX Spectrum picture, doubled to 512x192", "colour resolution: 8x8 (flat, whole-cell)", descr[pic], 0);
 
-		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, bitnames[pic]))
-		{
-			printf("krill loadcompd failed: %s\n", bitnames[pic]);
-			exit(1);
-		}
+		krill_load_or_die(MEM_SCREEN, bitnames[pic]);
 
 		vdc_wipe_transition();
 
@@ -1922,11 +1875,7 @@ void spectrum_demo()
 
 		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 16000);
 
-		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, colnames[pic]))
-		{
-			printf("krill loadcompd failed: %s\n", colnames[pic]);
-			exit(1);
-		}
+		krill_load_or_die(MEM_SCREEN, colnames[pic]);
 		bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 2000);
 
 		vdc_enable_display();
@@ -2057,11 +2006,7 @@ char mono_hires_xl_demo()
 
 		// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
 		// KRILL_COMPRESSED_ASSETS comment.
-		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, ev_names[pic]))
-		{
-			printf("krill loadcompd failed: %s\n", ev_names[pic]);
-			exit(1);
-		}
+		krill_load_or_die(MEM_SCREEN, ev_names[pic]);
 
 		// Wipe here -- see the identical comment in fli_color_demo(): the
 		// info screen (text mode) needs wiping away before switching to
@@ -2080,11 +2025,7 @@ char mono_hires_xl_demo()
 
 		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 31500);
 
-		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, od_names[pic]))
-		{
-			printf("krill loadcompd failed: %s\n", od_names[pic]);
-			exit(1);
-		}
+		krill_load_or_die(MEM_SCREEN, od_names[pic]);
 
 		// Odd field goes to VDC address 0x82c8, *not* base_text+31500
 		// (0x7b0c) -- disassembling Tokra's own file loader (gosub9999,
@@ -2177,11 +2118,7 @@ char mono_im800_demo()
 
 		// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
 		// KRILL_COMPRESSED_ASSETS comment.
-		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, ev_names[pic]))
-		{
-			printf("krill loadcompd failed: %s\n", ev_names[pic]);
-			exit(1);
-		}
+		krill_load_or_die(MEM_SCREEN, ev_names[pic]);
 
 		vdc_wipe_transition();
 
@@ -2197,11 +2134,7 @@ char mono_im800_demo()
 
 		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 30000);
 
-		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, od_names[pic]))
-		{
-			printf("krill loadcompd failed: %s\n", od_names[pic]);
-			exit(1);
-		}
+		krill_load_or_die(MEM_SCREEN, od_names[pic]);
 		bnk_cpytovdc(0x7e2c, BNK_1_FULL, (char *)MEM_SCREEN, 30000);
 
 		vdc_enable_display();
@@ -2259,11 +2192,7 @@ void mono_im960_demo()
 
 	// asset-loading-roadmap.md Phase 2 Krill rollout -- see idi8b_logo_demo()'s
 	// comment on this pattern.
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "im960btk"))
-	{
-		printf("krill loadcompd failed: im960btk\n");
-		exit(1);
-	}
+	krill_load_or_die(MEM_SCREEN, "im960btk");
 
 	char old_hdisplay = vdc_reg_read(VDCR_HDISPLAY);
 	char old_hsync = vdc_reg_read(VDCR_HSYNC);
@@ -2293,11 +2222,7 @@ void mono_im960_demo()
 
 	bnk_cpytovdc(0x8160, BNK_1_FULL, (char *)MEM_SCREEN, 32400);
 
-	if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "im960bbk"))
-	{
-		printf("krill loadcompd failed: im960bbk\n");
-		exit(1);
-	}
+	krill_load_or_die(MEM_SCREEN, "im960bbk");
 	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 32400);
 
 	vdc_reg_write(VDCR_HSTART, 0x06);
@@ -2327,7 +2252,46 @@ struct PanWaypoint
     unsigned hold_frames;
 };
 
-void vscroll_demo()
+struct PanWaypoint2D
+{
+    unsigned x;
+    unsigned y;
+    unsigned hold_frames;
+};
+
+static void krill_load_or_die(unsigned dest, const char *fname)
+// krill_loadcompd() plus the "report and exit(1) on failure" check every
+// asset-loading call site in this file used to spell out individually --
+// factored out purely to save code size (2026-08-21, ~24 call sites
+// project-wide). Behaviourally identical to each site's own original
+// inline `if (krill_loadcompd(...)) { printf(...); exit(1); }` block.
+{
+    if (krill_loadcompd(BNK_1_IO, dest, fname))
+    {
+        printf("krill loadcompd failed: %s\n", fname);
+        exit(1);
+    }
+}
+
+static void load_chunk_to_vdc(const char *fname, unsigned vdc_dest, unsigned chunk_bytes)
+// Shared by vscroll_demo()/panorama_demo()/panorama2d_demo() below: one
+// krill_load_or_die() into Bank-1 staging (MEM_SCREEN) followed by one
+// bnk_cpytovdc() push, the exact three-times-repeated pattern each of
+// those functions' own multi-chunk picture load used to spell out
+// individually -- factored out purely to save code size (each caller
+// just passes a different filename/destination/size).
+{
+    krill_load_or_die(MEM_SCREEN, fname);
+    bnk_cpytovdc(vdc_dest, BNK_1_FULL, (char *)MEM_SCREEN, chunk_bytes);
+}
+
+char vscroll_demo()
+// Returns 1 if the user exited early via ESC/STOP (menu_scroll_family()
+// stops the chain instead of proceeding to panorama_demo()), 0 if this
+// section ended normally -- either a plain keypress/fire skip-ahead, or
+// LOOP_COUNT full bounce cycles completing on their own -- same "char
+// return, 1=stop the chain" convention fli_color_demo() etc. use.
+//
 // VDC-VSCROLL: scripted vertical scroll across a monochrome VDC hires
 // bitmap stored TALLER than the 640x200 visible window (see
 // VDC_HIRES_640x200_Mono_VSCROLL's own comment, vdc_core.c, for why the
@@ -2368,7 +2332,12 @@ void vscroll_demo()
         // Scanlines/frame the scroll glides toward its current waypoint --
         // live-tune for pacing.
         PAN_STEP_Y = 2,
-        WAYPOINT_COUNT = 2
+        WAYPOINT_COUNT = 2,
+        // Full bounce cycles (down-and-back-up) to auto-play before
+        // proceeding to the next section on their own, if the user never
+        // presses anything -- same "don't run forever unattended" spirit
+        // as every other picture-showcase section's own 3-photo cycle.
+        LOOP_COUNT = 2
     };
     // A simple up/down bounce: start at the top (the giant lantern, this
     // piece's dramatic focal point), glide down to reveal the temple gate
@@ -2382,7 +2351,9 @@ void vscroll_demo()
     unsigned pan_y;
     unsigned hold_counter;
     unsigned char wp_index;
+    unsigned char cycle_count;
     unsigned prev_addr;
+    char key;
 
     // Real artwork: Utagawa Hiroshige's "Kinryuzan Temple, Asakusa" (One
     // Hundred Famous Views of Edo, print #99, 1856) -- public domain
@@ -2445,24 +2416,9 @@ void vscroll_demo()
     {
         unsigned chunk_bytes = (unsigned)VS_STRIDE * VS_HEIGHT / 3;
 
-        if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "vscrtop"))
-        {
-            printf("krill loadcompd failed: vscrtop\n");
-            exit(1);
-        }
-        bnk_cpytovdc(0x0000, BNK_1_FULL, (char *)MEM_SCREEN, chunk_bytes);
-        if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "vscrmid"))
-        {
-            printf("krill loadcompd failed: vscrmid\n");
-            exit(1);
-        }
-        bnk_cpytovdc(chunk_bytes, BNK_1_FULL, (char *)MEM_SCREEN, chunk_bytes);
-        if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, "vscrbot"))
-        {
-            printf("krill loadcompd failed: vscrbot\n");
-            exit(1);
-        }
-        bnk_cpytovdc(chunk_bytes * 2, BNK_1_FULL, (char *)MEM_SCREEN, chunk_bytes);
+        load_chunk_to_vdc("vscrtop", 0x0000, chunk_bytes);
+        load_chunk_to_vdc("vscrmid", chunk_bytes, chunk_bytes);
+        load_chunk_to_vdc("vscrbot", chunk_bytes * 2, chunk_bytes);
     }
 
     // Explicit ink/paper -- this mono mode has no per-character colour RAM
@@ -2479,6 +2435,8 @@ void vscroll_demo()
     wp_index = 0;
     pan_y = waypoints[0].y;
     hold_counter = 0;
+    cycle_count = 0;
+    key = 0;
 
     // Set DISP_ADDR to pan_y=0's starting position before enabling the
     // display -- vdc_set_mode() (inside vdc_init() above) already
@@ -2532,6 +2490,7 @@ void vscroll_demo()
                 if (wp_index >= WAYPOINT_COUNT)
                 {
                     wp_index = 0;
+                    cycle_count++;
                 }
             }
         }
@@ -2555,108 +2514,413 @@ void vscroll_demo()
         }
 
         joy_poll(0);
-    } while (!vdcwin_checkch() && !joyb[0]);
+        key = vdcwin_checkch();
+    } while (key == 0 && !joyb[0] && cycle_count < LOOP_COUNT);
 
-    // Wipe right as the keypress that ends this section is detected -- see
-    // init_plasma()'s comment.
+    // Wipe right as the keypress/auto-advance that ends this section is
+    // detected -- see init_plasma()'s comment.
     vdc_wipe_transition();
+
+    return (key == CH_ESC || key == CH_STOP);
 }
 
-void r27_scroll_test_demo()
-// VDC-PANORAMA, attempt 3, Phase 0 -- proves (or disproves) whether R27
-// (VDCR_ROWINC) gives correct PER-SCANLINE addressing for a bitmap WIDER
-// than the 640px display, per the C128 Programmer's Reference Guide's own
-// R27 section (user-supplied excerpt, 2026-08-19): "The value in R27 is
-// used to increment the address of the bit-mapped data from one scan line
-// to the next" -- contradicting this project's own inherited assumption
-// (ROWINC applies once per 8-scanline CHARACTER ROW only), which neither
-// prior panorama attempt nor vscroll_demo()'s own stride math ever
-// actually tested (vscroll_demo()'s own stride always equals the display
-// width, so ROWINC=0 either way there -- uninformative for this question,
-// though this Phase 0 finding later turned out to matter for
-// vscroll_demo() anyway, once it dropped VDCR_VSCROLL entirely -- see that
-// function's own comment). See
-// the plan's own "VDC-PANORAMA, attempt 3" section
-// (~/.claude/plans/want-to-revisit-timning-zany-patterson.md) for full
-// context/design and the phased build this is Phase 0 of.
+static void panorama_step_offset(signed char dir, char *offset, char *hscroll, char max_offset)
+// Pure arithmetic: advances (dir>0) or retreats (dir<0) *offset/*hscroll
+// by exactly one step unit, no register writes -- shared by
+// panorama_demo() and panorama2d_demo() below (this half was never the
+// bug -- see panorama_write_addr_hscroll()'s own comment for what was).
+// Stepping model live-proven in r27_pan_test_demo()'s own Phase 1/2
+// diagnostic work.
+{
+    if (dir > 0)
+    {
+        if (*hscroll > 0)
+        {
+            (*hscroll)--;
+        }
+        else if (*offset < max_offset)
+        {
+            *hscroll = 7;
+            (*offset)++;
+        }
+    }
+    else
+    {
+        if (*hscroll < 7)
+        {
+            (*hscroll)++;
+        }
+        else if (*offset > 0)
+        {
+            *hscroll = 0;
+            (*offset)--;
+        }
+    }
+}
+
+static void panorama_write_addr_hscroll(unsigned addr, unsigned *prev_addr, char hscroll, char hscroll_base)
+// Writes DISP_ADDR (only if addr actually changed, framed by
+// vdc_wait_no_vblank()/vdc_wait_vblank() -- the same pair
+// vdc_softscroll_right()/left() use around a byte crossing) then
+// VDCR_HSCROLL, in that order -- shared by panorama_demo() and
+// panorama2d_demo() below. The safety framing lives HERE,
+// unconditionally, rather than being left to each caller to remember to
+// apply only when it judges a "crossing" occurred: an earlier version
+// split this same way but left panorama2d_demo() writing DISP_ADDR+
+// HSCROLL together with no framing at all (reasoning, wrongly, that its
+// combined single-write-per-frame shape made the framing unnecessary) --
+// live-reported (2026-08-22) as jarring/jumpy motion, since its own
+// vertical component changes DISP_ADDR almost every frame, hitting the
+// unprotected DISP_ADDR+HSCROLL combination far more often than
+// panorama_demo()'s rare byte crossings ever did. Baking the framing
+// into the one shared write path removes the possibility of a caller
+// skipping it again. See project memory
+// vdcmaniac_r27_real_hardware_quirk_found.md for the underlying ordering
+// rule this all traces back to.
+{
+    if (addr != *prev_addr)
+    {
+        vdc_wait_no_vblank();
+        vdc_set_disp_address(addr, addr);
+        vdc_wait_vblank();
+        *prev_addr = addr;
+    }
+    vdc_reg_write(VDCR_HSCROLL, hscroll_base + hscroll);
+}
+
+char panorama_demo()
+// Returns 1 if the user exited early via ESC/STOP, 0 if this section
+// ended normally (keypress/fire skip-ahead, or LOOP_COUNT full bounce
+// cycles completing on their own) -- same convention vscroll_demo()
+// above uses; menu_scroll_family() chains the two together.
 //
-// TEMPORARY test scaffold, not a shippable feature -- called directly from
-// main() (see that call site's own comment), not wired into menu_entries[].
-// No motion at all in this phase: a single one-time DISP_ADDR write to a
-// NONZERO column offset within the wide bitmap, then just sit and look.
-// Confirm live: bars evenly spaced, no shear/skew between scanlines (the
-// exact failure mode a per-character-row-only ROWINC misunderstanding
-// would produce) -- see this file's own top-level comment for what to look
-// for. If row alignment breaks down here, R27 genuinely doesn't behave as
-// the PRG documents (or something else is wrong) and attempt 3 ends right
-// here, cheaply.
+// VDC-PANORAMA: scripted horizontal scroll across a monochrome VDC hires
+// bitmap stored WIDER than the 640x200 visible window, using VDC
+// register 27 (ROWINC) for per-scanline addressing beyond the display's
+// own native 80-byte stride, plus VDCR_HSCROLL for sub-byte (0-7px)
+// motion between byte crossings -- the same hscroll-counts-then-crosses
+// pattern vdc_softscroll_right()/vdc_softscroll_left()
+// (include/vdc_softscroll.c) already use, adapted here for a single row
+// of travel with no vertical component, and glided toward scripted
+// waypoints exactly like vscroll_demo() above glides pan_y (a plain
+// "how many 1px steps have we taken" counter stands in for a literal
+// pixel position, since the real hardware step size per call was
+// empirically proven live rather than derived from a byte/hscroll
+// formula -- see r27_pan_test_demo()'s own Phase 1/2 diagnostic work,
+// now superseded by this shipped version).
+//
+// CRITICAL: VDCR_ROWINC is written via an explicit vdc_reg_write() call
+// below, strictly AFTER vdc_set_disp_address() has already set the real
+// (nonzero) offset -- never bake it into vdc_modes[]'s own regset row,
+// which gets applied before DISP_ADDR is corrected and corrupts
+// addressing state that persists even after both registers are later
+// set correctly. See project memory
+// vdcmaniac_r27_real_hardware_quirk_found.md for the full diagnostic
+// history behind this rule.
 {
     enum
     {
-        R27_STRIDE = 120,        // bytes/scanline in the wide virtual bitmap (960px) -- comfortably wider than the 640px display, no need to approach R27's own ~255-byte max skip for a proof of concept
-        R27_DISPLAY_STRIDE = 80, // 640px/8 -- this mode's own visible window width; also the value baked into VDCR_ROWINC's own row comment (vdc_core.c) as R27_STRIDE - R27_DISPLAY_STRIDE = 40 = 0x28
-        R27_ROWS = 200,           // matches the display's own visible height -- no vertical motion in this test, purely horizontal
-        R27_BAR_BYTES = 2,       // bar width in bytes (16px) -- coarse enough to eyeball shear at a glance, fine enough to show alignment clearly
-        R27_START_OFFSET = 40    // nonzero DISP_ADDR column offset within the wide bitmap -- Phase 0's own central requirement: never test at column 0, since a shear bug would be invisible there (0*anything is still 0)
+        // Stored bitmap dimensions -- mono, no attribute plane needed
+        // (colorlines=0). 201 bytes/row (not a round 200) so the total
+        // (200*201=40200) splits into three EXACTLY equal
+        // krill_loadcompd() chunks below -- see tools/vdc_convert.py's
+        // own --mode panorama comment.
+        PN_STRIDE = 201,
+        PN_DISPLAY_STRIDE = 80,
+        PN_ROWS = 200,
+        PN_MAX_OFFSET = PN_STRIDE - PN_DISPLAY_STRIDE, // bytes of DISP_ADDR travel
+        PN_MAX_STEP = (unsigned)PN_MAX_OFFSET * 8,     // 1px-equivalent step units of travel (see r27_pan_test_demo()'s own proven per-call step size)
+        WAYPOINT_COUNT = 2,
+        // Full bounce cycles (right-and-back-left) to auto-play before
+        // proceeding to the next section on their own -- same spirit as
+        // vscroll_demo()'s own LOOP_COUNT.
+        LOOP_COUNT = 2
     };
-    unsigned row, col;
+    // A simple left/right bounce across the full stored width -- same
+    // "endless journey" convention vscroll_demo() uses. hold_frames:
+    // ~1.5s pause at each end (50Hz PAL).
+    static const struct PanWaypoint waypoints[WAYPOINT_COUNT] = {
+        {0, 75},
+        {PN_MAX_STEP, 75}};
+    unsigned pan_x;
+    unsigned hold_counter;
+    unsigned char wp_index;
+    unsigned char cycle_count;
+    char offset;
+    char hscroll;
+    char hscroll_base;
+    char key;
+    unsigned prev_addr;
 
+    // Real artwork: "Nine Dragons" (Chen Rong, 1244) -- a genuine Chinese
+    // handscroll, the exact real-world precedent for this section's own
+    // continuous-horizontal-reveal mechanism. See defines.h's credit
+    // block and assets/source/panorama_chenrong_ninedragons.jpg.
     vdc_init(VDC_HIRES_640x200_Mono_PANORAMA_R27, 1);
     if (!vdc_state.bitmap)
     {
-        return;
+        return 1;
     }
 
     vdc_disable_display();
 
-    // Flat auto-incrementing fill -- vertical "barcode" bars (alternating
-    // 0xff/0x00 every R27_BAR_BYTES bytes), written in true row-major order
-    // at R27_STRIDE bytes/scanline. Deliberately NOT vdc_block_fill()'s own
-    // constant-run convention (bars need to alternate WITHIN each row, not
-    // stay one colour for a whole call) -- vdc_write() in a flat
-    // auto-incrementing loop instead, exactly as the plan's own Design
-    // section specifies. One-time setup cost while blanked, so the
-    // per-byte ready-poll cost (see VDC-PANORAMA attempt 2's own OUTCOME
-    // notes on why that's a hard floor for a PER-FRAME push) doesn't
-    // matter here the way it did there.
-    vdc_mem_addr(vdc_state.base_text);
-    for (row = 0; row < R27_ROWS; row++)
+    // Loaded and pushed in THREE equal 13400-byte thirds, each via its
+    // own Bank-1 staging (MEM_SCREEN) + bnk_cpytovdc() pair -- same
+    // krill_loadcompd()-in-place-decompression-vs-Oscar64-C-stack
+    // reasoning as vscroll_demo()'s own three-way split above (each
+    // chunk here stays comfortably under the ~28672-byte safe-chunk
+    // ceiling).
     {
-        for (col = 0; col < R27_STRIDE; col++)
-        {
-            vdc_write(((col / R27_BAR_BYTES) & 1) ? 0xff : 0x00);
-        }
+        const unsigned chunk_bytes = (unsigned)PN_STRIDE * PN_ROWS / 3;
+
+        load_chunk_to_vdc("panorama1lftk", 0x0000, chunk_bytes);
+        load_chunk_to_vdc("panorama1midk", chunk_bytes, chunk_bytes);
+        load_chunk_to_vdc("panorama1rgtk", chunk_bytes * 2, chunk_bytes);
     }
 
-    // R27 itself is baked into this mode's own vdc_modes[] row
-    // (VDCR_ROWINC, 0x28) -- see that row's own comment for why. Nothing
-    // further to set here for the skip itself.
+    // Explicit ink/paper -- this mono mode has no per-character colour
+    // RAM (colorlines=0), same reasoning as vscroll_demo()'s own
+    // VDCR_COLOR write above.
+    vdc_reg_write(VDCR_COLOR, (VDC_WHITE * 16) | VDC_BLACK);
 
-    // Single one-time DISP_ADDR write, to R27_START_OFFSET (nonzero) within
-    // the wide bitmap -- no per-frame changes in this phase (that's
-    // Phase 1/2, see the plan). base_attr is unused (colorlines=0, no
-    // attribute plane) but vdc_set_disp_address() still expects a value;
-    // passing the same base_text-relative offset is harmless since nothing
-    // reads it.
-    vdc_set_disp_address(vdc_state.base_text + R27_START_OFFSET, vdc_state.base_attr + R27_START_OFFSET);
+    offset = 0;
+    hscroll = 0;
+    wp_index = 0;
+    pan_x = waypoints[0].y;
+    hold_counter = 0;
+    cycle_count = 0;
+    key = 0;
+
+    prev_addr = vdc_state.base_text;
+    vdc_pass_vblank();
+    vdc_set_disp_address(prev_addr, vdc_state.base_attr);
+    vdc_reg_write(VDCR_ROWINC, PN_MAX_OFFSET);
+
+    hscroll_base = vdc_reg_read(VDCR_HSCROLL) & 0xf0;
+    vdc_reg_write(VDCR_HSCROLL, hscroll_base);
 
     vdc_enable_display();
 
     while (vdcwin_checkch())
     {
     }
+
     do
     {
+        vdc_pass_vblank();
+
+        // Glide toward the current waypoint by exactly 1 step unit/frame,
+        // driven by pan_x's distance to the target instead of a held
+        // key/joystick direction.
+        if (pan_x < waypoints[wp_index].y)
+        {
+            panorama_step_offset(1, &offset, &hscroll, PN_MAX_OFFSET);
+            panorama_write_addr_hscroll(vdc_state.base_text + offset, &prev_addr, hscroll, hscroll_base);
+            pan_x++;
+        }
+        else if (pan_x > waypoints[wp_index].y)
+        {
+            panorama_step_offset(-1, &offset, &hscroll, PN_MAX_OFFSET);
+            panorama_write_addr_hscroll(vdc_state.base_text + offset, &prev_addr, hscroll, hscroll_base);
+            pan_x--;
+        }
+        else
+        {
+            // Arrived -- hold, then advance to the next waypoint
+            // (wrapping back to the first once the last is done),
+            // counting a full bounce cycle each time it wraps -- same
+            // pattern vscroll_demo() uses above.
+            hold_counter++;
+            if (hold_counter >= waypoints[wp_index].hold_frames)
+            {
+                hold_counter = 0;
+                wp_index++;
+                if (wp_index >= WAYPOINT_COUNT)
+                {
+                    wp_index = 0;
+                    cycle_count++;
+                }
+            }
+        }
+
         joy_poll(0);
-    } while (!vdcwin_checkch() && !joyb[0]);
+        key = vdcwin_checkch();
+    } while (key == 0 && !joyb[0] && cycle_count < LOOP_COUNT);
 
-    // Exit hygiene -- explicit reset is the primary guarantee this doesn't
-    // leak forward into a later mode's own bitmap addressing the way the
-    // HEND leak once did (memory: rotate_demo_shift_bug); VDCBootBaseline
-    // now also captures/restores ROWINC as defense-in-depth (vdc_core.c).
+    vdc_reg_write(VDCR_HSCROLL, hscroll_base);
     vdc_reg_write(VDCR_ROWINC, 0);
-
     vdc_wipe_transition();
+
+    return (key == CH_ESC || key == CH_STOP);
+}
+
+char panorama2d_demo()
+// Returns 1 if the user exited early via ESC/STOP, 0 if this section
+// ended normally -- same convention vscroll_demo()/panorama_demo() use;
+// menu_scroll_family() chains all three together.
+//
+// VDC-PANORAMA 2D: combines vscroll_demo()'s vertical DISP_ADDR-only
+// stepping and panorama_demo()'s horizontal DISP_ADDR+HSCROLL stepping
+// into a single diagonal glide across a bitmap both WIDER and TALLER
+// than the 640x200 display, touring all four corners of the stored
+// picture in one scripted loop. Vertical motion needs no VSCROLL
+// companion (same finding as vscroll_demo()); horizontal motion needs
+// VDCR_HSCROLL for sub-byte smoothness (same as panorama_demo()) -- both
+// axes recompute a SINGLE combined DISP_ADDR each frame
+// (base_text + row*PN2D_STRIDE + byte_offset) rather than issuing two
+// separate address writes, and that one write always happens before any
+// same-frame VDCR_HSCROLL write, per the ordering rule below.
+//
+// CRITICAL: VDCR_ROWINC is written via an explicit vdc_reg_write() call
+// below, strictly AFTER vdc_set_disp_address() has already set the real
+// (nonzero) offset -- same rule panorama_demo() follows; see project
+// memory vdcmaniac_r27_real_hardware_quirk_found.md.
+{
+    enum
+    {
+        // Stored bitmap dimensions -- mono, no attribute plane needed
+        // (colorlines=0). 904x426 (2.122:1) was chosen to closely match
+        // the Kuniyoshi triptych source's own 1902:896=2.123:1 aspect --
+        // see tools/vdc_convert.py's own --mode panorama2d comment.
+        // 904/8*426=48138 bytes total, comfortably under the 65536-byte
+        // VDC RAM ceiling.
+        PN2D_STRIDE = 113,
+        PN2D_ROWS = 426,
+        PN2D_DISPLAY_STRIDE = 80,
+        PN2D_MAX_XOFFSET = PN2D_STRIDE - PN2D_DISPLAY_STRIDE, // bytes of horizontal DISP_ADDR travel
+        PN2D_MAX_XSTEP = (unsigned)PN2D_MAX_XOFFSET * 8,      // 1px-equivalent horizontal step units
+        PN2D_MAX_YOFFSET = PN2D_ROWS - 200,                   // scanlines of vertical travel
+        WAYPOINT_COUNT = 4,
+        // Two full 4-corner tours -- same LOOP_COUNT=2 convention
+        // vscroll_demo()/panorama_demo() use for their own simpler
+        // 2-point bounces, live-requested (2026-08-22) once one tour was
+        // confirmed working correctly.
+        LOOP_COUNT = 2
+    };
+    // Tour all four corners of the stored picture -- top-left, top-right,
+    // bottom-right, bottom-left, back to top-left -- so the whole
+    // composition is visited, not just a single diagonal streak across
+    // it. hold_frames: ~1.2s pause at each corner (50Hz PAL).
+    static const struct PanWaypoint2D waypoints[WAYPOINT_COUNT] = {
+        {0, 0, 60},
+        {PN2D_MAX_XSTEP, 0, 60},
+        {PN2D_MAX_XSTEP, PN2D_MAX_YOFFSET, 60},
+        {0, PN2D_MAX_YOFFSET, 60}};
+    unsigned pan_x, pan_y;
+    unsigned hold_counter;
+    unsigned char wp_index;
+    unsigned char cycle_count;
+    char offset;
+    char hscroll;
+    char hscroll_base;
+    char key;
+    unsigned prev_addr;
+
+    // Real artwork: Utagawa Kuniyoshi's "The Last Stand of the Kusunoki
+    // at Shijonawate" (1857) -- see defines.h's credit block and
+    // assets/source/panorama2d_kuniyoshi_kusunoki.jpg.
+    vdc_init(VDC_HIRES_640x200_Mono_PANORAMA2D, 1);
+    if (!vdc_state.bitmap)
+    {
+        return 1;
+    }
+
+    vdc_disable_display();
+
+    // Loaded and pushed in THREE equal 16046-byte thirds, same
+    // krill_loadcompd()-staging-size reasoning as vscroll_demo()'s and
+    // panorama_demo()'s own three-way splits above.
+    {
+        const unsigned chunk_bytes = (unsigned)PN2D_STRIDE * PN2D_ROWS / 3;
+
+        load_chunk_to_vdc("panorama2ak", 0x0000, chunk_bytes);
+        load_chunk_to_vdc("panorama2bk", chunk_bytes, chunk_bytes);
+        load_chunk_to_vdc("panorama2ck", chunk_bytes * 2, chunk_bytes);
+    }
+
+    // Explicit ink/paper -- same reasoning as vscroll_demo()'s/
+    // panorama_demo()'s own VDCR_COLOR write above.
+    vdc_reg_write(VDCR_COLOR, (VDC_WHITE * 16) | VDC_BLACK);
+
+    offset = 0;
+    hscroll = 0;
+    wp_index = 0;
+    pan_x = waypoints[0].x;
+    pan_y = waypoints[0].y;
+    hold_counter = 0;
+    cycle_count = 0;
+    key = 0;
+
+    prev_addr = vdc_state.base_text;
+    vdc_pass_vblank();
+    vdc_set_disp_address(prev_addr, vdc_state.base_attr);
+    vdc_reg_write(VDCR_ROWINC, PN2D_MAX_XOFFSET);
+
+    hscroll_base = vdc_reg_read(VDCR_HSCROLL) & 0xf0;
+    vdc_reg_write(VDCR_HSCROLL, hscroll_base);
+
+    vdc_enable_display();
+
+    while (vdcwin_checkch())
+    {
+    }
+
+    do
+    {
+        vdc_pass_vblank();
+
+        if (pan_x != waypoints[wp_index].x || pan_y != waypoints[wp_index].y)
+        {
+            if (pan_x < waypoints[wp_index].x)
+            {
+                panorama_step_offset(1, &offset, &hscroll, PN2D_MAX_XOFFSET);
+                pan_x++;
+            }
+            else if (pan_x > waypoints[wp_index].x)
+            {
+                panorama_step_offset(-1, &offset, &hscroll, PN2D_MAX_XOFFSET);
+                pan_x--;
+            }
+
+            if (pan_y < waypoints[wp_index].y)
+            {
+                pan_y++;
+            }
+            else if (pan_y > waypoints[wp_index].y)
+            {
+                pan_y--;
+            }
+
+            panorama_write_addr_hscroll(vdc_state.base_text + pan_y * (unsigned)PN2D_STRIDE + offset, &prev_addr, hscroll, hscroll_base);
+        }
+        else
+        {
+            // Arrived -- hold, then advance to the next corner (wrapping
+            // back to the first once the last is done), counting a full
+            // tour each time it wraps -- same pattern vscroll_demo()/
+            // panorama_demo() use above.
+            hold_counter++;
+            if (hold_counter >= waypoints[wp_index].hold_frames)
+            {
+                hold_counter = 0;
+                wp_index++;
+                if (wp_index >= WAYPOINT_COUNT)
+                {
+                    wp_index = 0;
+                    cycle_count++;
+                }
+            }
+        }
+
+        joy_poll(0);
+        key = vdcwin_checkch();
+    } while (key == 0 && !joyb[0] && cycle_count < LOOP_COUNT);
+
+    vdc_reg_write(VDCR_HSCROLL, hscroll_base);
+    vdc_reg_write(VDCR_ROWINC, 0);
+    vdc_wipe_transition();
+
+    return (key == CH_ESC || key == CH_STOP);
 }
 
 void demo_end_screen(const char *message)
@@ -3430,12 +3694,36 @@ void menu_mono_family()
 	mono_im800_demo();
 }
 
-// Forward decls -- both defined later in this file, both used as menu_fn
-// entries below (vscroll_demo() is the VDC-VSCROLL section;
-// menu_end_demo() is the SAME credits+reset sequence main()'s own tail
-// already runs on ESC/STOP, factored out so it's callable from either
-// place -- see menu_end_demo()'s own definition and main()'s tail comment).
-void vscroll_demo();
+void menu_scroll_family()
+// Scripted-scroll trio: VDC-VSCROLL (vertical, DISP_ADDR-only), then
+// VDC-PANORAMA (horizontal, R27/HSCROLL), then VDC-PANORAMA 2D (both
+// axes combined, a 4-corner tour) -- grouped since all three are
+// scripted auto-play scrolls through a bitmap larger than the display
+// window, just along different axes, same "combine related modes under
+// one menu row" convention as the FLI-/mono-family pairs above. Each
+// component already runs its own script to completion (or exits early
+// on ESC/STOP/keypress) internally -- see vscroll_demo()'s/
+// panorama_demo()'s/panorama2d_demo()'s own header comments for the
+// exact interaction model (any key/fire skips to the next section,
+// ESC/STOP returns straight to the main menu, LOOP_COUNT full cycles
+// auto-advance with no input at all).
+{
+	if (vscroll_demo())
+	{
+		return;
+	}
+	if (panorama_demo())
+	{
+		return;
+	}
+	panorama2d_demo();
+}
+
+// Forward decls -- defined later in this file, used as menu_fn entries
+// below (menu_end_demo() is the SAME credits+reset sequence main()'s own
+// tail already runs on ESC/STOP, factored out so it's callable from
+// either place -- see menu_end_demo()'s own definition and main()'s tail
+// comment).
 void menu_end_demo();
 
 typedef void (*menu_fn)();
@@ -3458,11 +3746,12 @@ typedef struct
 // VDC-IFLI, so a separate mode would have added nothing. VDC Spectrum
 // (spectrum_demo() above) does add something new (8x8 flat colour-
 // attribute cells, coarser than anything else here) and gets its own
-// row. "Raster bar placement test" is not a selectable row at all -- a
-// diagnostic, not a showcase mode -- reachable only via the 'T' key
-// described in the hint line below, handled as a special case alongside
-// ESC/STOP rather than through this table (see the key-handling block
-// below).
+// row. "Raster bar placement test" (raster_place_test(), formerly
+// reachable via a 'T' key special case here) served its purpose during
+// the raster-highlight sweep's own development and was retired
+// (2026-08-21) to reclaim code-size budget for the VDC-SCROLL family's
+// third section -- the function itself is left in the codebase, unused,
+// as a diagnostic snippet for any future raster-timing work.
 #define MENU_COUNT 8
 
 static const menu_entry menu_entries[MENU_COUNT] = {
@@ -3471,7 +3760,7 @@ static const menu_entry menu_entries[MENU_COUNT] = {
 	{'3', "VDC-mono     (720x700/800x600, mono, interlace)", menu_mono_family},
 	{'4', "Plasma effect", menu_plasma_demo},
 	{'5', "Colour rotation effect", menu_rotate_demo},
-	{'6', "VDC-VSCROLL  (640x200 window, scripted hires scroll)", vscroll_demo},
+	{'6', "VDC-SCROLL   (640x200 window, scripted vert.+horiz. scroll)", menu_scroll_family},
 	{'7', "VDC Spectrum (256x192, ZX Spectrum picture format)", spectrum_demo},
 	// 'E': an earlier revision used '.' here after 'E'/'e' both looked
 	// unreliable through VICE's own scripted keyboard-buffer injection
@@ -3695,7 +3984,6 @@ void main_menu()
 		// only way there, per live steer. Key detection itself (below)
 		// is untouched.
 		vdc_prints(5, MENU_ITEMS_ROW0 + MENU_COUNT + 2, "Cursor/joystick + RETURN/fire, or its own key.");
-		vdc_prints(5, MENU_ITEMS_ROW0 + MENU_COUNT + 3, "T) Raster bar placement test");
 
 		holdframes = 0;
 		prevjoyb = 0;
@@ -3854,18 +4142,6 @@ void main_menu()
 			{
 				break;
 			}
-			// 'T': raster bar placement test -- a diagnostic, not a
-			// showcase mode, so it's deliberately NOT one of
-			// menu_entries[]'s rows (no highlighted row, no raster-sweep
-			// budget spent on it); dispatched as a special case here,
-			// same shape as ESC/STOP above, and handled after the loop
-			// below instead of through menu_entries[selected].fn().
-			// Explicit 'T'/'t' (0x54/0x74) comparison, not the `|0x20`
-			// fold every other key check here uses -- confirmed working.
-			if (key == 'T' || key == 't')
-			{
-				break;
-			}
 			// Direct-select: scan the table for a matching key instead of
 			// assuming a contiguous '1'-'9' range -- needed once entries
 			// stopped being exactly 9 (see MENU_COUNT's own comment).
@@ -3911,14 +4187,7 @@ void main_menu()
 			return;
 		}
 
-		if (key == 'T' || key == 't')
-		{
-			raster_place_test();
-		}
-		else
-		{
-			menu_entries[selected].fn();
-		}
+		menu_entries[selected].fn();
 	}
 }
 
@@ -4165,11 +4434,7 @@ int main(void)
 	// krill_loadcompd() picture load either way, not just this one
 	// section -- only the very first raster_calibrate() after playback
 	// starts was ever a problem.
-	if (krill_loadcompd(BNK_1_IO, SIDINIT, "musick"))
-	{
-		printf("krill loadcompd failed: musick\n");
-		exit(1);
-	}
+	krill_load_or_die(SIDINIT, "musick");
 
 	idi8b_logo_demo();
 
@@ -4196,18 +4461,16 @@ int main(void)
 	// since nothing else in this file depends on it running.
 	// mono_im960_demo();
 
-	// TEMPORARY (2026-08-20): VDC-PANORAMA attempt 3, Phase 0 test hook --
-	// see r27_scroll_test_demo()'s own comment and the plan's "VDC-
-	// PANORAMA, attempt 3" section for full context. Boots straight into
-	// the static R27 test pattern before the normal menu; press any
-	// key/joystick fire to proceed to main_menu() as usual. Remove this
-	// call (restoring a direct main_menu() start) once Phase 0 is
-	// live-confirmed one way or the other -- same "temporary main() test
-	// hook" convention used for earlier phased VDC-PANORAMA attempts.
-	r27_scroll_test_demo();
+	// VDC-PANORAMA attempt 3's own test scaffolding
+	// (r27_scroll_test_demo()/r27_scroll_test_attr_demo()/
+	// r27_sweep_test_demo()/r27_baseline_test_demo()/r27_pan_test_demo())
+	// is retired now that the mechanism is fully proven and shipped as
+	// panorama_demo(), menu-wired via menu_scroll_family() -- see project
+	// memory vdcmaniac_r27_real_hardware_quirk_found.md for the
+	// diagnostic history. No temporary main() test hook remains.
 
 	// Every hires-mode showcase, both procedural effects, the raster
-	// placement diagnostic, VDC-VSCROLL, and the end-credits sequence
+	// placement diagnostic, VDC-SCROLL, and the end-credits sequence
 	// itself are all selectable from the menu (any order, any number of
 	// times) instead of being called directly in a fixed sequence -- see
 	// main_menu()/menu_entries[] above. ESC/STOP from the menu still reaches
