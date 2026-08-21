@@ -1011,7 +1011,17 @@ void idi8b_logo_demo()
 		DEFAULTCOLOR = (VDC_WHITE * 16) | VDC_BLACK,
 		BARLEN = 16,
 		CENTER = 158,
-		AMPLITUDE = 80,
+		// Reduced from 80 (real-hardware report, 2026-08-21): the bars
+		// "become stable" (visibly glitch/stick) at their own far extreme
+		// (t==AMPLITUDE, CENTER+-80) -- not reproduced in VICE, only on
+		// real hardware, consistent with the far extreme pushing one or
+		// both bars' rasterlines close to the edge of whatever range this
+		// project's raster-IRQ chain can reliably schedule against. Single
+		// shared constant governs both bars symmetrically already (CENTER
+		// +-AMPLITUDE), so just shrinking this keeps them symmetric without
+		// a separate per-bar value. Live-tune further on real hardware if
+		// still unstable.
+		AMPLITUDE = 64,
 		CYCLE_FRAMES = 6,
 		BARBUFLEN = 2 * AMPLITUDE + BARLEN,
 		// Bounding box of idi8blogo.scrn's own logo content (rows/cols
@@ -1374,11 +1384,8 @@ void fli_color_demo()
 			return;
 		}
 
-		// Blanked for the CSIZE force-write and the VDC push below --
-		// vdc_init() already re-enabled the display before returning, and
-		// this mode's own 8x-height-until-the-toggle-starts gap (see the
-		// CSIZE comment below) used to be worked around by forcing CSIZE
-		// early instead; disabling the display outright is the more
+		// Blanked for the VDC push below -- vdc_init() already re-enabled
+		// the display before returning; disabling it outright here is the
 		// general fix (2026-08-19, applied across every picture-loading
 		// section -- see vscroll_demo()'s own comment for the specific
 		// case, a vdc_init()-internal vdc_cls() call, that first surfaced
@@ -1390,9 +1397,45 @@ void fli_color_demo()
 		// regset loop therefore leaves it at whatever the *previous* mode
 		// set it to (height 8 for every mode that ran before this one), not
 		// the height-1 this mode needs. The per-frame toggle below corrects
-		// that once it starts; force it to height 1 now so the toggle's own
-		// first pass isn't starting from the wrong height.
-		vdc_reg_write(VDCR_CSIZE, 0xe0);
+		// that once it starts.
+		//
+		// REMOVED (2026-08-21) a `vdc_reg_write(VDCR_CSIZE, 0xe0)` force
+		// here, right before the two bnk_cpytovdc() pushes below. It was
+		// purely cosmetic (its own comment: "so the toggle's own first
+		// pass isn't starting from the wrong height" -- the toggle's first
+		// fw1/fw2 pass writes both CSIZE states regardless of the starting
+		// value) but caused a genuine hang on REAL hardware, live-confirmed
+		// via the Ultimate II+L's own REST API while the machine sat
+		// frozen: $D600 read back E1 (bit 5, VBLANK status, permanently
+		// SET) across four separate reads spread over several real
+		// seconds, and register 9 (CSIZE, peeked by selecting it via
+		// $D600=09 then reading $D601) still read back 0xE0 -- i.e. the
+		// CPU was parked in the toggle loop's very first fw1 wait, having
+		// never completed even one pass. This mode's own VTOTAL=0xFF/
+		// VDISPLAY=0xFE (vdc_modes[] row, vdc_core.c) give an extremely
+		// narrow vblank duty cycle (~1-2 scanlines out of a 256-line
+		// frame) at a STATIC CSIZE=height1 -- the force-write held the VDC
+		// in exactly that fragile state for the real-time duration of both
+		// 15120-byte pushes below (per-byte ready-polled, not
+		// instantaneous), apparently long enough for the real 8563's own
+		// vertical sync generator to lock up before the per-frame toggle
+		// ever got a chance to start correcting it every frame (this
+		// mode's own vdc_modes[] row comment already documented that a
+		// STATIC CSIZE "works for a few lines then drifts" on real
+		// hardware -- this is that same fragility, just manifesting as a
+		// full lockup instead of visible drift, given how much longer the
+		// static hold is here than a single frame). Leaving CSIZE at
+		// whatever height-8 the previous mode left it during the two
+		// pushes keeps the VDC in the SAME static-but-stable configuration
+		// every other mode in this codebase sits in for as long as it
+		// likes with no drift issue, and the toggle loop's own first
+		// iteration reaches its own CSIZE=0xe0 write within one frame of
+		// starting -- minimising time spent in the fragile state to
+		// roughly a frame instead of two full picture pushes' worth.
+		// VICE never reproduced this -- another case (see project memory:
+		// vdcmaniac_wsl_vice_timing_artifacts, a different but related
+		// class) of real 8563 silicon being far less forgiving of a
+		// prolonged edge-case register state than emulation.
 
 		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 15120);
 		bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN + 15120, 15120);
@@ -1425,6 +1468,13 @@ void fli_color_demo()
 		// call with interrupts still off.
 		do
 		{
+			// sid_expected_framecount incremented here (this loop's own
+			// per-frame boundary, one iteration = one frame) -- see
+			// sid_play_frame_foreground()'s own comment (banking.c) for the
+			// full mechanism (a self-correcting counter comparison, not a
+			// flag -- a flag design was tried and live-broke twice, see
+			// that comment's own history).
+			sid_expected_framecount++;
 			__asm
 			{
 				sei
@@ -1442,6 +1492,12 @@ void fli_color_demo()
 				beq fw2
 				sty $d601
 			}
+			// Manual fallback SIDPLAY -- this loop holds SEI for nearly the
+			// whole frame (see this section's own comment above), starving
+			// the normal interrupt-driven path; this is the reported
+			// "slowing down" fix. Still under SEI here, same as
+			// keyb_poll() below -- safe for the same reason.
+			sid_play_frame_foreground();
 			keyb_poll();
 			__asm { cli }
 			// joy_poll() only after keyb_poll() returns, and only trusted
@@ -2080,69 +2136,41 @@ void vscroll_demo()
 // bitmap stored TALLER than the 640x200 visible window (see
 // VDC_HIRES_640x200_Mono_VSCROLL's own comment, vdc_core.c, for why the
 // window itself stays 640x200 regardless of the stored bitmap's size).
-// Named/attempted first as a WIDER-than-display horizontal pan (working
-// title "panorama"), using VDC-FLI's own CSIZE=1/ROWINC-per-frame-toggle
-// technique to correct the wider-than-display stride -- that mechanism
-// demonstrably COULD render correctly but had an intermittent, never-
-// isolated source of instability across a long live-debugging session;
-// abandoned per explicit user decision. Renamed once the effect settled
-// on vertical scrolling instead, since "panorama" no longer fit.
-//
-// Scrolling through a bitmap TALLER than 640x200 needs no CSIZE/ROWINC
-// trick: this mode's stored bitmap stays exactly 640px wide (same as the
-// display), so its stride is exactly vdc_state.width/8 bytes/row -- same
-// as VDC_HIRES_640x200_Mono_PAL's own proven, non-interlaced timing, with
-// VDCR_ROWINC never touched. Vertical position is just a whole-row
-// (8-scanline) display-address offset plus a 0-7 scanline remainder via
-// VDCR_VSCROLL, timed/ordered per tokra's own working VDC vertical-
-// softscroll routine (c-128.freeforums.net/thread/309) -- see the
-// per-frame write further down for the exact sequence and why.
+// Smoothly steps through the bitmap one SCANLINE at a time via DISP_ADDR
+// alone -- no VDCR_VSCROLL involvement at all. This mode's stored stride
+// equals the display width (VDCR_ROWINC untouched, 0), and the R27 Phase 0
+// test (see vdcmaniac_r27_phase0_confirmed.md) already proved live, on
+// real hardware, that the VDC's bitmap fetch address advances by exactly
+// one scanline's worth of bytes on EVERY scanline -- there's no "jumps by
+// 8 lines, VSCROLL supplies the remainder" structure at the hardware level
+// for a flat bitmap the way there is for text/attribute fetching (which
+// re-reads the same glyph for 8 scanlines, needing VSCROLL to pick which
+// one). DISP_ADDR can already address any individual scanline directly, so
+// stepping it by VS_STRIDE bytes (one scanline) at a time IS a smooth
+// vertical scroll on its own -- VSCROLL was never doing anything DISP_ADDR
+// couldn't already do here. A combined DISP_ADDR+VSCROLL smooth scroll
+// (the standard technique for this effect, matching several published
+// real-hardware-tested references, and what this project tried first) was
+// live-tested extensively and reliably tore on both real hardware and
+// z64k regardless of write order/timing -- two registers fighting over the
+// same one degree of freedom, live-confirmed once this DISP_ADDR-only
+// version worked cleanly on the first try. See project memory
+// (vdcmaniac_vscroll_dispaddr_latch_lag.md) for the full investigation.
 {
     enum
     {
         // Stored bitmap dimensions -- mono, no attribute plane needed
         // (colorlines=0), so budget is just (width/8)*height bytes.
-        // 640x798 = 63840 bytes -- close to this mode's own HARD ceiling
+        // 640x798 = 63840 bytes, close to this mode's own hard ceiling
         // (65536/80 = 819 rows max at this width, no charset/attribute
-        // overhead to share with since char_std=0) rather than just
-        // VDC-IMONO's 63000-byte precedent; live-requested "pan is still
-        // not big" bump from an initial 780 to as much extra range as
-        // fits safely (798, not the full 819, for a small margin and to
-        // stay a clean multiple of 3 for the chunk split below). Getting
-        // MATERIALLY more range than this would need a narrower
-        // VS_WIDTH (freeing more bytes/row for height) -- not done here,
-        // a bigger visual-design change than a constant bump.
+        // overhead since char_std=0).
         VS_WIDTH = 640,
         VS_HEIGHT = 798,
-        VS_STRIDE = VS_WIDTH / 8, // 80 bytes/scanline -- same as the display's own width
-        // VS_ROWSTRIDE, not VS_STRIDE, is the byte step between one
-        // 8-scanline CHARACTER ROW's display-start address and the next.
-        // Live-diagnosed 2026-08-19 as the actual cause of the reported
-        // "jumps to neutral before the line moves" at every row
-        // transition (invisible to all four register-write-order/timing
-        // fixes tried first, since none of them touched this VALUE): the
-        // VDC's own internal addressing for a character row is
-        // ROW_BASE + RA*HDISP (RA = 0-7 raster line within the row,
-        // HDISP = VS_STRIDE here) -- this project's own vdc_core.c
-        // already documents exactly this ("ROWINC only applies once per
-        // CHARACTER ROW, not once per scanline"). That means consecutive
-        // character rows' own ROW_BASE values are VS_STRIDE*8 apart, not
-        // VS_STRIDE apart. Using VS_STRIDE alone made addr 8x too small
-        // for every row-block after the first -- invisible exactly at
-        // pan_y=0 (0*80 and 0*640 are both 0), which is why the picture
-        // rendered perfectly right up until the very first row-block
-        // crossing (pan_y=8), where VSCROLL correctly wrapped from 7 back
-        // to 0 but the address only advanced by 1/8th of what the wrap
-        // needed to compensate -- a small but real net drift every 8
-        // units of pan_y, sawtoothing the whole way down and covering
-        // only ~1/8th of the intended scroll range.
-        VS_ROWSTRIDE = VS_STRIDE * 8, // 640 bytes/character-row
-        // Scrollable range in SCANLINES (not rows) -- vertical position is
-        // tracked at scanline granularity via VDCR_VSCROLL's 0-7
-        // sub-row remainder.
+        VS_STRIDE = VS_WIDTH / 8, // 80 bytes/scanline -- same as the display's own width; also the byte step from one scanline's own display-start address to the next
+        // Scanlines of travel.
         VS_MAXY = VS_HEIGHT - 200,
-        // Scanlines/frame the scroll glides toward its current waypoint.
-        // Live-tune once the real artwork's scroll is actually on screen.
+        // Scanlines/frame the scroll glides toward its current waypoint --
+        // live-tune for pacing.
         PAN_STEP_Y = 2,
         WAYPOINT_COUNT = 2
     };
@@ -2158,7 +2186,6 @@ void vscroll_demo()
     unsigned pan_y;
     unsigned hold_counter;
     unsigned char wp_index;
-    char vscroll_base;
     unsigned prev_addr;
 
     // Real artwork: Utagawa Hiroshige's "Kinryuzan Temple, Asakusa" (One
@@ -2192,60 +2219,33 @@ void vscroll_demo()
     vdc_init(VDC_HIRES_640x200_Mono_VSCROLL, 1);
 
     // Blanked for the load below and the initial register setup further
-    // down, re-enabled only once VSCROLL/DISP_ADDR are already showing
-    // pan_y's own correct starting position -- see title_screen()'s own
-    // comment on this same general fix (2026-08-19), applied here too on
-    // top of the load-order fix below (which fixed the DATA being
-    // corrupted; this additionally hides the load's own brief in-progress
-    // flicker, now that the data underneath it is correct).
+    // down, re-enabled only once DISP_ADDR is already showing row 0's
+    // correct starting position -- see title_screen()'s own comment on
+    // this same general fix.
     vdc_disable_display();
 
-    // Loaded and pushed to VDC AFTER vdc_init(), not before -- live-
-    // diagnosed 2026-08-19 as the actual cause of the reported top-of-
-    // screen corruption, and unrelated to any of the four register-write-
-    // sequence fixes tried first: vscroll_demo() was the ONLY section in
-    // this whole file pushing bitmap data to VDC memory BEFORE calling
-    // vdc_init() -- every other picture-loading section (fli_color_demo(),
-    // idi8b_logo_demo(), etc.) loads into Bank-1 staging first but only
-    // pushes to VDC memory AFTER vdc_init(). Reading vdc_init() itself
-    // (vdc_core.c) shows why that order matters: it calls
-    // vdc_detect_mem_size() BEFORE vdc_set_mode() has updated vdc_state to
-    // the new mode, and vdc_detect_mem_size() unconditionally ends with
-    // vdc_cls() -- which, still seeing the PREVIOUS (menu, text) mode's
-    // base_text=0x0000/base_attr=0x0800, blanket-fills VDC $0000-$0FCF
-    // (4048 bytes) with text-mode fill values. That range is exactly
-    // where this section's own freshly-loaded top chunk used to land
-    // moments before vdc_init() stomped it. (vdc_detect_mem_size() also
-    // pokes two lone probe bytes at $1FFF/$9FFF for its 16K-vs-64K test,
-    // corrupting one pixel byte each time regardless of load order --
-    // harmless at this scale, and every other section already lives with
-    // it the same way.)
+    // Loaded and pushed to VDC AFTER vdc_init(), not before: vdc_init()'s
+    // own vdc_detect_mem_size() unconditionally ends with vdc_cls(), which
+    // blanket-fills VDC $0000-$0FCF using whatever mode was active
+    // beforehand -- pushing bitmap data first would just have it stomped.
+    // Same load-then-push order every other picture-loading section
+    // (fli_color_demo(), idi8b_logo_demo(), etc.) already uses.
     //
-    // Loaded and pushed in THREE 21280-byte thirds (top/mid/bottom rows,
-    // a plain physical split -- this mode stays non-interlaced
-    // throughout, so there's no field-parity reason to split any other
-    // way), each via its own Bank-1 staging (MEM_SCREEN) + bnk_cpytovdc()
-    // pair, same two-step pattern idi8b_logo_demo()'s own
-    // krill_loadcompd()+bnk_cpytovdc() call uses. Live-diagnosed why this
-    // can't be done in one transfer, or even two, at this bitmap's size:
-    // krill_loadcompd()'s in-place decompression writes directly into the
-    // destination as it goes, and any call spanning across $b000 runs
-    // straight through Oscar64's own C runtime stack ($b000-$be99 in this
-    // build's own .map) -- corrupting live return addresses mid-
-    // decompress. Each chunk here stays at or under 21280 bytes
-    // ($4000-$9320), comfortably clear of $b000.
-    // chunk_bytes computed ONCE, up front, as its own 16-bit unsigned
-    // value -- live-diagnosed (via a real downward-scroll corruption
-    // report, at an earlier VS_HEIGHT=780) why the three destination
-    // offsets below must be built from THIS value (0, chunk_bytes,
-    // chunk_bytes*2) rather than computed inline as
-    // VS_STRIDE*VS_HEIGHT*2/3: that multiplies-before-dividing, and
-    // VS_STRIDE*VS_HEIGHT*2 comfortably exceeds a 16-bit unsigned's 65535
-    // range at this bitmap's size, silently wrapping and landing
-    // "vscrbot" at the wrong VDC address -- overlapping/corrupting
-    // "vscrmid"'s own data while leaving the true bottom third of VDC
-    // memory with stale leftover content. Dividing down to
-    // chunk_bytes FIRST keeps every intermediate value under 65536.
+    // Loaded and pushed in THREE 21280-byte thirds (top/mid/bottom rows, a
+    // plain physical split -- this mode is non-interlaced, so no field-
+    // parity reason to split any other way), each via its own Bank-1
+    // staging (MEM_SCREEN) + bnk_cpytovdc() pair. Three transfers, not
+    // one or two: krill_loadcompd()'s in-place decompression writes
+    // directly into the destination as it goes, and a call spanning
+    // across $b000 runs straight through Oscar64's own C runtime stack
+    // ($b000-$be99 in this build's own .map), corrupting live return
+    // addresses mid-decompress -- each chunk here stays at or under
+    // 21280 bytes ($4000-$9320), comfortably clear of that boundary.
+    // chunk_bytes computed ONCE as its own 16-bit value, with the three
+    // destination offsets built from it (0, chunk_bytes, chunk_bytes*2)
+    // rather than computed inline as VS_STRIDE*VS_HEIGHT*2/3 -- that
+    // multiplies before dividing, and the intermediate product exceeds a
+    // 16-bit unsigned's range at this bitmap's size.
     {
         unsigned chunk_bytes = (unsigned)VS_STRIDE * VS_HEIGHT / 3;
 
@@ -2277,50 +2277,22 @@ void vscroll_demo()
     // whole picture.
     vdc_reg_write(VDCR_COLOR, (VDC_WHITE * 16) | VDC_BLACK);
 
-    // vscroll_base: & 0xe0, NOT & 0xf0 -- register 24's own bit layout
-    // (c128_reference.md) is bit7=fill/copy, bit6=reverse, bit5=blink
-    // rate, and bits 4:0 (FIVE bits, not four) are the vertical smooth-
-    // scroll value itself. & 0xf0 preserves bit4 as if it were a control
-    // bit inherited from the previous mode, when it's actually the scroll
-    // field's own top bit -- if the menu (or whatever ran immediately
-    // before) happened to leave VSCROLL with bit4 set, every write below
-    // would silently carry a stale +16 into the intended 0-7 range,
-    // producing an out-of-range value for this mode's CSIZE=8 row height.
-    // Preserve only the true control bits (7:5) and let pan_y's own
-    // remainder supply the whole 0-7 scroll value cleanly.
-    vscroll_base = vdc_reg_read(VDCR_VSCROLL) & 0xe0;
-    // Start already AT the first waypoint (not y=0 with wp_index=0 --
-    // those happen to be the same value here, but naming it explicitly
-    // avoids a one-frame jump-cut if a future path's first waypoint isn't
-    // the origin).
+    // VDCR_VSCROLL is never touched by this section at all -- see this
+    // function's own header comment for why it's unnecessary here.
+
     wp_index = 0;
     pan_y = waypoints[0].y;
     hold_counter = 0;
 
-    // Immediately correct VSCROLL/DISP_ADDR to match pan_y's own starting
-    // value -- same "fix the stale register right now" pattern
-    // fli_color_demo() uses for its own leftover-from-the-previous-mode
-    // register hazard (CSIZE there, VSCROLL here). vdc_set_mode() (inside
-    // vdc_init() above) already re-enabled the display before returning,
-    // but VSCROLL isn't part of this mode's own vdc_modes[] regset row,
-    // so it's whatever the PREVIOUS mode (the menu's own text mode) last
-    // left it at until the do-while loop's own first pass corrects it.
-    //
-    // Sync/order corrected 2026-08-19 against a genuine external
-    // reference (tokra's own working VDC vertical-softscroll routine,
-    // c-128.freeforums.net/thread/309) after matching this project's OWN
-    // vdc_softscroll_up()/down() turned out to fix nothing -- live-
-    // diagnosed as chasing UNUSED, NEVER-CALLED code (grepped: zero call
-    // sites anywhere in main.c). Tokra's proven sequence: pass through
-    // one full vblank (wait until inside, then wait until outside --
-    // exactly vdc_pass_vblank()), THEN write the display/attribute
-    // address registers (12/13/20/21), THEN write the smooth-scroll
-    // register (24) LAST -- the opposite order from what was here
-    // before. vdc_set_disp_address() covers 12/13/20/21 in one call.
-    prev_addr = (pan_y >> 3) * VS_ROWSTRIDE;
+    // Set DISP_ADDR to pan_y=0's starting position before enabling the
+    // display -- vdc_set_mode() (inside vdc_init() above) already
+    // re-enabled the display before returning, but DISP_ADDR isn't part
+    // of this mode's own vdc_modes[] regset row, so it needs setting
+    // explicitly here rather than inheriting whatever the previous mode
+    // left it at.
+    prev_addr = pan_y * VS_STRIDE;
     vdc_pass_vblank();
     vdc_set_disp_address(prev_addr, prev_addr);
-    vdc_reg_write(VDCR_VSCROLL, vscroll_base | (char)(pan_y & 7));
 
     vdc_enable_display();
 
@@ -2372,49 +2344,18 @@ void vscroll_demo()
             hold_counter = 0;
         }
 
-        // Whole-row (8-scanline) display start plus the sub-row scanline
-        // remainder via VSCROLL, adapted here for a flat bitmap whose
-        // stride equals the display's own width, so no ROWINC/CSIZE
-        // involvement at all.
-        //
-        // Sync/order corrected 2026-08-19 against a genuine external
-        // reference (tokra's own working VDC vertical-softscroll routine,
-        // c-128.freeforums.net/thread/309) -- an earlier version of this
-        // matched this project's OWN vdc_softscroll_up()/down() instead
-        // (vdc_core.c), which turned out to fix nothing when live-tested;
-        // live-diagnosed why: those functions are never actually called
-        // anywhere in main.c (grepped, zero call sites) -- untested dead
-        // code, not a proven reference at all. Tokra's own proven
-        // sequence, live-verified working for vertical VDC softscroll:
-        // pass through one full vblank (vdc_pass_vblank() -- wait until
-        // inside, then wait until outside), THEN write the display/
-        // attribute address registers (12/13/20/21), THEN write the
-        // smooth-scroll register (24) LAST -- opposite order from what
-        // was here before. vdc_set_disp_address() covers 12/13/20/21 in
-        // one call.
-        // vdc_set_disp_address() below is written ONLY when the row-block
-        // actually changes (addr != prev_addr), not unconditionally every
-        // frame -- matching credits_screen()'s own softscroll_pan_pre(),
-        // the ONE genuinely live-tested reference for this same VDC
-        // address+smooth-scroll mechanism in this codebase (it explicitly
-        // writes vdc_set_disp_address() "on the boundary-crossing path
-        // only (1-in-8 calls)", never redundantly). Live-diagnosed
-        // 2026-08-19 after two different sync/order fixes (matched
-        // against sources that turned out not to apply) changed nothing:
-        // this loop was writing the SAME address value on every single
-        // frame regardless of whether the row-block had changed, unlike
-        // every other place in this codebase that touches this register.
+        // Per-scanline display-start address, written only when it
+        // actually changes -- DISP_ADDR alone, no VSCROLL companion to
+        // stay in sync with.
         vdc_pass_vblank();
         {
-            unsigned addr = (pan_y >> 3) * VS_ROWSTRIDE;
-            char vscroll_val = vscroll_base | (char)(pan_y & 7);
+            unsigned addr = pan_y * VS_STRIDE;
 
             if (addr != prev_addr)
             {
                 vdc_set_disp_address(addr, addr);
                 prev_addr = addr;
             }
-            vdc_reg_write(VDCR_VSCROLL, vscroll_val);
         }
 
         joy_poll(0);
@@ -2422,6 +2363,103 @@ void vscroll_demo()
 
     // Wipe right as the keypress that ends this section is detected -- see
     // init_plasma()'s comment.
+    vdc_wipe_transition();
+}
+
+void r27_scroll_test_demo()
+// VDC-PANORAMA, attempt 3, Phase 0 -- proves (or disproves) whether R27
+// (VDCR_ROWINC) gives correct PER-SCANLINE addressing for a bitmap WIDER
+// than the 640px display, per the C128 Programmer's Reference Guide's own
+// R27 section (user-supplied excerpt, 2026-08-19): "The value in R27 is
+// used to increment the address of the bit-mapped data from one scan line
+// to the next" -- contradicting this project's own inherited assumption
+// (ROWINC applies once per 8-scanline CHARACTER ROW only), which neither
+// prior panorama attempt nor vscroll_demo()'s own stride math ever
+// actually tested (vscroll_demo()'s own stride always equals the display
+// width, so ROWINC=0 either way there -- uninformative for this question,
+// though this Phase 0 finding later turned out to matter for
+// vscroll_demo() anyway, once it dropped VDCR_VSCROLL entirely -- see that
+// function's own comment). See
+// the plan's own "VDC-PANORAMA, attempt 3" section
+// (~/.claude/plans/want-to-revisit-timning-zany-patterson.md) for full
+// context/design and the phased build this is Phase 0 of.
+//
+// TEMPORARY test scaffold, not a shippable feature -- called directly from
+// main() (see that call site's own comment), not wired into menu_entries[].
+// No motion at all in this phase: a single one-time DISP_ADDR write to a
+// NONZERO column offset within the wide bitmap, then just sit and look.
+// Confirm live: bars evenly spaced, no shear/skew between scanlines (the
+// exact failure mode a per-character-row-only ROWINC misunderstanding
+// would produce) -- see this file's own top-level comment for what to look
+// for. If row alignment breaks down here, R27 genuinely doesn't behave as
+// the PRG documents (or something else is wrong) and attempt 3 ends right
+// here, cheaply.
+{
+    enum
+    {
+        R27_STRIDE = 120,        // bytes/scanline in the wide virtual bitmap (960px) -- comfortably wider than the 640px display, no need to approach R27's own ~255-byte max skip for a proof of concept
+        R27_DISPLAY_STRIDE = 80, // 640px/8 -- this mode's own visible window width; also the value baked into VDCR_ROWINC's own row comment (vdc_core.c) as R27_STRIDE - R27_DISPLAY_STRIDE = 40 = 0x28
+        R27_ROWS = 200,           // matches the display's own visible height -- no vertical motion in this test, purely horizontal
+        R27_BAR_BYTES = 2,       // bar width in bytes (16px) -- coarse enough to eyeball shear at a glance, fine enough to show alignment clearly
+        R27_START_OFFSET = 40    // nonzero DISP_ADDR column offset within the wide bitmap -- Phase 0's own central requirement: never test at column 0, since a shear bug would be invisible there (0*anything is still 0)
+    };
+    unsigned row, col;
+
+    vdc_init(VDC_HIRES_640x200_Mono_PANORAMA_R27, 1);
+    if (!vdc_state.bitmap)
+    {
+        return;
+    }
+
+    vdc_disable_display();
+
+    // Flat auto-incrementing fill -- vertical "barcode" bars (alternating
+    // 0xff/0x00 every R27_BAR_BYTES bytes), written in true row-major order
+    // at R27_STRIDE bytes/scanline. Deliberately NOT vdc_block_fill()'s own
+    // constant-run convention (bars need to alternate WITHIN each row, not
+    // stay one colour for a whole call) -- vdc_write() in a flat
+    // auto-incrementing loop instead, exactly as the plan's own Design
+    // section specifies. One-time setup cost while blanked, so the
+    // per-byte ready-poll cost (see VDC-PANORAMA attempt 2's own OUTCOME
+    // notes on why that's a hard floor for a PER-FRAME push) doesn't
+    // matter here the way it did there.
+    vdc_mem_addr(vdc_state.base_text);
+    for (row = 0; row < R27_ROWS; row++)
+    {
+        for (col = 0; col < R27_STRIDE; col++)
+        {
+            vdc_write(((col / R27_BAR_BYTES) & 1) ? 0xff : 0x00);
+        }
+    }
+
+    // R27 itself is baked into this mode's own vdc_modes[] row
+    // (VDCR_ROWINC, 0x28) -- see that row's own comment for why. Nothing
+    // further to set here for the skip itself.
+
+    // Single one-time DISP_ADDR write, to R27_START_OFFSET (nonzero) within
+    // the wide bitmap -- no per-frame changes in this phase (that's
+    // Phase 1/2, see the plan). base_attr is unused (colorlines=0, no
+    // attribute plane) but vdc_set_disp_address() still expects a value;
+    // passing the same base_text-relative offset is harmless since nothing
+    // reads it.
+    vdc_set_disp_address(vdc_state.base_text + R27_START_OFFSET, vdc_state.base_attr + R27_START_OFFSET);
+
+    vdc_enable_display();
+
+    while (vdcwin_checkch())
+    {
+    }
+    do
+    {
+        joy_poll(0);
+    } while (!vdcwin_checkch() && !joyb[0]);
+
+    // Exit hygiene -- explicit reset is the primary guarantee this doesn't
+    // leak forward into a later mode's own bitmap addressing the way the
+    // HEND leak once did (memory: rotate_demo_shift_bug); VDCBootBaseline
+    // now also captures/restores ROWINC as defense-in-depth (vdc_core.c).
+    vdc_reg_write(VDCR_ROWINC, 0);
+
     vdc_wipe_transition();
 }
 
@@ -2641,7 +2679,7 @@ void credits_screen()
     static const char chunk1[] = "coded with Oscar64 by drmortalwombat     ";
     static const char chunk2[] = "fast loading via Krill     ";
     static const char chunk3[] = "artwork: Van Gogh, Hokusai, Hiroshige, Wikimedia Commons     ";
-    static const char chunk4[] = "music: Maniac by Michael Sembello, 1983, SID cover by Paul Kleimeyer     ";
+    static const char chunk4[] = "music: Maniac by Michael Sembello, 1983, SID cover by Antti Hannula (Flex), 2010, Artline Designs     ";
     static const char chunk5[] = "thanks for watching!     ";
     static const char *const chunks[] = {chunk0, chunk1, chunk2, chunk3, chunk4, chunk5};
     enum
@@ -3569,13 +3607,25 @@ void main_menu()
 			// lower-case code, and this codebase doesn't pin that mode
 			// down explicitly, so accepting either case is the robust
 			// fix rather than re-guessing a single fixed case again.
-			for (i = 0; i < MENU_COUNT; i++)
+			//
+			// `key >= 0x20` gate added 2026-08-21 -- real-hardware keyboard
+			// testing found CH_CURS_DOWN (PETSCII 0x11) OR'd with 0x20
+			// equals 0x31 ('1'), so every cursor-down press was aliasing
+			// onto menu item 1's own shortcut and immediately confirming
+			// it, well before the dir/highlight-glide logic above ever got
+			// a chance to matter for that keypress. All of this project's
+			// real menu shortcut keys are printable (>=0x20); no non-
+			// printable control code should ever reach this fold.
+			if (key >= 0x20)
 			{
-				if ((key | 0x20) == (menu_entries[i].key | 0x20))
+				for (i = 0; i < MENU_COUNT; i++)
 				{
-					selected = i;
-					key = CH_ENTER;
-					break;
+					if ((key | 0x20) == (menu_entries[i].key | 0x20))
+					{
+						selected = i;
+						key = CH_ENTER;
+						break;
+					}
 				}
 			}
 			if (key == CH_ENTER)
@@ -3821,8 +3871,9 @@ int main(void)
 	vdc_prints_attr(20, 12, "Demo starting.... loading assets", VDC_LGREEN | VDC_A_ALTCHAR);
 
 	// SID music (Phase 5): loaded once, here, for the whole program run --
-	// "Faded" (GoatTracker), compiled straight from source to SIDINIT/
-	// SIDPLAY -- see defines.h for the full history and why. Only the LOAD
+	// "Maniac" (PAL version by Antti Hannula/Flex, relocated to SIDINIT/
+	// SIDPLAY via sidreloc) -- see defines.h for the full tune history
+	// (this project has swapped tunes twice) and why. Only the LOAD
 	// happens here; sid_music_init() (the call that actually starts
 	// playback, driven from then on by krill_interrupt (krill.c) calling
 	// raster_irq_playframe() (vdc_raster.c) once per VIC raster interrupt)
@@ -3866,6 +3917,16 @@ int main(void)
 	// (unused) for real-hardware/RGBtoHDMI testing later; not on the menu
 	// since nothing else in this file depends on it running.
 	// mono_im960_demo();
+
+	// TEMPORARY (2026-08-20): VDC-PANORAMA attempt 3, Phase 0 test hook --
+	// see r27_scroll_test_demo()'s own comment and the plan's "VDC-
+	// PANORAMA, attempt 3" section for full context. Boots straight into
+	// the static R27 test pattern before the normal menu; press any
+	// key/joystick fire to proceed to main_menu() as usual. Remove this
+	// call (restoring a direct main_menu() start) once Phase 0 is
+	// live-confirmed one way or the other -- same "temporary main() test
+	// hook" convention used for earlier phased VDC-PANORAMA attempts.
+	r27_scroll_test_demo();
 
 	// Every hires-mode showcase, both procedural effects, the raster
 	// placement diagnostic, VDC-VSCROLL, and the end-credits sequence

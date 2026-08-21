@@ -73,7 +73,8 @@ MAIN_SRCS = src/main.c \
             include/krill.c include/krill.h
 
 # Deployment to Ultimate II+
-# Set ULTIP1 (and optionally ULTIP2) in .env -- see README "Building from source"
+# Set ULTIP1 (and optionally ULTIP2/ULTIP3) in .env -- see README "Building
+# from source"
 -include .env
 ULTIP1  ?= <set_ULTIP1_in_.env>
 ULTUSB  ?= usb1
@@ -81,6 +82,18 @@ ULTPATH  = /$(ULTUSB)/temp/
 ULTFTP1  = ftp://$(ULTIP1)$(ULTPATH)
 ifdef ULTIP2
 ULTFTP2  = ftp://$(ULTIP2)$(ULTPATH)
+endif
+# ULTIP3: the real C128 + Ultimate II+L used for live hardware testing
+# (2026-08-21) -- deliberately its own path, not ULTPATH's shared
+# usb1/temp convention: real-hardware sessions need a stable, dedicated
+# spot rather than the same scratch folder every other deploy target
+# shares. Directory (USB1/idi8b/dev/) created once by hand over FTP
+# (MKD, case-sensitive "USB1" -- this device's own FTP root lists it
+# uppercase, unlike ULTUSB's lowercase convention for the other two) --
+# wput does not create missing directories itself.
+ULTPATH3 ?= /USB1/idi8b/dev/
+ifdef ULTIP3
+ULTFTP3  = ftp://$(ULTIP3)$(ULTPATH3)
 endif
 
 # ZIP file contents
@@ -129,7 +142,7 @@ GENERATED_ASSETS = assets/vdce-scrtit.eve assets/vdce-scrtit.odd
 ########################################
 
 .SUFFIXES:
-.PHONY: all clean deploy deploy2 check-deploy check-deploy2 docs vice krill
+.PHONY: all clean deploy deploy2 deploy3 check-deploy check-deploy2 check-deploy3 docs vice z64k krill
 
 all: $(MAIN).prg bootsect.bin krill README.pdf
 
@@ -179,18 +192,18 @@ loader-c128.prg:
 	cp krill/loader/build/*.prg build/krill
 	cp krill/loader/build/loadersymbols-c128.inc build/krill
 
-# Builds the full testable krill d81 (build/krill/$(MAIN)-krill.d81) -- the
+# Builds the full testable krill d81 (build/krill/$(MAIN).d81) -- the
 # only build target (2026-07-26: the plain bnk_load()-based standard build
 # was dropped entirely) -- the -dKRILL-compiled binary, Krill's own
 # install/loader prgs, and the TSCrunch-compressed real assets
 # ($(KRILL_COMPRESSED_ASSETS)) every demo section loads via
 # krill_loadcompd().
 krill: $(MAIN).prg bootsect.bin loader-c128.prg
-	c1541 -cd build/krill -format "$(MAIN),xm" d81 $(MAIN)-krill.d81
-	c1541 -cd build/krill -attach $(MAIN)-krill.d81 -bwrite bootsect.bin 1 0
-	c1541 -cd build/krill -attach $(MAIN)-krill.d81 -bpoke 40 1 16 $$27 %11111110
-	c1541 -cd build/krill -attach $(MAIN)-krill.d81 -bam 1 1
-	c1541 -cd build/krill -attach $(MAIN)-krill.d81 $(PRGLIST) $(KRILLLIST) $(KRILL_COMPRESSED_ASSETS)
+	c1541 -cd build/krill -format "$(MAIN),xm" d81 $(MAIN).d81
+	c1541 -cd build/krill -attach $(MAIN).d81 -bwrite bootsect.bin 1 0
+	c1541 -cd build/krill -attach $(MAIN).d81 -bpoke 40 1 16 $$27 %11111110
+	c1541 -cd build/krill -attach $(MAIN).d81 -bam 1 1
+	c1541 -cd build/krill -attach $(MAIN).d81 $(PRGLIST) $(KRILLLIST) $(KRILL_COMPRESSED_ASSETS)
 
 ## Creating ZIP file for distribution
 #$(ZIP):
@@ -248,13 +261,75 @@ endif
 	@curl -s --connect-timeout 3 $(ULTFTP2)/ >/dev/null 2>&1 || \
 		(echo "ERROR: Cannot reach U64 at $(ULTIP2) -- check ULTIP2 in .env" && false)
 
+check-deploy3:
+ifndef ULTIP3
+	$(error ULTIP3 is not set in .env -- cannot deploy to real-hardware machine)
+endif
+	# --connect-timeout 10, not check-deploy/2's 3 -- this device's own FTP
+	# server (live-confirmed 2026-08-21) takes several real seconds to
+	# complete a full login+listing round-trip even though the underlying
+	# TCP connection and ping are both instant; 3s intermittently timed out
+	# (curl exit 28) on an otherwise perfectly reachable device.
+	@curl -s --connect-timeout 10 $(ULTFTP3)/ >/dev/null 2>&1 || \
+		(echo "ERROR: Cannot reach U64 at $(ULTIP3) -- check ULTIP3 in .env" && false)
+
 # To deploy software to UII+ enter make deploy. Obviously C128 needs to be powered on with UII+ and USB drive connected.
 deploy: check-deploy krill
-	wput -u build/krill/*.prg build/krill/$(MAIN)-krill.d* $(ULTFTP1)
+	wput -u build/krill/*.prg build/krill/$(MAIN).d* $(ULTFTP1)
 
 deploy2: check-deploy2 krill
-	wput -u build/krill/*.prg build/krill/$(MAIN)-krill.d* $(ULTFTP2)
+	wput -u build/krill/*.prg build/krill/$(MAIN).d* $(ULTFTP2)
+
+deploy3: check-deploy3 krill
+	# cd first, not `wput -u build/krill/*.prg ...` like deploy/deploy2 --
+	# wput preserves whatever local directory prefix it's given on the
+	# remote side (live-confirmed 2026-08-21: deploying with the
+	# build/krill/ prefix landed everything under .../dev/build/krill/,
+	# not flat in dev/ as intended). deploy/deploy2 have this same latent
+	# behaviour (files land under usb1/temp/build/krill/ there too) --
+	# left alone since nobody has reported it as a problem for those, but
+	# ULTPATH3 is specifically meant to be a flat, dedicated real-hardware
+	# folder, so this target gets the fix.
+	cd build/krill && wput -u *.prg $(MAIN).d* $(ULTFTP3)
 
 # To run software using VICE x128 -- krill is the only build target.
+#
+# NOTE: WSL2/WSLg's own VICE has been confirmed (twice -- an NTSC-tempo
+# playback-rate quirk, and an interlaced-mode SID "faltering" false alarm,
+# see project memory) to introduce timing artifacts that don't reproduce
+# on native Windows VICE or real hardware. For anything timing-sensitive,
+# launch Windows-native VICE manually instead of relying on this target --
+# an attempt at automating that launch from here (WSL2 interop, `wslpath`,
+# various quoting fixes) never got past a launch failure even from the
+# user's own interactive terminal, root cause not found; not worth
+# revisiting without a genuinely new angle.
 vice: krill
-	x128 build/krill/$(MAIN)-krill.d81
+	# -drive8truedrive: Krill's loader runs drive-side install code
+	# (M-E/M-R) that silently hangs at the "loading assets" screen without
+	# True Drive Emulation -- confirmed live (a Windows VICE install with
+	# TDE off by default produced exactly this hang, misread at first as
+	# an audio-device error). Passed explicitly so this works regardless
+	# of the local vice.ini's own default.
+	x128 -drive8truedrive build/krill/$(MAIN).d81
+
+# z64k (https://www.z64k.com/) -- a second, independent C128/VDC emulator,
+# added 2026-08-21 specifically because VICE has repeatedly NOT reproduced
+# real-hardware-only VDC timing bugs this session (see project memory:
+# vdcmaniac_wsl_vice_timing_artifacts, vdcmaniac_fli_hang_static_csize_lockup)
+# -- a second emulator with an independently-written VDC model is a useful
+# extra data point when VICE says "fine" but real hardware doesn't. Java-
+# based (JRE 8+, already present on this system); Z64K.jar is a ~5MB
+# third-party binary, downloaded on first use rather than vendored (see
+# .gitignore). "c128 <path>:boot" confirmed live (2026-08-21) as the
+# working autoload syntax for this machine type -- the site's own
+# documented example uses a "c64-8" drive-suffixed machine name instead,
+# which errors ("Invalid argument") for c128; plain "c128" is correct here.
+Z64K_JAR = tools/z64k/Z64K.jar
+Z64K_URL = https://www.z64k.com/resources/version3/Z64K.jar
+
+$(Z64K_JAR):
+	@mkdir -p tools/z64k
+	curl -sL -o $(Z64K_JAR) $(Z64K_URL)
+
+z64k: krill $(Z64K_JAR)
+	java -jar $(Z64K_JAR) c128 build/krill/$(MAIN).d81:boot

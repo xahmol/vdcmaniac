@@ -338,6 +338,9 @@ unsigned sid_music_framecount;
 int sid_rate_accum;
 int sid_rate_inc;
 
+// See its own comment in banking.h.
+unsigned sid_expected_framecount;
+
 __asm sid_music_interrupt
 // SID play + Krill chain trampoline. Installed at $314 by sid_music_init()
 // below, AFTER krill_init() has already installed krill_interrupt there --
@@ -477,6 +480,102 @@ rst2:
         lda #$00
         sta $d418
 	}
+}
+
+void sid_play_frame_foreground()
+// Foreground-callable FALLBACK for raster_irq_playframe() (vdc_raster.c),
+// for callers whose own raster work holds interrupts disabled for most of
+// the frame -- raster_bar_end() (vdc_raster.c, used every frame by every
+// Mechanism-1 raster-bar section: title_screen(), fli_hfli_demo(),
+// fli_ihfli_demo(), fli_itfli_demo(), mono_hires_xl_demo(),
+// mono_im800_demo()) and fli_color_demo()'s own standalone SEI/CSIZE-toggle
+// loop (main.c) -- both starve Krill's interrupt-driven music of any real
+// chance to fire on schedule, live-reported as the music "slowing down"
+// while such a section is on screen. Swapping to a VBI-tempo tune
+// (defines.h) fixed a DIFFERENT symptom (the old CIA-tempo tune's
+// occasional rate-accumulator double-tick not fitting the same raster
+// budget) but not this one -- this is about missed/delayed opportunities
+// for ANY SIDPLAY call to happen at all, independent of tempo.
+//
+// FALLBACK, not unconditional -- but NOT via a shared "did the interrupt
+// already play" boolean flag either, after that design went through two
+// live-broken iterations in a row (2026-08-19): a one-directional check
+// (only this function checked it) let the interrupt play unconditionally
+// AND set the flag after, so whichever side fired first played and set
+// the flag, then the OTHER side fired anyway regardless -- near-universal
+// double-play, ~2x speed. Making raster_irq_playframe() ALSO check the
+// same flag fixed that, but broke something worse: NOTHING resets a plain
+// flag during a krill_loadcompd() call (neither raster_bar_begin() nor
+// fli_color_demo()'s own loop run during a load), so the very first play
+// from EITHER side right before a load started left the flag stuck at 1
+// for the load's ENTIRE duration -- total silence with a hanging note on
+// every load, exactly as live-reported.
+//
+// Replaced with a self-correcting counter comparison instead of a flag
+// that can be left stale: sid_expected_framecount (banking.h) is
+// incremented once per frame boundary by each fallback-using caller
+// (raster_bar_begin(), fli_color_demo()'s own loop top) -- NOT by this
+// function or by raster_irq_playframe(), so it only advances when a
+// fallback-using caller is actually running. sid_music_framecount (actual
+// plays so far, from EITHER path) keeps growing normally the whole time,
+// including throughout a krill load (nothing about this comparison needs
+// anything to happen during a load -- expected just stops advancing until
+// a fallback-using caller runs again, and the comparison self-corrects,
+// no special-casing needed). If actual has fallen behind expected, the
+// interrupt isn't keeping up -- play here. If actual is caught up or
+// ahead, the interrupt is handling it fine -- skip, avoiding double-play
+// in sections whose raster sweep is short enough to leave the VIC's own
+// interrupt an opening.
+//
+// Call once per frame from within such a section's own already-SEI-held
+// window (this function does NOT sei/cli itself -- unlike sid_music_init(),
+// which brackets its own bank-switch because it's called from a context
+// with no such guarantee, every intended caller of this function already
+// holds SEI for the whole surrounding window, and doing our own cli here
+// would prematurely re-enable interrupts before the caller's own, likely
+// carefully-timed, cli point).
+//
+// Deliberately NOT the rate-accumulator path raster_irq_playframe() uses
+// (plays 0/1/2 per call, banking.h's sid_rate_accum/sid_rate_inc) -- that
+// mechanism corrects a CIA-tempo tune's fixed rate against the host's
+// INTERRUPT-DRIVEN frame rate over many calls; a foreground call here
+// plays at most once per call, matching the caller's own loop cadence.
+// Shares sid_music_framecount/SID_RESTART_FRAMES with
+// raster_irq_playframe() (the same underlying tune-restart safety net),
+// duplicating its small restart-check rather than refactoring
+// raster_irq_playframe() itself to share it -- that function is a
+// carefully-tuned __interrupt handler (see its own extensive comments on
+// why), not something to risk touching more than necessary for this.
+{
+	if ((signed int)(sid_music_framecount - sid_expected_framecount) >= 0)
+	{
+		// Actual plays are caught up with (or ahead of) expected -- the
+		// interrupt path is handling this fine, nothing to do.
+		return;
+	}
+
+	char old = mmu.cr;
+	mmu.cr = BNK_1_IO;
+	if (++sid_music_framecount >= SID_RESTART_FRAMES)
+	{
+		sid_music_framecount = 0;
+		// Resync expected too -- see this function's own comment on why an
+		// un-resynced expected would stay permanently offset ahead after a
+		// restart, making the catch-up check above permanently true.
+		sid_expected_framecount = 0;
+		sid_resetsid();
+		__asm
+		{
+			lda #$00
+			jsr SIDINIT
+		}
+		sid_rate_accum = 0;
+	}
+	else
+	{
+		__asm { jsr SIDPLAY }
+	}
+	mmu.cr = old;
 }
 
 bool bnk_load(char device, char bank, const char *start, const char *fname)

@@ -29,59 +29,27 @@ records for history. Items below are grouped by whether they block release.
 
 ## Before release (continued)
 
-- [ ] **SID rate-accumulator fix: real PAL hardware pass still outstanding
-  (only real hardware this project can currently test on).** Implemented
-  and live-verified in VICE this session (see plan
-  `want-to-revisit-timning-zany-patterson.md`): `raster_irq_playframe()`
-  (`include/vdc_raster.c`) now calls `SIDPLAY` zero, one, or two times per
-  IRQ via a signed fixed-point rate accumulator, generalized for any
-  combination of tune-native-standard × machine-standard (per-tune
-  properties `SID_TUNE_USES_CIA_SPEED`/`SID_TUNE_IS_NTSC` in
-  `include/defines.h`, derived from `Maniac.sid`'s actual PSID header
-  "speed" field, fetched from HVSC and decoded this session — confirmed
-  CIA-timer tempo, not vsync).
-  **PAL path (the real-hardware-testable case): fully verified.**
-  Live-measured in VICE via the binary monitor: `sid_rate_inc` correctly
-  resolves to `1935`, `sid_music_framecount` grew at ~59.9/61.2 calls/sec
-  (target NTSC 59.826Hz) versus the old 50.1Hz PAL rate; demo boots through
-  diagnostic screen → logo → title → main menu → a VDC-FLI picture load
-  with no hang/crash, picture rendered correctly, music kept advancing
-  through the `krill_loadcompd()` load. Still needs one real `make deploy`
-  pass on actual C128 hardware to close this out (VICE-only so far).
-  **NTSC path: code-verified correct, tempo unverifiable in this
-  environment.** `sid_rate_inc` correctly resolves to `0` (matched
-  standard, no correction needed) on both WSLg x128 and native Windows
-  VICE, confirmed via direct register inspection — the logic is right.
-  Actual playback tempo couldn't be confirmed by ear: both VICE builds,
-  tested independently (ruling out host performance — native Windows
-  VICE used only 50% of one core, not saturated), paced the emulation at
-  ~51 calls/sec instead of NTSC's ~59.8, despite the running program
-  correctly detecting/reporting NTSC on-screen. This looks like a VICE
-  quirk in how `-model ntsc` (command-line) drives internal timing, not a
-  vdcmaniac bug -- but since no NTSC hardware is available to this project,
-  it can't be fully closed out beyond "code and PAL behaviour are both
-  correct, NTSC audio timing accepted as unverifiable for now." Revisit
-  only if NTSC hardware becomes available, or if the VICE quirk is worth
-  chasing on its own for unrelated reasons.
-
-## Resolved this session
-
-- [x] **Windows VICE "Failed to mute device #11" report — root cause
-  found, not what it looked like.** Not an audio-device issue: Krill's
-  loader needs True Drive Emulation to run its drive-side install code
-  (`M-E`/`M-R` commands), and this Windows VICE install had TDE off by
-  default, causing Krill's install to hang silently (confirmed live via
-  `-binarymonitor`: `VDriveCommand: Warning - M-E 020a (+14) (needs TDE)`
-  in the log, matching a hang at the "loading assets" screen). Fixed by
-  launching with `-drive8truedrive` (or enabling True Drive Emulation for
-  drive 8 in VICE's own settings permanently). Not a bug in this repo.
+- [x] **SID playback — resolved, real-hardware-confirmed.** The resident
+  tune ("Maniac" by Antti Hannula/Flex, a PAL-native/VBI-tempo composition
+  — see `defines.h`) needs no rate correction at all
+  (`SID_TUNE_USES_CIA_SPEED=0`), so `raster_irq_playframe()`'s own rate
+  accumulator (`include/vdc_raster.c`, generalized for any future
+  CIA-timer tune via `SID_TUNE_USES_CIA_SPEED`/`SID_TUNE_IS_NTSC` in
+  `defines.h`) is currently inert by design — exactly one `SIDPLAY`
+  call/IRQ, no correction needed. Confirmed live on real C128 hardware:
+  music plays correctly through every section, including the FLI/MONO
+  sections' own SEI-held raster loops (`sid_play_frame_foreground()`
+  fallback, `banking.c`). NTSC playback tempo remains unverified (no NTSC
+  hardware available to this project) — revisit only if that hardware
+  becomes available.
 
 ## Staged, not yet used (future modes/features, not currently planned work)
 
-- `include/vdc_win.c`, `vdc_menu.c`, `vdc_softscroll.c`,
-  `vdc_textscroller.c` are present but not `#include`-d from `main.c` —
-  windowed UI, a popup/menu system, soft-scrolling, and a text scroller,
-  staged for whenever a mode needs them.
+- `include/vdc_menu.c` (a popup/menu-system library) is present but not
+  `#include`-d from `main.c` — this project's own `main_menu()` is
+  hand-rolled directly in `main.c` instead. `vdc_win.c`, `vdc_softscroll.c`,
+  and `vdc_textscroller.c` are now all wired in and actively used
+  (`vdcwin_checkch()` demo-wide, `credits_screen()`'s own panner/scroller).
 
 ## Explicitly out of scope (won't do)
 

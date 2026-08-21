@@ -4,14 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-An Oscar64/C remake of "VDC Mode Mania" — a Commodore 128 demo/tool that shows
-off the VDC (8563, 80-column chip)'s various bitmap and text display modes.
-The original (BASIC, by an unknown author) ships in `original/v12/` for
-reference: detokenised source, disk images, and the image-format converters
-it used. This repo is a from-scratch C128/Oscar64 rewrite, still early —
-`src/main.c` currently drives three effects (a VDC raster-bar test, a hires
-plasma, and a color-cycling rotate) plus a title screen, with more modes to
-come as image assets under `assets/vdcmodemania/` get wired in.
+An Oscar64/C remake of "VDC Mode Mania" (Tokra/Mike, Akronyme Analogiker,
+2012) — a Commodore 128 demo showcasing the VDC (8563, 80-column chip)'s
+rare 64KB-VDC-RAM bitmap modes, from 480x252 colour up to 720x700
+monochrome. The original BASIC version ships in `original/v12/` for
+reference only (detokenised source, disk images, its own image
+converters) — this is a from-scratch C rewrite: its own menu-driven demo
+driver, its own VDC mode/register library, its own picture converter, its
+own asset loader, and its own sourced/credited artwork throughout (see
+`include/defines.h`'s own credit block — none of Tokra's original
+converted images are used).
+
+Menu-driven: `main_menu()` presents 11 selectable sections (any order, any
+number of times) — six real-photo VDC colour-mode showcases (VDC-FLI,
+-HFLI, -IHFLI, -ITFLI, -IMONO, -IM800), two procedural effects (plasma,
+colour rotation), a raster-bar placement diagnostic, a scripted vertical
+scroll (VDC-VSCROLL), and "End demo + credits". Before the menu, `main()`
+runs a fixed intro sequence once: system diagnostics (PAL/NTSC, VDC
+revision, 64KB check), an idi8b logo section, and a title screen.
 
 ## Build commands
 
@@ -19,16 +29,22 @@ come as image assets under `assets/vdcmodemania/` get wired in.
 make            # build vdcmaniac.prg, boot sector, and the krill D81 disk image in build/krill/
 make clean      # remove everything in build/
 make vice       # run the D81 in the x128 emulator
+make z64k       # run the D81 in z64k (independent C128/VDC emulator, downloads Z64K.jar on first use)
 make deploy     # wput the build to a primary Ultimate II+ over FTP (needs ULTIP1 in .env)
 make deploy2    # same, to a second Ultimate II+ (needs ULTIP2 in .env)
+make deploy3    # same, to a real-hardware test machine (needs ULTIP3 in .env)
 make docs       # regenerate README.pdf from README.md (requires pandoc)
 ```
 
 Toolchain: Oscar64 at `/home/xahmol/oscar64/bin/oscar64` (edit `CC` in the
 `Makefile` if installed elsewhere), `c1541` (VICE) for disk images, `wput` for
-deployment. Deployment IPs go in a gitignored `.env` (`ULTIP1`/`ULTIP2`) — see
-README "Building from source". There is no automated test suite; verification
-is visual, via `make vice` or real hardware.
+deployment. Deployment IPs go in a gitignored `.env` (`ULTIP1`/`ULTIP2`/`ULTIP3`)
+— see README "Building from source". There is no automated test suite;
+verification is visual, via `make vice`, `make z64k`, or real hardware. VICE
+has repeatedly not reproduced real-hardware-only VDC timing bugs this
+project has hit (see `~/.claude/projects/-home-xahmol-git-vdcmaniac/memory/`
+for specifics) — z64k, an independently-implemented emulator, is a useful
+second data point when VICE says "fine" but real hardware doesn't.
 
 The Makefile builds a single D81 variant: `krill` (`all`/`vice`, Krill
 fastloader -- see `krill_manual.md`). The plain `bnk_load()`-based "standard"
@@ -45,47 +61,87 @@ rebuild otherwise).
 
 ## Architecture
 
-- `src/main.c` is the demo driver: `main()` calls `bnk_init()` and
-  `vdc_init()` once, then runs each effect in sequence
-  (`raster_place_test()` → `title_screen()` → `plasma_demo()` →
-  `rotate_demo()`), and `vdc_exit()` at the end. Each effect function owns
-  its own VDC mode switch, screen data, and cleanup.
-- `raster_bar()`/`raster_place_test()` are the VDC equivalent of a C64 raster
-  bar, built on `include/vdc_raster.c`'s `raster_synch()`/`raster_waitline()`
-  — this is the same CIA2-timer-based busy-wait synchronization technique
-  prototyped in the separate `VDCRasterExperiment` repo (plain CC65
-  assembly), now reimplemented as an Oscar64 C/inline-asm library function
-  so any effect can call it.
-- `plasma_demo()`/`init_plasma()` render a classic sine-table plasma directly
-  into VDC hires bitmap memory (`vdc_state.bitmap`), recalculating per-pixel
-  color from two independently-scrolling `colormap0`/`colormap1` sine
-  offsets each frame.
-- `rotate_demo()`/`init_rotate()`/`rotup()`/`rotdown()` cycle a fixed VDC
-  bitmap image's color/attribute table to fake movement/rainbow effects
-  without touching pixel data.
-- `title_screen()` loads two prerendered hires screen halves
-  (`vdce-scrtit.top`/`.bot`, built with the author's own VDC Screen Editor)
-  into Bank 1 RAM via `bnk_load()`, blits them to VDC memory with
-  `bnk_cpytovdc()`, and layers a raster-bar effect underneath while waiting
-  for a keypress.
-- VDC/bank helper libraries live in `include/` and follow the conventions in
-  `~/.claude/vdclib_c128.md` (`vdc_core.h`+`banking.h` — the banking-aware
-  pair, since this project uses Bank 1 for screen/charset data): `vdc_core.c`
-  for mode/register/bitmap handling, `banking.c` for MMU bank access and
-  Kernal file I/O, `vdc_raster.c` for the raster-sync helpers above.
-- `include/vdc_win.c`, `vdc_menu.c`, `vdc_softscroll.c`,
-  `vdc_textscroller.c`, and `krill.c`/`krill.h` are present but **not yet
-  `#include`-d from `main.c`** — they're staged for upcoming modes (windowed
-  UI, a fast KRILL-based loader, soft-scrolling, a text scroller) rather than
-  dead code. Don't assume they're wired in without checking `main.c`'s
-  `#include` list first.
-- `src/main.-vdctestold.c` is a superseded earlier version of `main.c`, kept
-  for reference; it is not part of the build (`MAINSRC` in the `Makefile`
+- `src/main.c` is the whole demo: `main()` runs `cia_init()`/`bnk_init()`/
+  `krill_loadcode()`/`krill_init()` once, a fixed intro sequence
+  (`system_diagnostic_screen()` → `idi8b_logo_demo()` → `title_screen()`),
+  loads the SID tune, then hands off to `main_menu()` (loops until
+  ESC/STOP or "End demo + credits" is chosen) and `menu_end_demo()` →
+  `demo_end_screen()` (never returns). Each section function owns its own
+  VDC mode switch, asset load, and cleanup; `menu_entries[]` (near
+  `main_menu()`) is the single source of truth for what's selectable and
+  in what order it's listed.
+- Picture showcase sections (`fli_color_demo()`, `fli_hfli_demo()`,
+  `fli_ihfli_demo()`, `fli_itfli_demo()`, `mono_hires_xl_demo()`
+  (VDC-IMONO), `mono_im800_demo()`) all follow the same shape: blank →
+  show an info/credit screen (`vdc_mode_info_screen()`) → `krill_loadcompd()`
+  the picture into Bank 1 staging → blank → `vdc_init()` the mode →
+  `bnk_cpytovdc()` the picture into VDC memory → enable display → wait for
+  a keypress, cycling 3 photos per section (see `include/defines.h`'s
+  credit block for sources/licences). `mono_im960_demo()` and
+  `mono_colorize_demo()` exist but are intentionally not called anywhere
+  (IM960 doesn't render correctly without RGBtoHDMI hardware; colorize's
+  own keypress-detection mechanism was never fixed) — left in place for
+  possible future real-hardware use, not menu-wired.
+- `plasma_demo()`/`init_plasma()` render a classic sine-table plasma
+  directly into VDC hires bitmap memory, recalculating per-pixel colour
+  from two independently-scrolling sine offsets each frame.
+  `rotate_demo()`/`init_rotate()`/`rotup()`/`rotdown()` cycle a fixed VDC
+  bitmap's colour/attribute table for movement/rainbow effects without
+  touching pixel data.
+- `vscroll_demo()` (VDC-VSCROLL) steps a tall (640x798) monochrome bitmap
+  through the 640x200 display window a whole 8-scanline row at a time via
+  `DISP_ADDR`. Deliberately no `VDCR_VSCROLL` sub-pixel smoothing — that
+  was tried extensively and reliably tore on real hardware/z64k regardless
+  of write timing; see project memory
+  (`vdcmaniac_vscroll_dispaddr_latch_lag.md`) if revisiting.
+- `r27_scroll_test_demo()` is a **temporary** test scaffold (VDC-PANORAMA
+  attempt 3, Phase 0 only) called directly from `main()` before
+  `main_menu()`, not wired into `menu_entries[]` — proves R27/ROWINC
+  addressing for a wider-than-display bitmap. See the plan file
+  (`~/.claude/plans/want-to-revisit-timning-zany-patterson.md`) for the
+  phased build this is one step of.
+- `raster_bar()`/`raster_place_test()`/`main_menu()`'s own highlight sweep
+  are all built on `include/vdc_raster.c`'s `raster_synch()`/
+  `raster_waitline()` — CIA2-timer-based cycle-exact raster-position
+  sync, reused via `raster_bar_begin()`/`raster_bar_line()`/
+  `raster_bar_segment()`/`raster_bar_end()` (which also holds interrupts
+  disabled for the sweep and provides a manual SID-fallback play call,
+  since Krill's own interrupt-driven playback gets starved while SEI is
+  held).
+- `title_screen()` loads two prerendered hires screen halves into Bank 1
+  via `krill_loadcompd()`, blits them to VDC memory, and layers a
+  raster-bar effect underneath while waiting for a keypress.
+  `idi8b_logo_demo()` shows the demo's own logo with a bouncing dual-bar
+  raster effect, and is also where SID playback actually starts
+  (`sid_music_init()`, right after this section's own `raster_calibrate()`
+  — see that call site's own comment for why the ordering matters).
+  `credits_screen()` (reached via `menu_end_demo()`) runs an endless
+  scrolling-text + colour-cycling-bars sequence until ESC/STOP.
+- VDC/bank helper libraries live in `include/` and follow the conventions
+  in `~/.claude/vdclib_c128.md` (`vdc_core.h`+`banking.h` — the
+  banking-aware pair, since this project uses Bank 1 for screen/charset
+  data): `vdc_core.c` for mode/register/bitmap handling, `banking.c` for
+  MMU bank access, Kernal file I/O, and the SID-playback fallback
+  mechanism, `vdc_raster.c` for the raster-sync helpers above,
+  `vdc_win.c` for the VDCWin windowed-text API (`vdcwin_checkch()` is used
+  everywhere as the keyboard-check function; its popup/window-drawing
+  functions aren't currently called by any section), `vdc_softscroll.c`
+  for `softscroll_pan_pre()`/`softscroll_pan_post()`/
+  `softscroll_buffer_shift_chunk()` (used by `credits_screen()`'s own
+  horizontal panner), `vdc_textscroller.c` for the Cupid-font background
+  text-stream renderer (also `credits_screen()`), `krill.c`/`krill.h` for
+  the fastloader integration every asset load goes through. `vdc_menu.c`
+  is present in `include/` but not `#include`-d from `main.c` at all —
+  this project's own `main_menu()` is hand-rolled in `main.c`, not built
+  on that library.
+- `src/main.-vdctestold.c` is a superseded earlier version of `main.c`,
+  kept for reference; not part of the build (`MAINSRC` in the `Makefile`
   points only at `src/main.c`).
-- `assets/vdcmodemania/` holds the original demo's per-image bitmap/color
-  data (`.bb`/`.bt`/`.cb`/`.ct` and `.bit`/`.col` pairs, one per showcased
-  picture) carried over from `original/v12/sd2iec-version/` — these are the
-  modes still to be ported into `main.c`.
+- `assets/vdcmodemania/` holds the ORIGINAL demo's own per-image bitmap/
+  colour data, carried over from `original/v12/sd2iec-version/` for
+  reference only — no longer used by anything (every section now loads
+  its own converted assets, built from `assets/source/*.jpg` via
+  `tools/vdc_convert.py`, TSCrunch-compressed per `krill_manual.md`).
 
 ## Related reference material
 

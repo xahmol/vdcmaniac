@@ -61,7 +61,14 @@ void raster_bar_begin()
 // calls: selects the VDC colour register and starts the CIA2 raster sync
 // for this synced sweep. Wraps the vdc.addr = VDCR_COLOR + raster_synch()
 // pair previously duplicated at each bar-drawing call site.
+//
+// Increments sid_expected_framecount (banking.h) here -- this is this
+// section's own per-frame boundary, matching raster_bar_end()'s own
+// fallback play call at the other end of the same frame. See
+// sid_play_frame_foreground()'s comment (banking.c) for the full
+// mechanism.
 {
+    sid_expected_framecount++;
     vdc.addr = VDCR_COLOR;
     raster_synch();
 }
@@ -112,8 +119,19 @@ void raster_bar_end()
 // bar-drawing call site. raster_synch() (called via raster_bar_begin())
 // leaves interrupts disabled (SEI) for the duration of the sweep -- this is
 // what re-enables them afterward.
+//
+// sid_play_frame_foreground() (banking.c) inserted here, still under SEI,
+// right after the frame's own vblank wait -- every Mechanism-1 section
+// (this function is their shared per-frame sync point) holds interrupts
+// disabled for most of each frame, starving Krill's interrupt-driven music
+// of any real chance to fire on schedule; live-reported as the music
+// "slowing down" during these sections (worst in the FLI/MONO showcases,
+// whose raster sweeps span most/all of the visible area). One manual play
+// call per frame here, at a consistent frame-synced point, replaces
+// whatever the interrupt would otherwise have unreliably provided.
 {
     vdc_wait_vblank();
+    sid_play_frame_foreground();
     __asm { cli }
 }
 
@@ -347,6 +365,22 @@ __interrupt void raster_irq_playframe()
 // bank-restore/RTS, eventually crashing into the KERNAL's BRK handler --
 // exactly the symptom observed, and only fixed by moving here.
 {
+    // Deliberately unconditional -- see sid_play_frame_foreground()'s own
+    // comment (banking.c) for the full history of why a shared boolean
+    // "did someone already play this frame" flag between this function and
+    // that one doesn't work: it live-broke twice, in opposite directions
+    // (one-directional check let both paths double-play at ~2x speed;
+    // fixing that by also checking here got the flag stuck at 1 for the
+    // entire duration of any krill_loadcompd() call, since nothing resets
+    // it during a load -- silence with a hanging note). This function now
+    // has no awareness of sid_play_frame_foreground() at all and never did
+    // anything but play unconditionally before either of those attempts;
+    // the coordination is now entirely sid_play_frame_foreground()'s own
+    // responsibility (comparing sid_music_framecount against
+    // sid_expected_framecount), which self-corrects regardless of what
+    // else is or isn't running, instead of relying on a flag that can be
+    // left stale by contexts (like a krill load) that never touch it.
+
     // Rate accumulator: decide how many SIDPLAY calls are due this IRQ,
     // from common-RAM state only, BEFORE the bank switch below -- keeps the
     // KERNAL-banked-out window exactly as short as it needs to be. See
@@ -406,6 +440,14 @@ __interrupt void raster_irq_playframe()
         if (++sid_music_framecount >= SID_RESTART_FRAMES)
         {
             sid_music_framecount = 0;
+            // Resync sid_expected_framecount to match -- see
+            // sid_play_frame_foreground()'s own comment (banking.c): left
+            // un-resynced, expected would stay permanently offset ahead of
+            // actual by ~SID_RESTART_FRAMES forever after this point,
+            // making its own catch-up check ("am I behind schedule")
+            // permanently true and firing on every call from then on, in
+            // every section, not just genuinely SEI-starved ones.
+            sid_expected_framecount = 0;
             sid_resetsid();
             __asm
             {

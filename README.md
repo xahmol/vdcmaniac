@@ -40,12 +40,11 @@ demonstrated (see `original/v12/readme.txt` for the full list and Tokra's
 own notes on real-hardware/monitor compatibility per mode); the techniques
 driving them are new.
 
-**On pictures**: some sections currently still load Tokra's own original
-converted images (kept, credited, as a working baseline while each mode is
-brought up) or early own conversions of placeholder source images. These
-are being replaced with this project's own artwork over time as each
-section's conversion pipeline (`tools/vdc_convert.py`) matures -- not yet
-finished across every mode.
+**On pictures**: every showcase section uses this project's own sourced
+artwork, converted via `tools/vdc_convert.py` -- public-domain paintings/
+prints and CC-licensed photographs, each with a full attribution/licence
+note in `include/defines.h`'s own credit block. None of Tokra's original
+converted images are used.
 
 ## Contents
 
@@ -66,6 +65,7 @@ finished across every mode.
 | [oscar64](https://github.com/drmortalwombat/oscar64) | C compiler targeting C128 | Build from source or download release |
 | `c1541` | Disk image creation (part of VICE) | `sudo apt install vice` |
 | `wput` | FTP upload to Ultimate II+ | `sudo apt install wput` |
+| `java` (JRE 8+) | Run [z64k](https://www.z64k.com/) (`make z64k`) | `sudo apt install default-jre` (optional) |
 | `pandoc` + `texlive-xetex` | Regenerate README.pdf from README.md | `sudo apt install pandoc texlive-xetex` (optional) |
 | `python3` + Pillow | Regenerate converted picture assets | `pip install Pillow` (optional -- build warns and skips if missing) |
 
@@ -78,9 +78,14 @@ Create a `.env` file in the project root to configure deployment to your Ultimat
 ```ini
 ULTIP1 = 192.168.1.xx       # IP of your primary Ultimate II+
 # ULTIP2 = 192.168.1.yy    # optional second machine
+# ULTIP3 = 192.168.1.zz    # optional real-hardware test machine (make deploy3)
 ```
 
-The Makefile constructs the FTP path as `ftp://$(ULTIP1)/usb1/temp/`. Override `ULTUSB ?= usb1` in `.env` if your USB port is numbered differently.
+The Makefile constructs the FTP path for `deploy`/`deploy2` as
+`ftp://$(ULTIP1)/usb1/temp/`. Override `ULTUSB ?= usb1` in `.env` if your
+USB port is numbered differently. `deploy3` uses its own dedicated path
+(`ULTPATH3`, default `/USB1/idi8b/dev/`) instead -- override that in
+`.env` too if you want it elsewhere.
 
 ### Make targets
 
@@ -89,7 +94,9 @@ The Makefile constructs the FTP path as `ftp://$(ULTIP1)/usb1/temp/`. Override `
 | `make` / `make all` | Build the program, boot sector and the Krill-fastloader D81 disk image (see `krill_manual.md`) |
 | `make krill` | Same D81 build, invokable on its own |
 | `make clean` | Remove all build artefacts |
-| `make vice` | Launch VICE x128 with the D81 |
+| `make vice` | Launch VICE x128 with the D81 -- **needs True Drive Emulation enabled** (VICE Settings -> Drive, or `x128 -drive8truedrive`); Krill's loader runs drive-side install code (`M-E`/`M-R`) that silently hangs at the "loading assets" screen without it |
+| `make z64k` | Launch [z64k](https://www.z64k.com/) with the D81 (downloads `Z64K.jar` on first use; Java 8+ required) -- a second, independently-implemented C128/VDC emulator, useful when VICE doesn't reproduce a real-hardware issue |
 | `make deploy` | Upload build to primary Ultimate II+ (requires `ULTIP1` in `.env`) |
 | `make deploy2` | Upload to second Ultimate II+ (requires `ULTIP2` in `.env`) |
+| `make deploy3` | Upload build to a real-hardware test machine (requires `ULTIP3` in `.env`) |
 | `make docs` | Regenerate `README.pdf` from `README.md` (requires pandoc) |

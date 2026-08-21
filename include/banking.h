@@ -119,6 +119,25 @@ __noinline bool bnk_load(char device, char bank, const char *start, const char *
 __noinline bool bnk_save(char device, char bank, const char *start, const char *end, const char *fname);
 __noinline void sid_music_init(char is_ntsc);
 __noinline void sid_resetsid();
+__noinline void sid_play_frame_foreground();
+
+// How many "logical frames" a fallback-using caller has entered so far --
+// incremented once per frame boundary by each such caller (raster_bar_begin(),
+// fli_color_demo()'s own loop top), compared against sid_music_framecount
+// (actual plays so far, from EITHER path) by sid_play_frame_foreground()'s
+// own fallback to decide whether the interrupt-driven path has fallen
+// behind. See that function's own comment (banking.c) for the full
+// mechanism and why this replaced an earlier boolean-flag design that got
+// permanently stuck during krill_loadcompd() calls (nothing touches a
+// plain flag during a load -- this counter doesn't need anything to touch
+// it there either, since it simply stops incrementing until a
+// fallback-using caller runs again, and the comparison against
+// sid_music_framecount -- which keeps growing normally during a load --
+// self-corrects with no special-casing needed). Not volatile, matching
+// sid_music_framecount's own existing precedent (also written from both
+// interrupt and foreground context without volatile) -- 6502 has no
+// interrupt re-entrancy to race against once one starts.
+extern unsigned sid_expected_framecount;
 
 // Frame counter incremented once per actual SIDPLAY call inside
 // raster_irq_playframe() (vdc_raster.c) -- used there to restart the tune

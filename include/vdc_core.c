@@ -103,6 +103,13 @@ unsigned multab[72];
 // enabled), with no link to any mode's own timing and no boot-time capture
 // at all. Captured/used the same way as the registers above so "enabled"
 // always restores the real baseline instead of an assumed-universal literal.
+// ROWINC (register 27) added here 2026-08-20, defense-in-depth for
+// VDC_HIRES_640x200_Mono_PANORAMA_R27 (the R27 horizontal-scroll test mode,
+// see that row's own comment) -- that mode's demo function already resets
+// VDCR_ROWINC to 0 explicitly before returning (the primary guarantee), but
+// capturing/restoring it here too matches how every other register this
+// project has ever needed a non-baseline value for is handled, in case a
+// future exit path misses the explicit reset.
 struct VDCBootBaseline
 {
     char captured;
@@ -117,11 +124,12 @@ struct VDCBootBaseline
     char attraddrh;
     char attraddrl;
     char hstart;
+    char rowinc;
 };
 static struct VDCBootBaseline vdc_boot;
 
 // VDC mode settings. Credits to Tokra.
-struct VDCModeSet vdc_modes[20] =
+struct VDCModeSet vdc_modes[21] =
     {
         // VDC_TEXT_80x25_PAL: standard 80x25 text mode, PAL -- this
         // project's default/baseline mode (main() switches here first,
@@ -352,7 +360,37 @@ struct VDCModeSet vdc_modes[20] =
         // just VDC_HIRES_640x200_Mono_PAL's own proven, non-interlaced
         // timing (register row identical to that mode, VDCR_ROWINC never
         // touched).
-        {640, 200, 1, 0, 1, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x26, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x20, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0x7e, VDCR_HSCROLL, 0x07, 255}}};
+        {640, 200, 1, 0, 1, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x26, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x20, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0x7e, VDCR_HSCROLL, 0x07, 255}},
+        // VDC_HIRES_640x200_Mono_PANORAMA_R27: VDC-PANORAMA attempt 3, Phase
+        // 0 -- a fresh, small, isolated test of whether R27 (ROWINC) gives
+        // correct PER-SCANLINE addressing for a bitmap WIDER than the 640px
+        // display, per the C128 Programmer's Reference Guide's own R27
+        // section (user-supplied excerpt, 2026-08-19): "The value in R27 is
+        // used to increment the address of the bit-mapped data from one
+        // scan line to the next" -- i.e. every scanline, not once per
+        // 8-scanline character row as this project's own VSCROLL row above
+        // (and both earlier panorama attempts) assumed. Neither attempt 1
+        // (VDC-FLI's CSIZE=1 toggle trick) nor attempt 2 (CPU shift-and-
+        // refill) nor VSCROLL's own VS_ROWSTRIDE fix actually tested plain
+        // R27 with a wider-than-display stride -- VSCROLL's own stride
+        // always equals the display width (ROWINC=0 either way, so that
+        // fix is uninformative here; see r27_scroll_test_demo()'s own
+        // comment). Same register family/timing as VSCROLL above (non-
+        // interlaced, char_std=0 -- no charset/attribute overhead, frees
+        // VDC RAM for the wide test bitmap); width/height (640,200)
+        // describe the visible WINDOW only, same convention as VSCROLL.
+        //
+        // ROWINC baked directly into this row (0x28 = 40 = R27_STRIDE(120)
+        // - R27_DISPLAY_STRIDE(80), see r27_scroll_test_demo()'s own enum)
+        // rather than a separate post-vdc_init() call -- vdc_set_mode()'s
+        // regset loop applies it automatically like every other register
+        // here. NOT part of VDCBootBaseline's own captured set by default
+        // (added there too now, 2026-08-20, for defense-in-depth -- see
+        // that struct's own comment) -- the demo function's own explicit
+        // vdc_reg_write(VDCR_ROWINC, 0) before returning is the primary
+        // guarantee this doesn't leak forward into later modes the way the
+        // HEND leak once did (memory: rotate_demo_shift_bug).
+        {640, 200, 1, 0, 1, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x26, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x20, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0x7e, VDCR_HSCROLL, 0x07, VDCR_ROWINC, 0x28, 255}}};
 
 char screen_width()
 // Return screenwidth 40 or 80
@@ -381,6 +419,18 @@ void screen_setmode(char mode)
 
 void fastmode(char set)
 // Set (1) or disable (0) fast 2 MHz mode. Set blanks VIC.
+//
+// REVERTED (2026-08-20): a previous edit removed the two $D011 bit-7 pokes
+// below on the theory they corrupted the KERNAL system IRQ's raster-compare
+// line and caused SID "faltering" in bitmap modes. That theory turned out
+// to be wrong -- the faltering was confirmed live to be a WSL2/WSLg VICE
+// timing artifact (native Windows VICE played every mode correctly), not a
+// real bug here. Meanwhile removing the pokes caused a real regression:
+// keypresses stopped registering (confirmed live, could not even get past
+// the hardware-detection screen) -- clearing $D011 bit 7 here is in fact
+// load-bearing for keeping the KERNAL's own raster-compare/IRQ chain (and
+// therefore keyboard scanning) working across repeated fastmode()/mode
+// switches. Restored both pokes.
 {
     if (set)
     {
@@ -588,6 +638,7 @@ static void vdc_reset_boot_registers()
     vdc_reg_write(VDCR_DISP_ADDRL, vdc_boot.dispaddrl);
     vdc_reg_write(VDCR_ATTR_ADDRH, vdc_boot.attraddrh);
     vdc_reg_write(VDCR_ATTR_ADDRL, vdc_boot.attraddrl);
+    vdc_reg_write(VDCR_ROWINC, vdc_boot.rowinc);
 }
 
 void vdc_init(char mode, char extmem)
@@ -611,6 +662,7 @@ void vdc_init(char mode, char extmem)
         vdc_boot.attraddrh = vdc_reg_read(VDCR_ATTR_ADDRH);
         vdc_boot.attraddrl = vdc_reg_read(VDCR_ATTR_ADDRL);
         vdc_boot.hstart = vdc_reg_read(VDCR_HSTART);
+        vdc_boot.rowinc = vdc_reg_read(VDCR_ROWINC);
         vdc_boot.captured = 1;
     }
     else

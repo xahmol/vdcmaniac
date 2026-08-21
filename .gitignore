@@ -5,6 +5,10 @@
 build/
 tools/sidreloc/sidreloc
 
+# z64k emulator -- downloaded on demand by `make z64k`, not vendored
+# (~5MB third-party binary jar, unlike tools/sidreloc/'s vendored source)
+tools/z64k/
+
 # Release ZIPs generated in project root
 vdcmaniac_*.zip
 

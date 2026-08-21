@@ -182,48 +182,52 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 #define MEM_SCREEN 0x4000
 #define MEM_CHARSET 0xC000
 
-// "Maniac" by Paul Kleimeyer, 1983, Access Software Inc. --
-// https://csdb.dk/release/?id=238071 /
-// https://hvsc.csdb.dk/MUSICIANS/K/Kleimeyer_Paul/Maniac.sid -- relocated
-// from its native $7580 (init)/$7587 (play) to this project's target load
-// address via tools/sidreloc (Linus Akesson, MIT license --
+// "Maniac" by Antti Hannula (Flex), 2010, Artline Designs -- a PAL-native
+// composition of the same tune, swapped in for exactly this reason
+// (2026-08-19): the previous tune (Paul Kleimeyer's 1983 original, CIA-
+// timer/NTSC-tempo) needed a software rate accumulator to correct its
+// tempo on PAL hardware, and that accumulator's occasional extra SIDPLAY
+// tick didn't fit in the FLI/MONO sections' own raster-time budget (they
+// hold interrupts disabled for nearly the whole frame) -- audible as the
+// music "playing weirdly" there. This tune needs no such correction at
+// all -- see SID_TUNE_USES_CIA_SPEED below.
+//
+// https://csdb.dk/release/?id=94553 (source release) /
+// https://deepsid.chordian.net/?file=/MUSICIANS/H/Hannula_Antti/Maniac.sid
+// (HVSC copy; also mirrored at https://www.hvsc.c64.org/download/C64Music/
+// MUSICIANS/H/Hannula_Antti/Maniac.sid) -- relocated from its native
+// $1000 (init)/$1003 (play) to this project's target load address via
+// tools/sidreloc (Linus Akesson, MIT license --
 // https://www.linusakesson.net/software/sidreloc/, vendored at
 // tools/sidreloc/, see tools/sidreloc/CREDIT.md):
 //
-//   tools/sidreloc/sidreloc -v -p 20 -z 80-df Maniac.sid maniac_reloc.sid
+//   tools/sidreloc/sidreloc -v -p 20 -z 80-df Maniac.sid maniac_pal_reloc.sid
 //
-// Result: init $2080, play $2087, zero page $fb/$fc -> $80/$81 (clear of
-// both Oscar64's own default zeropage, $f7-$ff, and Krill's loader,
-// $e0-$f5). sidreloc's own emulated verification (~33 simulated minutes of
-// playback): 0% bad pitches, 0% bad pulse widths. assets/music.prg is
-// maniac_reloc.sid's PSID payload with the PSID header stripped (payload
-// already starts with its own 2-byte $2080 load-address prefix, i.e. it's
-// already a valid PRG -- no repacking needed).
+// Result: init $2000, play $2003 (NOT $2080/$2087 like the previous tune
+// -- sidreloc places init/play wherever the tune's own internal layout
+// happens to land within the target page, tune-specific, don't assume it
+// carries over), zero page $fc/$fd -> $80/$81 (clear of both Oscar64's own
+// default zeropage, $f7-$ff, and Krill's loader, $e0-$f5 -- same target
+// window as before). sidreloc's own emulated verification: 0% bad
+// pitches, 0% bad pulse widths. assets/music.prg is maniac_pal_reloc.sid's
+// PSID payload with the PSID header stripped (payload already starts with
+// its own 2-byte $2000 load-address prefix, i.e. it's already a valid PRG
+// -- no repacking needed). assets/musick is the TSCrunch-compressed form,
+// built via the SAME two-step pipeline the previous tune's asset used
+// (reverse-engineered by reproducing it byte-for-byte, since it isn't
+// documented anywhere in this repo or the vendored krill submodule):
 //
-// HISTORY: this exact tune was tried once before this session and
-// abandoned after a crash, then hand-patched (12 unrelocated
-// absolute-address references found and fixed) with the crash still
-// persisting -- at the time this looked like a structural relocation
-// problem sidreloc's own byte-level scan couldn't fully resolve (likely
-// data-table pointers indistinguishable from code), so the project moved
-// to "Faded" (GoatTracker, compiled straight from source, needing no
-// relocation at all) instead, which worked. That diagnosis turned out to
-// be wrong: the actual crash, found once "Faded" was wired in and *still*
-// crashed the same way, was raster_irq_playframe() (vdc_raster.c) living
-// in the main program's ordinary (bank-0-only) code segment instead of the
-// low/common-RAM segment banking.c's krill_init()/sid_music_init()/etc.
-// use -- BNK_1_IO switches to a genuinely different physical 64KB RAM bank,
-// outside the 8KB common-RAM window bnk_init() sets up (xmmu.rcr=0x06,
-// banking.c), so a function's own remaining code physically vanishes the
-// instant it switches banks mid-execution. Fixed by moving
-// raster_irq_playframe() into the bcode1/bdata1/bbss1 segment (see its own
-// comment in vdc_raster.c) plus a defensive `sei` in sid_music_init() --
-// both entirely unrelated to which tune was loaded. With that infrastructure
-// bug fixed, Maniac.sid (this file, unpatched beyond sidreloc's own
-// automated relocation) plays correctly, confirming the original crash was
-// never actually a relocation problem.
-#define SIDINIT 0x2080
-#define SIDPLAY 0x2087
+//   tscrunch -i music.prg music_inplace.prg
+//   perl krill/loader/tools/compressedfileconverter.pl music.prg music_inplace.prg musick
+//
+// (`-i`, not `-p` -- in-place mode's own load-address prefix is what the
+// converter script's default (non-lc) type expects to read and replace;
+// feeding it a headerless `-p` output silently consumes 2 bytes of real
+// compressed data instead. Confirmed by reproducing the previous tune's
+// own committed assets/musick byte-for-byte with this exact pipeline
+// before trusting it for this tune.)
+#define SIDINIT 0x2000
+#define SIDPLAY 0x2003
 
 // Per-tune tempo properties, derived from Maniac.sid's own PSID v2 header
 // (fetched from the HVSC URL above and inspected directly -- the header is
@@ -234,19 +238,21 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 //
 // IMPORTANT for future tune swaps: derive these from the PSID "speed"
 // field (offset 0x12-0x15, one bit per subtune, song 1 = bit 0), NOT the
-// "flags" field's clock-standard bits (offset 0x76-0x77, bits 2-3) -- for
-// Maniac.sid those flags bits read 00/"Unknown", which would give a false
-// negative. The speed field is authoritative: per the PSID v2 spec, a 0
-// bit means "vertical blank interrupt" (the tune follows whatever rate
-// it's called at -- correct on any host, needs SID_TUNE_USES_CIA_SPEED=0
-// and no further tuning), and a 1 bit means "CIA 1 timer interrupt
-// (default 60Hz)" -- the tune drives its own fixed-rate tempo, ignoring
-// the host's actual vsync rate entirely. Maniac.sid's speed field is
-// 0x00000001 (song 1's bit set) -- confirmed CIA-timer tempo, defaulting
-// to NTSC-style 60Hz, matching the prior session's independent by-ear
-// finding that this tune needs NTSC-rate playback.
-#define SID_TUNE_USES_CIA_SPEED 1 // 1=CIA-timer tempo (fixed, needs correction to match); 0=vsync tempo (follows host automatically, SID_TUNE_IS_NTSC below is then irrelevant)
-#define SID_TUNE_IS_NTSC 1        // only meaningful when SID_TUNE_USES_CIA_SPEED==1: which fixed rate the tune's CIA tempo defaults to
+// "flags" field's clock-standard bits (offset 0x76-0x77, bits 2-3) -- see
+// the previous tune's own note here (git history) on why the flags field
+// can give a false negative. The speed field is authoritative: per the
+// PSID v2 spec, a 0 bit means "vertical blank interrupt" (the tune follows
+// whatever rate it's called at -- correct on any host, needs
+// SID_TUNE_USES_CIA_SPEED=0 and no further tuning), and a 1 bit means "CIA
+// 1 timer interrupt" (a fixed rate of its own, ignoring the host's actual
+// vsync rate). This tune's speed field is 0x00000000 (song 1's bit clear)
+// -- confirmed VBI/vsync tempo, the reason it was picked: needs zero rate
+// compensation, so sid_music_init() (banking.c) sets sid_rate_inc=0
+// unconditionally when SID_TUNE_USES_CIA_SPEED==0, and
+// raster_irq_playframe() (vdc_raster.c) then always does exactly one
+// SIDPLAY call per IRQ -- no more occasional double-tick, on any section.
+#define SID_TUNE_USES_CIA_SPEED 0 // 1=CIA-timer tempo (fixed, needs correction to match); 0=vsync tempo (follows host automatically, SID_TUNE_IS_NTSC below is then irrelevant)
+#define SID_TUNE_IS_NTSC 0        // inert while SID_TUNE_USES_CIA_SPEED==0 (this tune) -- only meaningful for a future CIA-timer tune
 
 // References to steering chars
 #define CH_CURS_UP 145    // Petscii control code for Cursor Up
