@@ -33,6 +33,17 @@ Code and resources from others used:
 
     https://github.com/xahmol/vdcmodemania-oscar64/tree/main/original/v12
 
+    Also for "VDC SpectruMania" (2021), used as a reference for VDC
+    Spectrum mode (spectrum_demo()/convert_spectrum()): disassembling his
+    scr-copy.bin conversion routine confirmed it writes no VDC horizontal/
+    vertical timing registers at all, validating vdcmaniac's own choice to
+    reuse VDC_HIRES_640x200_Color_PAL's already-proven timing unchanged
+    rather than inventing new register values. No code or assets from this
+    release are used -- own independent implementation, verified against
+    the disassembly rather than copied from it:
+
+    https://www.tokra.de/c128/vdcspectrumania.zip
+
 -   Michael Kircher: dithering/colour-cell technique (per-8-pixel-cell
     brute-force background/foreground search with Floyd-Steinberg error
     diffusion) studied from his 2011 vdc_quant.c/hfli_quant.c converters,
@@ -40,6 +51,17 @@ Code and resources from others used:
     reference. tools/vdc_convert.py is an independent reimplementation of
     the same published technique (those files carry no license permitting
     reuse of the code itself).
+
+-   GoDot (github.com/godot64/GoDot), a C128 VDC paint/image-processing
+    suite: its "BASIC 8"/iPaint picture-format saver/loader source
+    (savers/s_IPaint.a, savers/s_Basic8Mode1.a, loaders/l_Basic8Select.a)
+    is where the odd/even-interlace-field colour-blend technique
+    `tools/vdc_convert.py`'s `convert_colour_cells_paired()` now defaults
+    to for VDC-IFLI was identified and confirmed (against real
+    disk-bundled iPaint sample pictures' own colour-index bytes, not
+    copied code or reproduced picture content):
+
+    https://github.com/godot64/GoDot/tree/712196dac1916ef6e7993c25e40903e1c531c0d1
 
 Real photographs used as source pictures for the VDC hires-mode showcase
 sections (3 per mode, cycled on keypress -- see main_menu()/fli_color_demo()
@@ -136,6 +158,32 @@ et al in src/main.c), converted via tools/vdc_convert.py:
     (author died 1858). High-resolution scan from The Met's Open Access
     collection (object 56689):
     https://www.metmuseum.org/art/collection/search/56689
+
+-   VDC Spectrum:
+
+    Real ZX Spectrum .scr screen-memory dumps (standard format, not
+    Commodore-specific -- see tools/vdc_convert.py's own convert_spectrum()
+    for the decode). Three real demoscene graphics-competition entries,
+    credited to their own sceners/parties per the demoscene's own
+    reuse-with-credit norm -- sourced via zxart.ee's public API
+    (zxart.ee/api/types:zxPicture/...), not redistributed game screenshots:
+
+    "np" (2015), prof4d, 1st place at CC Winter - DiHalt Lite 2015:
+    https://zxart.ee/eng/authors/p/prof4d/np8/
+
+    "Prisoner of Time" (2001), PheeL, 1st place at Chaos Constructions 2001:
+    https://zxart.ee/eng/authors/p/pheel/prisoner-of-time/
+
+    "Cursed Eighth" (2010), Piesiu, 1st place at the Chaos Constructions
+    2010 ZX Graphics compo:
+    https://zxart.ee/eng/authors/p/piesiu/cursed-eighth/
+
+    The odd/even-field colour-blend technique VDC-IHFLI/VDC-ITFLI's own
+    converter now defaults to (tools/vdc_convert.py's
+    convert_colour_cells_paired()) was confirmed against real disk-bundled
+    "iPaint" (BASIC 8) sample pictures during the same research pass --
+    colour-index statistics only, no copyrighted picture content
+    reproduced. See project history/TODO.md for the fuller writeup.
 
 -   Scott Hutter - VDC Core functions inspiration:
 

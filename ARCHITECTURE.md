@@ -33,35 +33,71 @@ main_menu()                   // loops until ESC/STOP or "End demo + credits"
 menu_end_demo() -> demo_end_screen()   // never returns
 ```
 
-`main_menu()` presents 11 selectable sections, any order, any number of
-times (`menu_entries[]` is the single source of truth for the list):
+`main_menu()` presents 8 selectable sections, any order, any number of
+times (`menu_entries[]` is the single source of truth for the list). Row
+budget is constrained by the raster-highlight sweep's own practical
+ceiling (see `vdcmaniac_menu_raster_highlight` project memory), which is
+why the original 6 individual photo-mode rows are grouped into 3 here:
 
 | Key | Section | Function |
 |---|---|---|
-| 1 | VDC-FLI (480x252, colour 8x1 cells) | `fli_color_demo()` |
-| 2 | VDC-HFLI (640x400, colour 8x2 cells) | `fli_hfli_demo()` |
-| 3 | VDC-IHFLI (640x480, interlace, colour 8x2) | `fli_ihfli_demo()` |
-| 4 | VDC-ITFLI (640x576, interlace, colour 8x3) | `fli_itfli_demo()` |
-| 5 | VDC-IMONO (720x700, interlace mono) | `mono_hires_xl_demo()` |
-| 6 | VDC-IM800 (800x600, interlace mono) | `mono_im800_demo()` |
-| 7 | Plasma effect | `menu_plasma_demo()` -> `plasma_demo()` |
-| 8 | Colour rotation effect | `menu_rotate_demo()` -> `rotate_demo()` |
-| 9 | Raster bar placement test | `raster_place_test()` |
-| 0 | VDC-VSCROLL (640x200 window, scripted hires scroll) | `vscroll_demo()` |
+| 1 | VDC-FLI (480x252/640x400, colour, non-interlace: FLI+HFLI) | `menu_fli_family()` |
+| 2 | VDC-IFLI (640x480/640x576, colour, interlace: IHFLI+ITFLI) | `menu_ifli_family()` |
+| 3 | VDC-mono (720x700/800x600, mono, interlace: IMONO+IM800) | `menu_mono_family()` |
+| 4 | Plasma effect | `menu_plasma_demo()` -> `plasma_demo()` |
+| 5 | Colour rotation effect | `menu_rotate_demo()` -> `rotate_demo()` |
+| 6 | VDC-VSCROLL (640x200 window, scripted hires scroll) | `vscroll_demo()` |
+| 7 | VDC Spectrum (256x192, real ZX Spectrum pictures) | `spectrum_demo()` |
 | E | End demo + credits | `menu_end_demo()` -> `credits_screen()` |
 
-### Picture showcase sections (keys 1-6)
+Raster bar placement test (the original key `9`) is no longer a menu row
+at all — it's a diagnostic, not a showcase mode, and is now reachable
+only via a `T` keypress handled as a special case in `main_menu()`'s own
+key-handling loop (alongside ESC/STOP), not through `menu_entries[]`.
+
+### Picture showcase sections (keys 1-3, 7)
 
 `fli_color_demo()`, `fli_hfli_demo()`, `fli_ihfli_demo()`,
-`fli_itfli_demo()`, `mono_hires_xl_demo()`, `mono_im800_demo()` all follow
-the same shape: blank -> `vdc_mode_info_screen()` (text-mode info/credit
-screen) -> `krill_loadcompd()` the picture into Bank 1 staging -> blank ->
+`fli_itfli_demo()`, `mono_hires_xl_demo()`, `mono_im800_demo()`,
+`spectrum_demo()` all follow the same shape: blank ->
+`vdc_mode_info_screen()` (text-mode info/credit screen) ->
+`krill_loadcompd()` the picture into Bank 1 staging -> blank ->
 `vdc_init()` the mode -> `bnk_cpytovdc()` into VDC memory -> enable
-display -> wait for a keypress, cycling 3 real photos per section. Source
-images live in `assets/source/*.jpg`, converted via
+display -> wait for a keypress, cycling 3 real photos per section.
+`menu_fli_family()`/`menu_ifli_family()`/`menu_mono_family()` are thin
+wrappers chaining two of these section functions back-to-back under one
+menu row each. Source images live in `assets/source/*.jpg` (or `*.scr`
+for VDC Spectrum's real ZX Spectrum screen dumps), converted via
 `tools/vdc_convert.py`, TSCrunch-compressed per `krill_manual.md`. Full
 attribution/licence for every photo is in `include/defines.h`'s own
 credit block.
+
+Every colour-cell mode's own per-cell attribute byte packs as
+`(background<<4)|foreground` -- background in the high nibble,
+foreground in the low nibble. This is the VDC's own real hardware
+convention for its bitmap attribute plane, distinct from
+`VDCR_COLOR`/register 26 (a separate, single global register with its
+own format) -- see project memory `vdcmaniac_attribute_byte_nibble_order`
+if this ever needs revisiting for a new mode.
+
+VDC-IHFLI/VDC-ITFLI's own colour-cell conversion
+(`convert_colour_cells_paired()` in `tools/vdc_convert.py`) defaults to a
+joint even/odd-field search: it picks, per cell, between
+each field independently choosing its own best colour pair, or a shared
+background with independently-blended foregrounds per field -- the
+latter fakes shades beyond the native 16-colour VDC palette via real
+interlace persistence, the same technique the C128 "BASIC 8"/iPaint
+picture format uses (credited in `defines.h`, confirmed against real
+sample files' colour-index bytes). A dedicated BASIC8/iPaint showcase
+mode was considered and dropped once this technique was absorbed
+directly into the existing converter -- see `TODO.md`.
+
+VDC Spectrum (`spectrum_demo()`/`convert_spectrum()`) deliberately reuses
+`VDC_HIRES_640x200_Color_PAL`'s own already-proven timing unchanged --
+no new `vdc_modes[]` row -- pixel-doubling the Spectrum's 256x192 picture
+to 512 VDC pixels wide and centring it, verified against Tokra's own "VDC
+SpectruMania" reference (credited in `defines.h`) to be the same category
+of choice his own implementation makes.
 
 `mono_im960_demo()` (VDC-IM960, 960x540) and `mono_colorize_demo()` exist
 in the codebase but are never called — IM960 doesn't render correctly

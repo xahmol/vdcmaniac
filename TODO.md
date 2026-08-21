@@ -6,14 +6,6 @@ records for history. Items below are grouped by whether they block release.
 
 ## Before release
 
-- [ ] **Full live playtest of all 6 modes / 18 photos.** Automated
-  verification (VICE keyboard-feed + `display_get()` screenshots) covered
-  FLI byte-exact and confirmed the menu renders; the other 5 modes follow
-  the same proven wiring pattern but haven't each been individually
-  live-confirmed end to end by eye. Photo fixes since (Kelly Lee
-  Owens/Maupi crops, poppy/lavender field swaps, ITFLI rose->Utrecht,
-  FLI colour-destination bug) suggest this is substantially advanced —
-  needs one clean pass through the whole menu to confirm nothing's left.
 - [ ] **Joystick input not independently hardware-tested.** Wired
   demo-wide (`joy_poll()`, port 2) and structurally identical to the
   proven keyboard path, but never exercised with real joystick hardware
@@ -26,6 +18,12 @@ records for history. Items below are grouped by whether they block release.
   while a scan is mid-flight could in principle register as a phantom
   keypress. Mitigated (joystick only trusted as fallback when
   `keyb_key == 0`) but not live-stress-tested.
+- [ ] **Live playtest still owed for the un-grouped menu entries** (Plasma
+  effect, Colour rotation effect, VDC-VSCROLL). The main menu's other five
+  entries (VDC-FLI, VDC-IFLI, VDC-mono, VDC Spectrum, End demo) are all
+  individually live-confirmed correct end to end (real hardware/VICE/z64k);
+  these three weren't touched by the recent restructuring and haven't been
+  independently re-checked since.
 
 ## Before release (continued)
 
@@ -50,6 +48,71 @@ records for history. Items below are grouped by whether they block release.
   hand-rolled directly in `main.c` instead. `vdc_win.c`, `vdc_softscroll.c`,
   and `vdc_textscroller.c` are now all wired in and actively used
   (`vdcwin_checkch()` demo-wide, `credits_screen()`'s own panner/scroller).
+
+## Colour-cell attribute byte convention
+
+Every colour-cell showcase mode (VDC-FLI, VDC-HFLI, VDC-IHFLI, VDC-ITFLI,
+VDC Spectrum) packs its per-cell attribute bytes as
+`(background<<4)|foreground` — background in the high nibble, foreground
+in the low nibble. This is the VDC's own real hardware convention for its
+bitmap attribute plane, distinct from `VDCR_COLOR`/register 26 (a
+separate, single global register with its own, different format).
+Confirmed by live testing across real hardware, VICE, and z64k on all
+five modes. If a future colour-cell mode is ever added, use this
+convention by default — see project memory
+`vdcmaniac_attribute_byte_nibble_order.md` for the full diagnostic
+writeup and a methodology note on why a purely self-consistent
+encode/decode test cannot validate a hardware-interface convention like
+this one.
+
+## Future modes: BASIC8/iPaint dropped, VDC Spectrum done
+
+- **BASIC 8 / iPaint picture format support — not planned.** Real,
+  implementable spec is documented (18-byte `BRUS` header, RLE scheme,
+  mode 0/1/2 geometry, odd/even-interlace-field colour cells — see project
+  memory `vdcmaniac_basic8_ipaint_spectrum_formats.md` for the full
+  reference if revisited). Not pursued as a showcase mode because it adds
+  no capability this project doesn't already have: its one genuinely new
+  technique (shared background, independently-blended foreground per
+  interlace field, for shades beyond the native 16-colour palette) is
+  already `tools/vdc_convert.py`'s own default for VDC-IFLI
+  (`convert_colour_cells_paired()`), and BASIC8 mode 1's own geometry
+  matches VDC-IHFLI at a lower resolution (640x400 vs 640x480). If ever
+  revisited, treat it as a lightweight "decode a real unconverted iPaint
+  file" curiosity, not a peer of the other photo modes.
+- **VDC Spectrum — implemented.** `spectrum_demo()` (`src/main.c`) and
+  `convert_spectrum()` (`tools/vdc_convert.py`), menu key `'7'`. Decodes
+  real ZX Spectrum `.scr` screen dumps (6912 bytes: 6144 bitmap + 768
+  attribute, the standard well-documented format) into vdcmaniac's own VDC
+  output, TSCrunch-compressed and loaded via `krill_loadcompd()` the same
+  as every other picture section. Reuses `VDC_HIRES_640x200_Color_PAL`'s
+  own already-proven timing unchanged — no new `vdc_modes[]` row, no new
+  horizontal-timing register values (confirmed via disassembly that
+  Tokra's own "VDC SpectruMania" reference does the same: zero writes to
+  any VDC timing register, only bitmap/attribute addressing). The
+  Spectrum's 256x192 picture is pixel-doubled to 512 VDC pixels wide,
+  centred with an 8-char border each side and one blank top char row, with
+  a direct dim/bright Spectrum-to-VDC palette mapping (`SPECTRUM_TO_VDC`
+  table) and flat 8x8 attribute cells — a colour granularity this project
+  didn't have before (existing range was 8x1 FLI up to 8x3 ITFLI). Needed
+  `#pragma heapsize(0)` in `main.c` once total code/data growth hit
+  Oscar64's "error 3034: Cannot place heap section" (documented fix, see
+  `oscar64manual.md`'s own gotcha entry — nothing in this project uses the
+  heap). Three real demoscene graphics-competition entries used (not
+  Tokra's own bundled game screenshots, which remain licensing-uncertain
+  and unused): "np" (prof4d, DiHalt Lite 2015), "Prisoner of Time" (PheeL,
+  Chaos Constructions 2001), "Cursed Eighth" (Piesiu, Chaos Constructions
+  2010), sourced via zxart.ee's public API and credited by scener/party in
+  `defines.h` per the demoscene's own reuse-with-credit norm (not a formal
+  CC licence like the rest of the photo roster). Live-confirmed working
+  end to end.
+- **VDC Spectrum's own two other display modes** (256x192 "double-pixel-
+  width" via an unproven hardware pixel-doubling trick, and the 512x384
+  4-in-1 multisync mode) were NOT pursued — the implemented mode
+  ("standard-pixel-width", storing literal doubled data) was deliberately
+  chosen as the low-risk option needing no new/unproven VDC timing.
+  Revisit only if there's a specific reason to want the other two modes'
+  own tradeoffs.
 
 ## Explicitly out of scope (won't do)
 

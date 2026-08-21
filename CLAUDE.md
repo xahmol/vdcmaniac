@@ -15,13 +15,19 @@ own asset loader, and its own sourced/credited artwork throughout (see
 `include/defines.h`'s own credit block — none of Tokra's original
 converted images are used).
 
-Menu-driven: `main_menu()` presents 11 selectable sections (any order, any
-number of times) — six real-photo VDC colour-mode showcases (VDC-FLI,
--HFLI, -IHFLI, -ITFLI, -IMONO, -IM800), two procedural effects (plasma,
-colour rotation), a raster-bar placement diagnostic, a scripted vertical
-scroll (VDC-VSCROLL), and "End demo + credits". Before the menu, `main()`
-runs a fixed intro sequence once: system diagnostics (PAL/NTSC, VDC
-revision, 64KB check), an idi8b logo section, and a title screen.
+Menu-driven: `main_menu()` presents 8 selectable sections (any order, any
+number of times) — three grouped real-photo VDC colour-mode showcases
+(VDC-FLI: FLI+HFLI non-interlace; VDC-IFLI: IHFLI+ITFLI interlace;
+VDC-mono: IMONO+IM800, each entry cycling every photo from both of its
+component modes), a real-ZX-Spectrum-picture showcase (VDC Spectrum), two
+procedural effects (plasma, colour rotation), a scripted vertical scroll
+(VDC-VSCROLL), and "End demo + credits". The raster-bar placement
+diagnostic isn't in this list — it's reachable only via a `T` keypress,
+handled as a special case alongside ESC/STOP rather than through
+`menu_entries[]` (see `vdcmaniac_menu_raster_highlight` project memory
+for why the row budget is constrained). Before the menu, `main()` runs a
+fixed intro sequence once: system diagnostics (PAL/NTSC, VDC revision,
+64KB check), an idi8b logo section, and a title screen.
 
 ## Build commands
 
@@ -72,16 +78,30 @@ rebuild otherwise).
   in what order it's listed.
 - Picture showcase sections (`fli_color_demo()`, `fli_hfli_demo()`,
   `fli_ihfli_demo()`, `fli_itfli_demo()`, `mono_hires_xl_demo()`
-  (VDC-IMONO), `mono_im800_demo()`) all follow the same shape: blank →
-  show an info/credit screen (`vdc_mode_info_screen()`) → `krill_loadcompd()`
-  the picture into Bank 1 staging → blank → `vdc_init()` the mode →
-  `bnk_cpytovdc()` the picture into VDC memory → enable display → wait for
-  a keypress, cycling 3 photos per section (see `include/defines.h`'s
-  credit block for sources/licences). `mono_im960_demo()` and
-  `mono_colorize_demo()` exist but are intentionally not called anywhere
-  (IM960 doesn't render correctly without RGBtoHDMI hardware; colorize's
-  own keypress-detection mechanism was never fixed) — left in place for
-  possible future real-hardware use, not menu-wired.
+  (VDC-IMONO), `mono_im800_demo()`, `spectrum_demo()`) all follow the same
+  shape: blank → show an info/credit screen (`vdc_mode_info_screen()`) →
+  `krill_loadcompd()` the picture into Bank 1 staging → blank →
+  `vdc_init()` the mode → `bnk_cpytovdc()` the picture into VDC memory →
+  enable display → wait for a keypress, cycling 3 photos per section (see
+  `include/defines.h`'s credit block for sources/licences).
+  `menu_fli_family()`/`menu_ifli_family()`/`menu_mono_family()` (just
+  above `menu_entries[]`) are thin wrappers chaining two of these
+  section functions back-to-back under one menu row each, keeping the
+  FLI- and mono-family showcases within the raster-highlight sweep's own
+  row budget; a dedicated BASIC8/iPaint showcase mode was considered and
+  dropped instead (see TODO.md — its one genuinely new technique,
+  odd/even-field colour blending, is now `tools/vdc_convert.py`'s own
+  default for VDC-IFLI). `mono_im960_demo()`
+  and `mono_colorize_demo()` exist but are intentionally not called
+  anywhere (IM960 doesn't render correctly without RGBtoHDMI hardware;
+  colorize's own keypress-detection mechanism was never fixed) — left in
+  place for possible future real-hardware use, not menu-wired.
+- `spectrum_demo()`/`convert_spectrum()` (VDC Spectrum): decodes real ZX
+  Spectrum `.scr` screen dumps into flat 8x8 colour-attribute cells,
+  reusing `VDC_HIRES_640x200_Color_PAL`'s own timing unchanged (pixel-
+  doubled and centred, not a new `vdc_modes[]` row) — see `defines.h`'s
+  credit block for the Tokra/VDC-SpectruMania reference this was verified
+  against, and the three real demoscene picture credits.
 - `plasma_demo()`/`init_plasma()` render a classic sine-table plasma
   directly into VDC hires bitmap memory, recalculating per-pixel colour
   from two independently-scrolling sine offsets each frame.

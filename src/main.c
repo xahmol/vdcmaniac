@@ -19,6 +19,15 @@
 #include "vdc_softscroll.h"
 #include "krill.h"
 
+// Nothing in this program allocates from the heap (no malloc/calloc/
+// realloc anywhere in main.c or the libraries it uses) -- added
+// 2026-08-21 when spectrum_demo()'s own code/data growth pushed the
+// build over "error 3034: Cannot place heap section". Per
+// oscar64manual.md's own documented gotcha, this (not a hand-copied
+// #pragma region override) is the safe fix: it just tells oscar64 not to
+// reserve heap space, leaving its own default region inference untouched.
+#pragma heapsize(0)
+
 // Buffer for attribute screen calculations
 char Screen[4000];
 
@@ -1316,7 +1325,35 @@ void mono_colorize_demo()
 	vdc_wipe_transition();
 }
 
-void fli_color_demo()
+char wait_keypress_or_fire()
+// Drains any already-buffered keypress, then waits for a fresh keypress
+// or joystick fire -- the common "advance to next picture" wait every
+// picture-showcase section's own pic-cycle loop uses. Returns the actual
+// key code (0 if woken by joystick fire instead of a real key), so
+// callers can check for CH_ESC/CH_STOP to return to the main menu from
+// mid-section instead of only ever advancing to the next picture -- see
+// each call site's own `if (key == CH_ESC || key == CH_STOP) return;`
+// right after.
+{
+	char key;
+
+	while (vdcwin_checkch())
+	{
+	}
+	do
+	{
+		joy_poll(0);
+		key = vdcwin_checkch();
+	} while (key == 0 && !joyb[0]);
+	return key;
+}
+
+char fli_color_demo()
+// Returns 1 if the user exited early (STOP/ESC/error), 0 if all 3
+// pictures ran to completion -- menu_fli_family() checks this to decide
+// whether to continue on to fli_hfli_demo() or also return to the menu
+// instead of blindly chaining into it regardless.
+//
 // Showcases VDC-FLI (480x252, 8x1 colour cells, non-interlace) -- the
 // simplest of Tokra's colour modes to add ("VDC Mode Mania", see
 // original/v12/ and the credits in defines.h), since it needs no genuine
@@ -1381,7 +1418,7 @@ void fli_color_demo()
 		vdc_init(VDC_HIRES_480x252_Color_PAL, 1);
 		if (!vdc_state.bitmap)
 		{
-			return;
+			return 1;
 		}
 
 		// Blanked for the VDC push below -- vdc_init() already re-enabled
@@ -1518,6 +1555,24 @@ void fli_color_demo()
 				joy_poll(0);
 			}
 		} while (keyb_key == 0 && !joyb[0]);
+
+		// STOP returns to the main menu immediately instead of only ever
+		// advancing to the next picture, same as every other picture-
+		// showcase section. STOP only, not ESC too, here specifically:
+		// this loop reads the keyboard
+		// via keyb_poll()'s own raw CIA1 matrix scan (see this function's
+		// own comment above for why), whose KeyScanCode enum
+		// (c64/keyboard.h) has no KSCAN_ESC at all -- key_pressed() is a
+		// direct matrix-state read (safe to call right after keyb_poll(),
+		// no new SEI/timing exposure), unlike every other picture-
+		// showcase section's PETSCII-based CH_ESC/CH_STOP check.
+		if (key_pressed(KSCAN_STOP))
+		{
+			vdc_wipe_transition();
+			vdc_reg_write(VDCR_HDISPLAY, old_hdisplay);
+			vdc_reg_write(VDCR_HSYNC, old_hsync);
+			return 1;
+		}
 	}
 
 	// Wipe right as the keypress that ends this section is detected -- see
@@ -1530,9 +1585,13 @@ void fli_color_demo()
 	// narrower 60-character timing.
 	vdc_reg_write(VDCR_HDISPLAY, old_hdisplay);
 	vdc_reg_write(VDCR_HSYNC, old_hsync);
+	return 0;
 }
 
-void fli_ihfli_demo()
+char fli_ihfli_demo()
+// Returns 1 if the user exited early (ESC/STOP/error), 0 on normal
+// completion -- see fli_color_demo()'s own comment for why.
+//
 // Showcases VDC-IHFLI (640x480, interlace, 8x2 colour cells, near-NTSC --
 // see original/v12/ and vdc_modes[]'s own row comment in vdc_core.c).
 // Genuinely interlaced dual-field encoding: separate top/bottom bitmap AND
@@ -1563,6 +1622,7 @@ void fli_ihfli_demo()
 	static const char *be_names[3] = {"ihfli1bek", "ihfli2bek", "ihfli3bek"};
 	static const char *bo_names[3] = {"ihfli1bok", "ihfli2bok", "ihfli3bok"};
 	char pic;
+	char key;
 
 	for (pic = 0; pic < 3; pic++)
 	{
@@ -1583,7 +1643,7 @@ void fli_ihfli_demo()
 		vdc_init(VDC_HIRES_640x480_IHFLI_NTSC, 1);
 		if (!vdc_state.bitmap)
 		{
-			return;
+			return 1;
 		}
 
 		// Blanked for the four interleaved load+push pairs below -- see
@@ -1616,22 +1676,24 @@ void fli_ihfli_demo()
 
 		vdc_enable_display();
 
-		while (vdcwin_checkch())
+		// ESC/STOP returns to the main menu immediately instead of only
+		// advancing to the next picture -- see wait_keypress_or_fire()'s
+		// own comment.
+		key = wait_keypress_or_fire();
+		if (key == CH_ESC || key == CH_STOP)
 		{
+			vdc_wipe_transition();
+			return 1;
 		}
-
-		do
-		{
-			joy_poll(0);
-		} while (!vdcwin_checkch() && !joyb[0]);
 	}
 
 	// Wipe right as the keypress that ends this section is detected -- see
 	// init_plasma()'s comment.
 	vdc_wipe_transition();
+	return 0;
 }
 
-void fli_itfli_demo()
+char fli_itfli_demo()
 // Showcases VDC-ITFLI (640x576, interlace, 8x3 colour cells, near-PAL --
 // see original/v12/). Same dual-field structure as VDC-IHFLI above, just
 // PAL-tuned timing and taller (8x3 cells) -- tightest fit of the whole
@@ -1650,6 +1712,7 @@ void fli_itfli_demo()
 	static const char *be_names[3] = {"itfli1bek", "itfli2bek", "itfli3bek"};
 	static const char *bo_names[3] = {"itfli1bok", "itfli2bok", "itfli3bok"};
 	char pic;
+	char key;
 
 	for (pic = 0; pic < 3; pic++)
 	{
@@ -1670,7 +1733,7 @@ void fli_itfli_demo()
 		vdc_init(VDC_HIRES_640x576_ITFLI_PAL, 1);
 		if (!vdc_state.bitmap)
 		{
-			return;
+			return 1;
 		}
 
 		// Blanked for the four interleaved load+push pairs below -- see
@@ -1703,22 +1766,27 @@ void fli_itfli_demo()
 
 		vdc_enable_display();
 
-		while (vdcwin_checkch())
+		// ESC/STOP returns to the main menu immediately instead of only
+		// advancing to the next picture -- see wait_keypress_or_fire()'s
+		// own comment.
+		key = wait_keypress_or_fire();
+		if (key == CH_ESC || key == CH_STOP)
 		{
+			vdc_wipe_transition();
+			return 1;
 		}
-
-		do
-		{
-			joy_poll(0);
-		} while (!vdcwin_checkch() && !joyb[0]);
 	}
 
 	// Wipe right as the keypress that ends this section is detected -- see
 	// init_plasma()'s comment.
 	vdc_wipe_transition();
+	return 0;
 }
 
-void fli_hfli_demo()
+char fli_hfli_demo()
+// Returns 1 if the user exited early (ESC/STOP/error), 0 on normal
+// completion -- see fli_color_demo()'s own comment for why.
+//
 // Showcases VDC-HFLI (640x400, non-interlace, 8x2 colour cells -- see
 // original/v12/). Simplest of the three remaining colour modes -- single
 // static bitmap+colour plane, no dual-field encoding, no per-frame CSIZE
@@ -1734,6 +1802,7 @@ void fli_hfli_demo()
 	static const char *bitnames[3] = {"hfli1btk", "hfli2btk", "hfli3btk"};
 	static const char *colnames[3] = {"hfli1clk", "hfli2clk", "hfli3clk"};
 	char pic;
+	char key;
 
 	for (pic = 0; pic < 3; pic++)
 	{
@@ -1754,7 +1823,7 @@ void fli_hfli_demo()
 		vdc_init(VDC_HIRES_640x400_HFLI_PAL, 1);
 		if (!vdc_state.bitmap)
 		{
-			return;
+			return 1;
 		}
 
 		// Blanked for the two load+push pairs below -- see title_screen()'s
@@ -1772,14 +1841,105 @@ void fli_hfli_demo()
 
 		vdc_enable_display();
 
-		while (vdcwin_checkch())
+		// ESC/STOP returns to the main menu immediately instead of only
+		// advancing to the next picture -- see wait_keypress_or_fire()'s
+		// own comment.
+		key = wait_keypress_or_fire();
+		if (key == CH_ESC || key == CH_STOP)
 		{
+			vdc_wipe_transition();
+			return 1;
+		}
+	}
+
+	// Wipe right as the keypress that ends this section is detected -- see
+	// init_plasma()'s comment.
+	vdc_wipe_transition();
+	return 0;
+}
+
+void spectrum_demo()
+// Showcases VDC Spectrum -- real ZX Spectrum .scr screen dumps (256x192,
+// 8x8 flat colour-attribute cells, one colour pair per WHOLE character
+// cell, no sub-cell splitting at all) displayed on the VDC. Genuinely new
+// colour granularity for this project's showcase modes -- coarser than
+// anything else here (existing range is 8x1 FLI up to 8x3 ITFLI).
+//
+// Deliberately reuses VDC_HIRES_640x200_Color_PAL's own already-proven
+// timing completely unchanged -- no new vdc_modes[] row. Confirmed this
+// matches Tokra's own "VDC SpectruMania" reference too (credited in
+// defines.h): disassembling his scr-copy.bin shows zero writes to any
+// VDC horizontal/vertical timing register (0-9) anywhere, only bitmap/
+// attribute *addressing* -- his own "double/standard-pixel-width" modes
+// run inside the C128's unchanged boot-time VDC mode, not a genuinely
+// narrower display. No code from that release is used here, only the
+// disassembly-verified approach. This section does the same:
+// tools/vdc_convert.py's convert_spectrum() pixel-doubles the
+// Spectrum's own 256x192 picture to 512 VDC pixels wide, centred with an
+// 8-character blank border each side and one blank top character row --
+// see its own docstring for the full layout.
+//
+// Real demoscene graphics-competition entries, not the format's own
+// bundled game screenshots (see defines.h's credit block for scener/
+// party attribution -- the demoscene's own reuse-with-credit norm, not a
+// formal CC licence like the rest of this project's photo roster).
+{
+	static const char *descr[3] = {
+		"\"np\", prof4d, DiHalt Lite 2015",
+		"\"Prisoner of Time\", PheeL, Chaos Constructions 2001",
+		"\"Cursed Eighth\", Piesiu, Chaos Constructions 2010",
+	};
+	// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
+	// KRILL_COMPRESSED_ASSETS comment.
+	static const char *bitnames[3] = {"spec1btk", "spec2btk", "spec3btk"};
+	static const char *colnames[3] = {"spec1clk", "spec2clk", "spec3clk"};
+	char pic;
+	char key;
+
+	for (pic = 0; pic < 3; pic++)
+	{
+		vdc_wipe_transition();
+
+		vdc_mode_info_screen("VDC Spectrum", "256 x 192 ZX Spectrum picture, doubled to 512x192", "colour resolution: 8x8 (flat, whole-cell)", descr[pic], 0);
+
+		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, bitnames[pic]))
+		{
+			printf("krill loadcompd failed: %s\n", bitnames[pic]);
+			exit(1);
 		}
 
-		do
+		vdc_wipe_transition();
+
+		vdc_init(VDC_HIRES_640x200_Color_PAL, 1);
+		if (!vdc_state.bitmap)
 		{
-			joy_poll(0);
-		} while (!vdcwin_checkch() && !joyb[0]);
+			return;
+		}
+
+		// Blanked for the two load+push pairs below -- see title_screen()'s
+		// own comment on this same general fix (2026-08-19).
+		vdc_disable_display();
+
+		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 16000);
+
+		if (krill_loadcompd(BNK_1_IO, MEM_SCREEN, colnames[pic]))
+		{
+			printf("krill loadcompd failed: %s\n", colnames[pic]);
+			exit(1);
+		}
+		bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 2000);
+
+		vdc_enable_display();
+
+		// ESC/STOP returns to the main menu immediately instead of only
+		// advancing to the next picture -- see wait_keypress_or_fire()'s
+		// own comment.
+		key = wait_keypress_or_fire();
+		if (key == CH_ESC || key == CH_STOP)
+		{
+			vdc_wipe_transition();
+			return;
+		}
 	}
 
 	// Wipe right as the keypress that ends this section is detected -- see
@@ -1843,7 +2003,10 @@ char mono_color_cycle_wait()
 	}
 }
 
-void mono_hires_xl_demo()
+char mono_hires_xl_demo()
+// Returns 1 if the user exited early (ESC/STOP/error), 0 on normal
+// completion -- see fli_color_demo()'s own comment for why.
+//
 // Showcases VDC-IMONO (720x700, interlace monochrome -- see original/v12/).
 // Mechanism 2 (raster_music_irq_start()'s CIA1 hardware IRQ) was dropped
 // from this demo entirely, see mono_colorize_demo()'s comment in main():
@@ -1875,6 +2038,7 @@ void mono_hires_xl_demo()
 	static const char *ev_names[3] = {"imono1evk", "imono2evk", "imono3evk"};
 	static const char *od_names[3] = {"imono1odk", "imono2odk", "imono3odk"};
 	char pic;
+	char key;
 
 	// HDISPLAY/HSYNC/SYNCSIZE (registers 1/2/3) aren't part of any other
 	// mode's vdc_modes[] row (see the identical comment in fli_color_demo());
@@ -1907,7 +2071,7 @@ void mono_hires_xl_demo()
 		vdc_init(VDC_HIRES_720x700_Mono_PAL, 1);
 		if (!vdc_state.bitmap)
 		{
-			return;
+			return 1;
 		}
 
 		// Blanked for the two load+push pairs below -- see title_screen()'s
@@ -1940,8 +2104,21 @@ void mono_hires_xl_demo()
 		}
 
 		// See mono_color_cycle_wait()'s own comment: +/-/= cycle the
-		// picture's colour, any other key advances to the next picture.
-		mono_color_cycle_wait();
+		// picture's colour, any other key advances to the next picture --
+		// ESC/STOP specifically returns to the main menu immediately
+		// instead, same as every other picture-showcase section.
+		key = mono_color_cycle_wait();
+		if (key == CH_ESC || key == CH_STOP)
+		{
+			vdc_wipe_transition();
+			// Restore HDISPLAY/HSYNC/SYNCSIZE before the early return too
+			// -- see the comment above, this mode's own 90-character
+			// timing must never leak into whatever runs next.
+			vdc_reg_write(VDCR_HDISPLAY, old_hdisplay);
+			vdc_reg_write(VDCR_HSYNC, old_hsync);
+			vdc_reg_write(VDCR_SYNCSIZE, old_syncsize);
+			return 1;
+		}
 	}
 
 	// Wipe right as the keypress that ends this section is detected -- see
@@ -1954,9 +2131,13 @@ void mono_hires_xl_demo()
 	vdc_reg_write(VDCR_HDISPLAY, old_hdisplay);
 	vdc_reg_write(VDCR_HSYNC, old_hsync);
 	vdc_reg_write(VDCR_SYNCSIZE, old_syncsize);
+	return 0;
 }
 
-void mono_im800_demo()
+char mono_im800_demo()
+// Returns 1 if the user exited early (ESC/STOP/error), 0 on normal
+// completion -- see fli_color_demo()'s own comment for why.
+//
 // Showcases VDC-IM800 (800x600, interlace, monochrome -- see original/v12/).
 // Tokra's own readme note: needs a monitor that can squeeze the image on
 // real hardware -- a Commodore 1901 "cannot squeeze horizontally, so you
@@ -1982,6 +2163,7 @@ void mono_im800_demo()
 	static const char *ev_names[3] = {"im8001evk", "im8002evk", "im8003evk"};
 	static const char *od_names[3] = {"im8001odk", "im8002odk", "im8003odk"};
 	char pic;
+	char key;
 
 	char old_hdisplay = vdc_reg_read(VDCR_HDISPLAY);
 	char old_hsync = vdc_reg_read(VDCR_HSYNC);
@@ -2006,7 +2188,7 @@ void mono_im800_demo()
 		vdc_init(VDC_HIRES_800x600_IM800_PAL, 1);
 		if (!vdc_state.bitmap)
 		{
-			return;
+			return 1;
 		}
 
 		// Blanked for the two load+push pairs below -- see title_screen()'s
@@ -2029,8 +2211,21 @@ void mono_im800_demo()
 		}
 
 		// See mono_color_cycle_wait()'s own comment: +/-/= cycle the
-		// picture's colour, any other key advances to the next picture.
-		mono_color_cycle_wait();
+		// picture's colour, any other key advances to the next picture --
+		// ESC/STOP specifically returns to the main menu immediately
+		// instead, same as every other picture-showcase section.
+		key = mono_color_cycle_wait();
+		if (key == CH_ESC || key == CH_STOP)
+		{
+			vdc_wipe_transition();
+			// Restore HDISPLAY/HSYNC/SYNCSIZE before the early return too
+			// -- see the comment above, this mode's own 100-character
+			// timing must never leak into whatever runs next.
+			vdc_reg_write(VDCR_HDISPLAY, old_hdisplay);
+			vdc_reg_write(VDCR_HSYNC, old_hsync);
+			vdc_reg_write(VDCR_SYNCSIZE, old_syncsize);
+			return 1;
+		}
 	}
 
 	// Wipe right as the keypress that ends this section is detected -- see
@@ -2042,6 +2237,7 @@ void mono_im800_demo()
 	vdc_reg_write(VDCR_HDISPLAY, old_hdisplay);
 	vdc_reg_write(VDCR_HSYNC, old_hsync);
 	vdc_reg_write(VDCR_SYNCSIZE, old_syncsize);
+	return 0;
 }
 
 void mono_im960_demo()
@@ -3186,6 +3382,54 @@ void menu_rotate_demo()
 	rotate_demo(VDC_HIRES_640x200_Color_PAL);
 }
 
+// Grouped showcase entries: the raster-bar highlight sweep has a hard
+// ceiling on usable menu rows (project memory:
+// vdcmaniac_menu_raster_highlight -- rasterline=255 is the provably
+// earliest reachable point, so there's a fixed amount of headroom below
+// it). These three thunks combine what would otherwise be 6 separate
+// photo-showcase menu rows into 3, each running its component demos
+// back-to-back -- every component function is already fully
+// self-contained (own vdc_init(), own keypress loop, own
+// vdc_wipe_transition()), so chaining them needs nothing extra here.
+//
+// Each component function returns 1 if the user exited early (ESC/
+// STOP/error) instead of running all 3 of its own pictures to
+// completion -- checked here so ESC/STOP inside the first half of a
+// grouped entry goes straight back to the main menu instead of blindly
+// continuing into the second half regardless.
+void menu_fli_family()
+// Non-interlace colour-cell pair: VDC-FLI (480x252, 8x1) then VDC-HFLI
+// (640x400, 8x2) -- grouped by interlace-vs-not, paired against
+// menu_ifli_family() below.
+{
+	if (fli_color_demo())
+	{
+		return;
+	}
+	fli_hfli_demo();
+}
+
+void menu_ifli_family()
+// Interlace colour-cell pair: VDC-IHFLI (640x480, 8x2) then VDC-ITFLI
+// (640x576, 8x3).
+{
+	if (fli_ihfli_demo())
+	{
+		return;
+	}
+	fli_itfli_demo();
+}
+
+void menu_mono_family()
+// Interlace monochrome pair: VDC-IMONO (720x700) then VDC-IM800 (800x600).
+{
+	if (mono_hires_xl_demo())
+	{
+		return;
+	}
+	mono_im800_demo();
+}
+
 // Forward decls -- both defined later in this file, both used as menu_fn
 // entries below (vscroll_demo() is the VDC-VSCROLL section;
 // menu_end_demo() is the SAME credits+reset sequence main()'s own tail
@@ -3202,19 +3446,33 @@ typedef struct
 	menu_fn fn;
 } menu_entry;
 
-#define MENU_COUNT 11
+// MENU_COUNT is kept well under the raster-highlight sweep's own
+// practical ceiling (see project memory: vdcmaniac_menu_raster_highlight)
+// by grouping the FLI-family and mono-family photo showcases into 3
+// combined entries via menu_fli_family()/menu_ifli_family()/
+// menu_mono_family() above -- each still shows every photo from both of
+// its component modes, just under one menu row instead of two. A
+// dedicated BASIC8/iPaint showcase mode was considered and dropped (see
+// TODO.md): its one genuinely new technique -- odd/even field colour
+// blending -- is already convert_colour_cells_paired()'s own default for
+// VDC-IFLI, so a separate mode would have added nothing. VDC Spectrum
+// (spectrum_demo() above) does add something new (8x8 flat colour-
+// attribute cells, coarser than anything else here) and gets its own
+// row. "Raster bar placement test" is not a selectable row at all -- a
+// diagnostic, not a showcase mode -- reachable only via the 'T' key
+// described in the hint line below, handled as a special case alongside
+// ESC/STOP rather than through this table (see the key-handling block
+// below).
+#define MENU_COUNT 8
 
 static const menu_entry menu_entries[MENU_COUNT] = {
-	{'1', "VDC-FLI      (480x252, colour 8x1 cells)", fli_color_demo},
-	{'2', "VDC-HFLI     (640x400, colour 8x2 cells)", fli_hfli_demo},
-	{'3', "VDC-IHFLI    (640x480, interlace, colour 8x2)", fli_ihfli_demo},
-	{'4', "VDC-ITFLI    (640x576, interlace, colour 8x3)", fli_itfli_demo},
-	{'5', "VDC-IMONO    (720x700, interlace mono)", mono_hires_xl_demo},
-	{'6', "VDC-IM800    (800x600, interlace mono)", mono_im800_demo},
-	{'7', "Plasma effect", menu_plasma_demo},
-	{'8', "Colour rotation effect", menu_rotate_demo},
-	{'9', "Raster bar placement test", raster_place_test},
-	{'0', "VDC-VSCROLL  (640x200 window, scripted hires scroll)", vscroll_demo},
+	{'1', "VDC-FLI      (480x252/640x400, colour, non-interlace)", menu_fli_family},
+	{'2', "VDC-IFLI     (640x480/640x576, colour, interlace)", menu_ifli_family},
+	{'3', "VDC-mono     (720x700/800x600, mono, interlace)", menu_mono_family},
+	{'4', "Plasma effect", menu_plasma_demo},
+	{'5', "Colour rotation effect", menu_rotate_demo},
+	{'6', "VDC-VSCROLL  (640x200 window, scripted hires scroll)", vscroll_demo},
+	{'7', "VDC Spectrum (256x192, ZX Spectrum picture format)", spectrum_demo},
 	// 'E': an earlier revision used '.' here after 'E'/'e' both looked
 	// unreliable through VICE's own scripted keyboard-buffer injection
 	// (used for this project's automated live testing) -- live-tested by
@@ -3437,6 +3695,7 @@ void main_menu()
 		// only way there, per live steer. Key detection itself (below)
 		// is untouched.
 		vdc_prints(5, MENU_ITEMS_ROW0 + MENU_COUNT + 2, "Cursor/joystick + RETURN/fire, or its own key.");
+		vdc_prints(5, MENU_ITEMS_ROW0 + MENU_COUNT + 3, "T) Raster bar placement test");
 
 		holdframes = 0;
 		prevjoyb = 0;
@@ -3595,6 +3854,18 @@ void main_menu()
 			{
 				break;
 			}
+			// 'T': raster bar placement test -- a diagnostic, not a
+			// showcase mode, so it's deliberately NOT one of
+			// menu_entries[]'s rows (no highlighted row, no raster-sweep
+			// budget spent on it); dispatched as a special case here,
+			// same shape as ESC/STOP above, and handled after the loop
+			// below instead of through menu_entries[selected].fn().
+			// Explicit 'T'/'t' (0x54/0x74) comparison, not the `|0x20`
+			// fold every other key check here uses -- confirmed working.
+			if (key == 'T' || key == 't')
+			{
+				break;
+			}
 			// Direct-select: scan the table for a matching key instead of
 			// assuming a contiguous '1'-'9' range -- needed once entries
 			// stopped being exactly 9 (see MENU_COUNT's own comment).
@@ -3640,7 +3911,14 @@ void main_menu()
 			return;
 		}
 
-		menu_entries[selected].fn();
+		if (key == 'T' || key == 't')
+		{
+			raster_place_test();
+		}
+		else
+		{
+			menu_entries[selected].fn();
+		}
 	}
 }
 

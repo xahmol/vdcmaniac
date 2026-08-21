@@ -130,6 +130,9 @@ KRILL_COMPRESSED_ASSETS = -write idi8bcmp idi8bcmp \
          -write im8002evk im8002evk -write im8002odk im8002odk \
          -write im8003evk im8003evk -write im8003odk im8003odk \
          -write vscrtop vscrtop -write vscrmid vscrmid -write vscrbot vscrbot \
+         -write spec1btk spec1btk -write spec1clk spec1clk \
+         -write spec2btk spec2btk -write spec2clk spec2clk \
+         -write spec3btk spec3btk -write spec3clk spec3clk \
          -write musick musick
 
 # Generated picture assets (see tools/vdc_convert.py) -- regenerated from
@@ -168,6 +171,7 @@ bootsect.bin: $(MAIN).prg $(GENERATED_ASSETS)
 	   assets/im8001evk assets/im8001odk assets/im8002evk assets/im8002odk \
 	   assets/im8003evk assets/im8003odk \
 	   assets/vscrtop assets/vscrmid assets/vscrbot \
+	   assets/spec1btk assets/spec1clk assets/spec2btk assets/spec2clk assets/spec3btk assets/spec3clk \
 	   assets/musick build/krill
 #	cp assets/chars*.prg build/krill
 
@@ -214,11 +218,19 @@ krill: $(MAIN).prg bootsect.bin loader-c128.prg
 # See tools/vdc_convert.py for the conversion technique (credited there).
 #
 # The 18-photo set (3 per hires mode -- fli1-3/hfli1-3/ihfli1-3/itfli1-3/
-# imono1-3/im8001-2, see defines.h for sources/licenses) is NOT wired into
+# imono1-3/im8001-2, see defines.h for sources/licenses), plus the 3-photo
+# VDC Spectrum set (spec1-3, real ZX Spectrum .scr demoscene pictures, see
+# spectrum_demo()/convert_spectrum()), are NOT wired into
 # an automatic make rule like titlescreen below: each conversion takes
-# anywhere from ~20s (fli/imono) to ~20 minutes (itfli, cell_height=3) --
-# auto-regenerating all 18 on every build (e.g. because a source PNG's
-# mtime changed) would make ordinary `make` runs unpredictably slow. These
+# anywhere from ~20s (fli/imono) up to ~5 minutes (ihfli) or ~60 minutes
+# (itfli, cell_height=3) -- ihfli/itfli go through convert_colour_cells_
+# paired()'s joint even/odd blend-aware search (see its own docstring in
+# tools/vdc_convert.py), roughly 3x a plain always-independent search's
+# own cost, in exchange for extending the effective on-screen colour
+# depth past the native 16-colour VDC palette on cells where it helps.
+# Auto-regenerating all 18 on every build (e.g. because a
+# source PNG's mtime changed) would make ordinary `make` runs
+# unpredictably slow. These
 # are produced once, by hand (`python3 tools/vdc_convert.py --mode <mode>
 # --input assets/source/<name> --out-prefix assets/<prefix>`), then
 # TSCrunch-compressed (see krill_manual.md) and checked into `assets/` as

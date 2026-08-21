@@ -19,6 +19,28 @@ hfli/ihfli/itfli share one generalized colour-cell converter
 (convert_colour_cells(), cell_height 2 or 3) with fli (cell_height 1) --
 same per-cell brute-force (back,fore) search and Floyd-Steinberg diffusion,
 just evaluated/committed across cell_height rows at a time instead of 1.
+hfli is non-interlace (single field, convert_colour_cells() directly);
+ihfli/itfli are genuinely interlaced and go through
+convert_split_colour_cells()/convert_colour_cells_paired() instead (see
+below) -- their colour cells are chosen JOINTLY across both fields, not
+independently.
+
+**Interlace colour-blend technique (default for ihfli/itfli)**:
+convert_colour_cells_paired() picks, per cell, between each field's own
+independent best fit and a shared-background/per-field-best-foreground
+alternative -- when the two fields' best foregrounds differ,
+holding the background steady and alternating just the foreground by
+field parity is the same technique the C128 "BASIC 8"/iPaint picture
+format uses to fake shades beyond the native 16-colour VDC palette via
+real interlace persistence. Identified and confirmed against real
+disk-bundled iPaint sample pictures' own colour-index bytes (statistics
+only, no copyrighted picture content reproduced), cross-checked against
+GoDot's (github.com/godot64/GoDot) own iPaint saver/loader source
+(savers/s_IPaint.a, savers/s_Basic8Mode1.a, loaders/l_Basic8Select.a,
+commit 712196d) -- see defines.h's own credit block and
+convert_colour_cells_paired()'s own docstring for the full writeup.
+Always falls back to the old independent result when that's genuinely
+better, so this only ever extends quality, never regresses it.
 
 Every genuinely interlaced mode here (ihfli/itfli/imono/im800/titlescreen --
 anything with LACE=3 in its vdc_core.c mode table row) splits its source
@@ -146,12 +168,16 @@ def quant_cell(src_row_getter, x0, y0, dx, back, fore, err_curr, err_next, commi
 def convert_fli(img, width, height):
     """480x252, 8x1 cells, non-interlace. Returns (bitmap_bytes, colour_bytes).
 
-    Colour byte nibble order matches this project's documented VDCR_COLOR
-    convention (foreground in bits 4-7, background in bits 0-3 --
-    include/vdc_raster.h) for consistency with the rest of the codebase.
-    Tokra's own vdc_quant.c packs the opposite way (background high,
-    foreground low) -- if VICE shows swapped colours, flip the packing line
-    marked below rather than anything else in this function.
+    Colour byte nibble order: (background<<4)|foreground -- background
+    high, foreground low. This is the VDC's own real hardware convention
+    for its bitmap attribute plane, not the (foreground<<4)|background
+    convention register 26 (VDCR_COLOR, a separate, single global
+    register) uses -- confirmed by live testing across real hardware,
+    VICE, and z64k. Every colour-cell mode in this project
+    (convert_colour_cells()/convert_colour_cells_paired()/
+    convert_spectrum()) uses the same convention -- see project memory
+    vdcmaniac_attribute_byte_nibble_order.md for the full diagnostic
+    history if this class of bug ever needs revisiting for a new mode.
     """
     pixels = img.convert("RGB").load()
 
@@ -185,7 +211,7 @@ def convert_fli(img, width, height):
                         best_cost, best_back, best_fore = cost, back, fore
             _, byte = quant_cell(get, x0, y, dx, best_back, best_fore, err_curr, err_next, commit=True)
             bitmap[y * cells_per_row + (x0 >> 3)] = byte
-            colour[y * cells_per_row + (x0 >> 3)] = (best_fore << 4) | best_back  # see docstring note
+            colour[y * cells_per_row + (x0 >> 3)] = (best_back << 4) | best_fore  # see docstring
         err_curr, err_next = err_next, [[0, 0, 0] for _ in range(width + 2)]
         if y % 20 == 0 or y == height - 1:
             print(f"FLI: line {y + 1}/{height}", file=sys.stderr)
@@ -279,7 +305,7 @@ def convert_colour_cells(img, width, height, cell_height):
                         best_cost, best_back, best_fore = cost, back, fore
             _, byte0 = quant_cell(get, x0, y0, dx, best_back, best_fore, err_curr, err_next, commit=True)
             bitmap[y0 * cells_per_row + (x0 >> 3)] = byte0
-            colour[cr * cells_per_row + (x0 >> 3)] = (best_fore << 4) | best_back
+            colour[cr * cells_per_row + (x0 >> 3)] = (best_back << 4) | best_fore  # see convert_fli()'s docstring
             if cell_height > 1:
                 commit_local_rows(best_back, best_fore, x0, y0, dx)
         err_curr, err_next = err_next, [[0, 0, 0] for _ in range(width + 2)]
@@ -384,28 +410,292 @@ def deinterlace_fields(img, width, height):
     return even_img, odd_img
 
 
+def convert_colour_cells_paired(even_img, odd_img, width, height, cell_height):
+    """Joint even/odd colour-cell converter for genuinely interlaced modes
+    (ihfli/itfli) -- the DEFAULT for these modes now, replacing two fully
+    independent convert_colour_cells() passes.
+
+    At every cell this evaluates two strategies and keeps whichever gives
+    lower total (even+odd) dithering error:
+      - independent: each field freely picks its own best (back,fore) pair
+        (today's old behaviour -- the two fields may end up with different
+        backgrounds too).
+      - shared-bg blend: one background shared by both fields, each field
+        picks its own best foreground given that fixed background. When
+        the two fields' best foregrounds differ, this reproduces the real,
+        confirmed C128 "BASIC 8"/iPaint colour-cell technique (credited in
+        defines.h -- GoDot's own saver/loader source, github.com/godot64/
+        GoDot): hold the background steady and alternate ONE foreground
+        pair by field parity, so real VDC interlace persistence blends
+        the two into a shade the native 16-colour palette doesn't have on
+        its own -- confirmed against real disk-bundled iPaint sample
+        pictures via colour-index statistics (44% of all differing cells
+        in one real sample reused a single repeated foreground
+        substitution with an unchanged background -- not noise). No
+        copyrighted image content was rendered/viewed to derive this,
+        only decoded colour-index bytes.
+
+    Falls back to independent whenever it's genuinely better (flat
+    regions where both already agree, or areas where the two fields'
+    true content really does differ) -- this never produces worse output
+    than the old always-independent behaviour, only extends it.
+
+    Roughly 3x convert_colour_cells()'s own per-cell search cost (adds a
+    16-background x 2-field foreground search on top of the existing
+    120-pair x 2-field independent search) -- an offline asset-build
+    tool, so the extra runtime is an acceptable trade for the improved
+    output.
+    """
+    pixels_e = even_img.convert("RGB").load()
+    pixels_o = odd_img.convert("RGB").load()
+
+    def get_e(x, y):
+        return pixels_e[x, y]
+
+    def get_o(x, y):
+        return pixels_o[x, y]
+
+    cells_per_row = width // 8
+    cell_rows = height // cell_height
+    bitmap_e = bytearray(cells_per_row * height)
+    bitmap_o = bytearray(cells_per_row * height)
+    colour_e = bytearray(cells_per_row * cell_rows)
+    colour_o = bytearray(cells_per_row * cell_rows)
+
+    err_curr_e = [[0, 0, 0] for _ in range(width + 2)]
+    err_next_e = [[0, 0, 0] for _ in range(width + 2)]
+    err_curr_o = [[0, 0, 0] for _ in range(width + 2)]
+    err_next_o = [[0, 0, 0] for _ in range(width + 2)]
+
+    def local_chain_cost(get, back, fore, x0, y0, dx):
+        # Same deliberate zero-seeded-local-buffer approximation as
+        # convert_colour_cells()'s own local_chain_cost -- see its
+        # docstring for why rows 1..cell_height-1 can't use the real
+        # row-wide diffusion state.
+        if cell_height == 1:
+            return 0.0
+        get_local = lambda lx, ly: get(x0 + lx, ly)
+        local_curr = [[0, 0, 0] for _ in range(10)]
+        local_next = [[0, 0, 0] for _ in range(10)]
+        quant_cell(get_local, 0, y0, dx, back, fore, local_curr, local_next, commit=True)
+        local_curr, local_next = local_next, [[0, 0, 0] for _ in range(10)]
+        total = 0.0
+        for r in range(1, cell_height):
+            cost, _ = quant_cell(get_local, 0, y0 + r, dx, back, fore, local_curr, local_next, commit=False)
+            total += cost
+            if r < cell_height - 1:
+                quant_cell(get_local, 0, y0 + r, dx, back, fore, local_curr, local_next, commit=True)
+                local_curr, local_next = local_next, [[0, 0, 0] for _ in range(10)]
+        return total
+
+    def commit_local_rows(get, back, fore, x0, y0, dx, bitmap):
+        get_local = lambda lx, ly: get(x0 + lx, ly)
+        local_curr = [[0, 0, 0] for _ in range(10)]
+        local_next = [[0, 0, 0] for _ in range(10)]
+        quant_cell(get_local, 0, y0, dx, back, fore, local_curr, local_next, commit=True)
+        local_curr, local_next = local_next, [[0, 0, 0] for _ in range(10)]
+        for r in range(1, cell_height):
+            _, byte = quant_cell(get_local, 0, y0 + r, dx, back, fore, local_curr, local_next, commit=True)
+            bitmap[(y0 + r) * cells_per_row + (x0 >> 3)] = byte
+            if r < cell_height - 1:
+                local_curr, local_next = local_next, [[0, 0, 0] for _ in range(10)]
+
+    def best_independent(get, err_curr, err_next, x0, y0, dx):
+        best_cost, best_back, best_fore = None, -1, -1
+        for back in range(15):
+            for fore in range(back + 1, 16):
+                cost, _ = quant_cell(get, x0, y0, dx, back, fore, err_curr, err_next, commit=False)
+                cost += local_chain_cost(get, back, fore, x0, y0, dx)
+                if best_cost is None or cost < best_cost:
+                    best_cost, best_back, best_fore = cost, back, fore
+        return best_cost, best_back, best_fore
+
+    def best_fore_given_bg(get, err_curr, err_next, bg, x0, y0, dx):
+        best_cost, best_fore = None, -1
+        for fore in range(16):
+            if fore == bg:
+                continue
+            cost, _ = quant_cell(get, x0, y0, dx, bg, fore, err_curr, err_next, commit=False)
+            cost += local_chain_cost(get, bg, fore, x0, y0, dx)
+            if best_cost is None or cost < best_cost:
+                best_cost, best_fore = cost, fore
+        return best_cost, best_fore
+
+    for cr in range(cell_rows):
+        y0 = cr * cell_height
+        for c in range(len(err_next_e)):
+            err_next_e[c] = [0, 0, 0]
+            err_next_o[c] = [0, 0, 0]
+        if cr & 1:
+            xs = range(0, width, 8)
+            dx = 1
+        else:
+            xs = range(width - 8, -8, -8)
+            dx = -1
+        for x0 in xs:
+            cost_e, back_e_ind, fore_e_ind = best_independent(get_e, err_curr_e, err_next_e, x0, y0, dx)
+            cost_o, back_o_ind, fore_o_ind = best_independent(get_o, err_curr_o, err_next_o, x0, y0, dx)
+            independent_cost = cost_e + cost_o
+
+            best_shared = None  # (cost, bg, fore_e, fore_o)
+            for bg in range(16):
+                be_cost, be_fore = best_fore_given_bg(get_e, err_curr_e, err_next_e, bg, x0, y0, dx)
+                bo_cost, bo_fore = best_fore_given_bg(get_o, err_curr_o, err_next_o, bg, x0, y0, dx)
+                total = be_cost + bo_cost
+                if best_shared is None or total < best_shared[0]:
+                    best_shared = (total, bg, be_fore, bo_fore)
+
+            if best_shared[0] < independent_cost:
+                _, bg, fore_e, fore_o = best_shared
+                back_e, back_o = bg, bg
+            else:
+                back_e, fore_e = back_e_ind, fore_e_ind
+                back_o, fore_o = back_o_ind, fore_o_ind
+
+            _, byte_e0 = quant_cell(get_e, x0, y0, dx, back_e, fore_e, err_curr_e, err_next_e, commit=True)
+            bitmap_e[y0 * cells_per_row + (x0 >> 3)] = byte_e0
+            colour_e[cr * cells_per_row + (x0 >> 3)] = (back_e << 4) | fore_e  # see convert_fli()'s docstring
+            if cell_height > 1:
+                commit_local_rows(get_e, back_e, fore_e, x0, y0, dx, bitmap_e)
+
+            _, byte_o0 = quant_cell(get_o, x0, y0, dx, back_o, fore_o, err_curr_o, err_next_o, commit=True)
+            bitmap_o[y0 * cells_per_row + (x0 >> 3)] = byte_o0
+            colour_o[cr * cells_per_row + (x0 >> 3)] = (back_o << 4) | fore_o  # see convert_fli()'s docstring
+            if cell_height > 1:
+                commit_local_rows(get_o, back_o, fore_o, x0, y0, dx, bitmap_o)
+
+        err_curr_e, err_next_e = err_next_e, [[0, 0, 0] for _ in range(width + 2)]
+        err_curr_o, err_next_o = err_next_o, [[0, 0, 0] for _ in range(width + 2)]
+        if cr % 10 == 0 or cr == cell_rows - 1:
+            print(f"colour-cells (blend-aware): cell-row {cr + 1}/{cell_rows}", file=sys.stderr)
+
+    return bytes(bitmap_e), bytes(colour_e), bytes(bitmap_o), bytes(colour_o)
+
+
 def convert_split_colour_cells(img, width, height, cell_height):
-    """hfli/ihfli/itfli's interlaced modes: deinterlace into even/odd-row
-    fields *before* conversion (see deinterlace_fields()'s comment for why
-    this must happen before, not after, cell-based colour conversion --
-    each field's own colour cells pair same-parity source rows, e.g. source
+    """ihfli/itfli's interlaced modes: deinterlace into even/odd-row fields
+    *before* conversion (see deinterlace_fields()'s comment for why this
+    must happen before, not after, cell-based colour conversion -- each
+    field's own colour cells pair same-parity source rows, e.g. source
     rows 0 and 2 share one colour byte in the even field, not source rows 0
-    and 1), convert each field independently (its own error-diffusion
-    state), return (bit_even, col_even, bit_odd, col_odd)."""
+    and 1), then run the two fields through convert_colour_cells_paired()'s
+    joint blend-aware search (see its own docstring) rather than two fully
+    independent conversions -- this is the default for both interlaced
+    colour modes now, not an opt-in."""
     even_img, odd_img = deinterlace_fields(img, width, height)
     half = height // 2
-    print("colour-cells: even-row field", file=sys.stderr)
-    bit_even, col_even = convert_colour_cells(even_img, width, half, cell_height)
-    print("colour-cells: odd-row field", file=sys.stderr)
-    bit_odd, col_odd = convert_colour_cells(odd_img, width, half, cell_height)
-    return bit_even, col_even, bit_odd, col_odd
+    print("colour-cells: joint even/odd blend-aware conversion", file=sys.stderr)
+    return convert_colour_cells_paired(even_img, odd_img, width, half, cell_height)
+
+
+# ZX Spectrum 15-colour palette (INK/PAPER 3-bit value, plus BRIGHT) to
+# VDC's own 16-native-colour indices (vdc_core.h's VDC_BLACK..VDC_WHITE
+# enum) -- direct dim/bright pairing, no attempt at closer RGB matching
+# since both palettes are small, fixed, named colour sets with an obvious
+# 1:1 correspondence (black/blue/red/magenta/green/cyan/yellow/white,
+# dim<->dark, bright<->light). Index = (bright << 3) | colour3bit.
+SPECTRUM_TO_VDC = [
+    0, 2, 8, 10, 4, 6, 12, 14,  # dim: black,blue,red,magenta,green,cyan,yellow,white(->lgrey)
+    0, 3, 9, 11, 5, 7, 13, 15,  # bright: black(unchanged),blue,red,magenta,green,cyan,yellow,white
+]
+
+
+def convert_spectrum(scr_bytes):
+    """Decode a real ZX Spectrum .scr (exactly 6912 bytes: 6144-byte
+    bitmap + 768-byte attribute plane, the standard raw SCREEN$ memory
+    dump -- see justsolve.archiveteam.org/wiki/SCR_(ZX_Spectrum)) into
+    vdcmaniac's own VDC output.
+
+    Deliberately reuses VDC_HIRES_640x200_Color_PAL's already-proven
+    timing completely unchanged -- no new vdc_modes[] row, no new
+    horizontal-timing register values. Confirmed this is the same
+    category of choice Tokra's own reference implementation makes (see
+    defines.h's credit block): disassembling his scr-copy.bin ("VDC
+    SpectruMania", tokra.de/c128/vdcspectrumania.zip) shows zero writes to
+    any of the VDC's horizontal/vertical timing registers (0-9) anywhere
+    -- it runs entirely inside whatever VDC mode was already active,
+    manipulating only bitmap/attribute *addressing* (registers 18/19/25/
+    28/31) -- not a genuinely narrower display, just clever content
+    placement within a fixed-width canvas. No code from that release is
+    used here, only the disassembly-verified approach. This function does
+    the same:
+    the Spectrum's 256x192 picture is pixel-doubled to 512 VDC pixels
+    wide (matching the readme's own "standard-pixel-width-mode", which
+    stores literal doubled bytes rather than relying on the OTHER,
+    unproven "double-pixel-width-mode" hardware trick), centred with an
+    8-VDC-char blank border on each side (640 - 512 = 128px = 16 chars,
+    8 each side), and one blank top VDC character row (200 - 192 = 8
+    lines = exactly 1 char row) so every Spectrum attribute cell lands on
+    a whole VDC character row -- no fractional-row splitting anywhere.
+
+    Returns (bitmap_bytes, colour_bytes), each already the full 640x200/
+    80x25 canvas size (cells outside the centred picture are left 0x00 --
+    black bitmap bits under a black-on-black colour byte, i.e. a plain
+    black border).
+    """
+    if len(scr_bytes) != 6912:
+        print(f"warning: expected exactly 6912-byte .scr, got {len(scr_bytes)}", file=sys.stderr)
+    bitmap_src = scr_bytes[:6144]
+    attr_src = scr_bytes[6144:6912]
+
+    # Un-interleave the Spectrum's own classic non-linear scanline
+    # addressing into a clean row-major 32-bytes/row x 192-row buffer.
+    # addr = third*2048 + line*256 + charrow*32 + x  (third=Y>>6,
+    # charrow=(Y>>3)&7, line=Y&7) -- the well-documented public SCREEN$
+    # layout, see this function's own docstring for the format reference.
+    rows = [None] * 192
+    for y in range(192):
+        third = y >> 6
+        charrow = (y >> 3) & 7
+        line = y & 7
+        base = third * 2048 + line * 256 + charrow * 32
+        rows[y] = bitmap_src[base:base + 32]
+
+    cells_per_row = 80  # 640 / 8
+    bitmap = bytearray(cells_per_row * 200)
+    colour = bytearray(cells_per_row * 25)
+
+    left_char = 8  # (80 - 64) // 2 -- 64 VDC char columns = 512 doubled px
+    top_row = 1    # one blank VDC char row of top margin
+
+    for y in range(192):
+        vdc_y = top_row * 8 + y
+        src_row = rows[y]
+        for sx in range(32):  # 32 source bytes = 256 source pixels
+            srcbyte = src_row[sx]
+            outbits = 0
+            for b in range(8):
+                bit = (srcbyte >> (7 - b)) & 1
+                outbits = (outbits << 2) | (0b11 if bit else 0b00)
+            vdc_col0 = left_char + sx * 2
+            bitmap[vdc_y * cells_per_row + vdc_col0] = (outbits >> 8) & 0xFF
+            bitmap[vdc_y * cells_per_row + vdc_col0 + 1] = outbits & 0xFF
+
+    for cy in range(24):  # 192 / 8
+        vdc_cy = top_row + cy
+        attr_row = attr_src[cy * 32:(cy + 1) * 32]
+        for sx in range(32):
+            a = attr_row[sx]
+            bright = (a >> 6) & 1
+            paper = (a >> 3) & 7
+            ink = a & 7
+            fg = SPECTRUM_TO_VDC[(bright << 3) | ink]
+            bg = SPECTRUM_TO_VDC[(bright << 3) | paper]
+            # (background<<4)|foreground -- see convert_fli()'s own
+            # docstring for the full hardware-convention explanation.
+            cb = (bg << 4) | fg
+            vdc_col0 = left_char + sx * 2
+            colour[vdc_cy * cells_per_row + vdc_col0] = cb
+            colour[vdc_cy * cells_per_row + vdc_col0 + 1] = cb
+
+    return bytes(bitmap), bytes(colour)
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "--mode",
-        choices=["fli", "hfli", "ihfli", "itfli", "imono", "im800", "titlescreen", "vscroll"],
+        choices=["fli", "hfli", "ihfli", "itfli", "imono", "im800", "titlescreen", "vscroll", "spectrum"],
         required=True,
     )
     ap.add_argument("--input", required=True, help="Source image (any Pillow-readable format, any size/aspect)")
@@ -413,6 +703,19 @@ def main():
     ap.add_argument("--crop-top", type=int, default=None, help="Override fit_to_size()'s center crop with this source-pixel top offset (for portrait photos where the subject sits above center)")
     ap.add_argument("--crop-left", type=int, default=None, help="Trim this many source pixels off the LEFT edge before fit_to_size() runs -- for vscroll mode, whose own source is proportionally narrower than the target (so fit_to_size takes its top/bottom-crop branch and always keeps the full source width); shifts the visible frame right, e.g. away from a decorative border pillar.")
     args = ap.parse_args()
+
+    if args.mode == "spectrum":
+        # Raw .scr byte dump, not a Pillow-openable image -- handled
+        # entirely separately, before the Image.open() every other mode
+        # needs.
+        scr_bytes = open(args.input, "rb").read()
+        bitmap, colour = convert_spectrum(scr_bytes)
+        with open(args.out_prefix + ".bit", "wb") as f:
+            f.write(HEADER + bitmap)
+        with open(args.out_prefix + ".col", "wb") as f:
+            f.write(HEADER + colour)
+        print(f"wrote {args.out_prefix}.bit ({len(bitmap)} bytes) and .col ({len(colour)} bytes)")
+        return
 
     img = Image.open(args.input)
     if args.crop_left:
