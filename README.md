@@ -163,6 +163,13 @@ Scrolling-text and colour-cycling-bars credits sequence.
 
 ## Requirements
 
+- **A VDC with the full 64 KB of RAM.** Every hires mode this demo
+  showcases needs the extended 64KB VDC memory to exist at all -- a VDC
+  with only the base 16 KB cannot run them. `system_diagnostic_screen()`
+  checks this at startup and exits back to BASIC with a clear message if
+  the VDC reports anything other than 64 KB. Most C128s have this by
+  default; it's called out here because it's not universal across every
+  8563/8568 revision and board.
 - **Krill's fastloader requires exclusive use of the IEC bus.** Only one
   device may be active on the bus: the drive holding the demo disk, at
   device ID 8. Power off (or otherwise disable) any other IEC device --
