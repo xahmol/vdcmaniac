@@ -34,7 +34,7 @@ https://csdb.dk/release/?id=234174
 
 A second main inspiration: Peter Hulstede's "VDC-Intromaker: Perfektes
 Rasterzeilen-Timing", **64'er Sonderheft 95**, p.45 -- its example CIA-timer
-VDC raster-sync routine (SYNC/WAITLINE/WAITJUMP/LINEND, 6502 listing) is
+VDC raster-sync routine (SYNC / WAITLINE / WAITJUMP / LINEND, 6502 listing) is
 the basis this project's own `raster_synch()`/`raster_waitline()`
 (`include/vdc_raster.c`) are translated from into C, driving every
 raster-bar effect in the demo -- see that file's own credit comment for

@@ -1,3 +1,8 @@
+% Better justification/spacing, and a safety margin against long unbroken
+% tokens (e.g. slash-separated identifier lists) overflowing the page --
+% microtype's font expansion/protrusion can absorb a bit of that overflow
+% that a plain LaTeX line break can't.
+\usepackage{microtype}
 \usepackage{fancyhdr}
 \pagestyle{fancy}
 \fancyhf{}
