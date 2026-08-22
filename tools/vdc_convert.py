@@ -49,17 +49,11 @@ field, odd source rows -> odd field), never by physical top-half/bottom-half
 position -- confirmed directly against Tokra/Kircher's own original,
 proven-working converters (original/v12/converters/source/ivdc_quant.c,
 i3vdc_quant.c; original/v12/converters/vdcimono.bas, vdcim800.bas line 11).
-An earlier version of this file used a physical-half split for
-ihfli/itfli/imono/im800, and called the two fields "top"/"bottom"
-throughout (title_screen's own mode already correctly used even/odd
-content, just under the same misleading top/bottom naming) -- live-testing
-on real photos (2026-07-26) showed exactly the symptom a physical-half
-split produces: the picture's physical top half displaying, then being
-replaced by its bottom half, not a single combined interlaced image. Fixed,
-and renamed throughout (files, variables, comments) from top/bottom to
-even/odd to describe what these actually are and avoid re-confusing the
-two conventions again. See deinterlace_fields()'s own comment for the
-mechanics.
+Attention point: a physical-half split (picture's top half in one file,
+bottom half in the other) is the wrong convention for these modes and
+produces a picture that looks like two stacked half-height copies rather
+than one combined interlaced image -- the fields must be even/odd by row
+parity. See deinterlace_fields()'s own comment for the mechanics.
 
 Dithering technique (per-cell brute-force background/foreground colour pair
 search with Floyd-Steinberg error diffusion, serpentine scan) is studied from
@@ -389,14 +383,11 @@ def deinterlace_fields(img, width, height):
     converters (original/v12/converters/source/ivdc_quant.c, lines
     192-222; i3vdc_quant.c, same structure; converters/vdcimono.bas and
     vdcim800.bas line 11: `if y/2=int(y/2) then print#3 else print#4`) --
-    every one of them splits genuinely interlaced VDC modes by row PARITY
-    into "top"/"bot", never by physical top-half/bottom-half position. An
-    earlier version of this function (and the imono/im800 mode branches
-    below) used a physical-half crop instead -- live-testing on real photos
-    (2026-07-26) showed this as the picture's physical top half displayed,
-    then replaced by its bottom half, rather than a single interlaced
-    image; the fix is this function, confirmed directly against the
-    original reference source above rather than by further guessing."""
+    every one of them splits genuinely interlaced VDC modes by row PARITY,
+    never by physical top-half/bottom-half position. Attention point: a
+    physical-half crop of the imono/im800 mode branches below would
+    produce the picture's physical top half displayed, then replaced by
+    its bottom half, rather than a single interlaced image."""
     half = height // 2
     even_img = Image.new(img.mode, (width, half))
     odd_img = Image.new(img.mode, (width, half))
@@ -785,37 +776,30 @@ def main():
     elif args.mode == "vscroll":
         # VDC-VSCROLL (src/main.c vscroll_demo()): stored bitmap TALLER
         # than the 640x200 mode it's actually displayed through (see
-        # VDC_HIRES_640x200_Mono_VSCROLL's own comment, vdc_core.c) --
-        # was named/attempted as a WIDER-than-display horizontal pan
-        # first (working title "panorama"), abandoned after the CSIZE/
-        # ROWINC mechanism it needed proved unstable; renamed once the
-        # effect settled on vertical scrolling instead, since "panorama"
-        # no longer fit. Non-interlaced, so unlike imono/im800 above,
-        # there's no INTERLACE reason to split fields -- split into
-        # top/mid/bottom PHYSICAL thirds instead purely for
-        # krill_loadcompd() staging-size reasons (live-diagnosed,
-        # 2026-08-18): its in-place decompression writes directly into
-        # the destination as it goes, and any single Bank-1 staging call
-        # (MEM_SCREEN=$4000) spanning across $b000 runs straight through
-        # Oscar64's own C runtime stack ($b000-$be99 in this build's own
-        # .map), corrupting live return addresses mid-decompress. Each
-        # chunk here stays at or under ~20800 bytes, comfortably clear of
-        # that boundary. Pass --crop-top 0 for source images where the
-        # composition's dramatic focal point sits at the very top (e.g.
-        # Kinryuzan Temple's giant lantern) -- the default centre crop
-        # would otherwise eat into it instead of less interesting content
-        # further down.
+        # VDC_HIRES_640x200_Mono_VSCROLL's own comment, vdc_core.c).
+        # Non-interlaced, so unlike imono/im800 above, there's no
+        # INTERLACE reason to split fields -- split into top/mid/bottom
+        # PHYSICAL thirds instead purely for krill_loadcompd()
+        # staging-size reasons. Attention point: its in-place
+        # decompression writes directly into the destination as it goes,
+        # and any single Bank-1 staging call (MEM_SCREEN=$4000) spanning
+        # across $b000 runs straight through Oscar64's own C runtime
+        # stack ($b000-$be99 in this build's own .map), corrupting live
+        # return addresses mid-decompress -- each chunk here stays at or
+        # under ~20800 bytes, comfortably clear of that boundary. Pass
+        # --crop-top 0 for source images where the composition's dramatic
+        # focal point sits at the very top (e.g. Kinryuzan Temple's giant
+        # lantern) -- the default centre crop would otherwise eat into it
+        # instead of less interesting content further down.
         #
-        # height=798 (live-tuned, twice): first raised from an initial
-        # 600 to fit both the lantern AND the gate/crowd below it in the
-        # same 640:height crop window, then raised again to 798 -- this
-        # mode's own near-ceiling (65536 VDC RAM bytes / 80 bytes-per-row
-        # = 819 rows max at this width, no charset/attribute overhead
-        # since char_std=0; 798 leaves a small safety margin and stays a
-        # clean multiple of 3 for the chunk split below). Split into
-        # THREE equal thirds, not two halves -- each krill_loadcompd()
-        # chunk must stay under the ~28672-byte safe-chunk ceiling
-        # documented above, and half of 798 rows' worth would exceed it.
+        # height=798: close to this mode's own ceiling (65536 VDC RAM
+        # bytes / 80 bytes-per-row = 819 rows max at this width, no
+        # charset/attribute overhead since char_std=0), leaving a small
+        # safety margin while staying a clean multiple of 3 for the chunk
+        # split below. Split into THREE equal thirds, not two halves --
+        # each krill_loadcompd() chunk must stay under the ~28672-byte
+        # safe-chunk ceiling documented above, and half of 798 rows'
+        # worth would exceed it.
         width, height = 640, 798
         img = fit_to_size(img, width, height, crop_top=args.crop_top)
         bitmap = convert_imono(img, width, height)
@@ -890,19 +874,14 @@ def main():
         # Split even/odd by row PARITY (even rows -> even field, odd rows ->
         # odd field), NOT physical half -- confirmed against Tokra's
         # original converters/vdcimono.bas line 11: `if y/2=int(y/2) then
-        # print#3 else print#4`. An earlier version of this branch used a
-        # physical top-half/bottom-half split instead, reasoning (wrongly)
-        # that the ~1980-byte VDC address gap between the two fields
-        # (0x0000 vs 0x82c8, reverse-engineered from Tokra's BASIC loader,
-        # mono_hires_xl_demo()/src/main.c) meant the source data itself
-        # didn't need pre-interleaving -- live-testing on a real photo
-        # (2026-07-26) showed this as the picture's physical top half
-        # displayed, then replaced by its bottom half, not a combined
-        # interlaced image. The address gap is real and unrelated to this;
-        # the *content* assigned to each address still has to be
-        # deinterlaced first, same as title_screen()'s own working
-        # mode below (which has no address gap at all, just this same
-        # even/odd split, and was never wrong).
+        # print#3 else print#4`. Attention point: this mode's own
+        # ~1980-byte VDC address gap between the two fields (0x0000 vs
+        # 0x82c8, reverse-engineered from Tokra's BASIC loader,
+        # mono_hires_xl_demo()/src/main.c) is a separate concern from how
+        # the source *content* is split -- the two fields still need to be
+        # even/odd row-parity data regardless of what VDC addresses they
+        # land at, same as title_screen()'s own mode below (which has no
+        # address gap at all, just this same even/odd split).
         bytes_per_row = width // 8
         even = bytearray()
         odd = bytearray()
@@ -919,18 +898,16 @@ def main():
         img = fit_to_size(img, width, height)
         bitmap = convert_imono(img, width, height)
         # Split by EVEN/ODD row (interlace field), NOT physical half --
-        # same convention as VDC-IMONO/VDC-IM800 above, and confirmed the
-        # hard way originally: title_screen() (src/main.c) copies both
-        # fields to VDC memory back-to-back with NO address gap (one
-        # bnk_cpytovdc() call over the whole concatenated buffer) into a
-        # genuinely interlaced mode (VDC_HIRES_640x400_Mono_PAL, LACE=3) --
-        # decoding the original, confirmed-working vdce-scrtit.eve/.odd with
-        # a naive physical-half split showed the whole picture duplicated
-        # top and bottom (each half independently spans the full image,
-        # just at half the row density) -- the unambiguous signature of
-        # even/odd interlace field data, not a physical-half split. Without
-        # an address gap to do the interleaving in hardware (unlike IMONO),
-        # the source data has to be pre-interleaved instead.
+        # same convention as VDC-IMONO/VDC-IM800 above. Attention point:
+        # title_screen() (src/main.c) copies both fields to VDC memory
+        # back-to-back with NO address gap (one bnk_cpytovdc() call over
+        # the whole concatenated buffer) into a genuinely interlaced mode
+        # (VDC_HIRES_640x400_Mono_PAL, LACE=3) -- unlike VDC-IMONO/IM800
+        # above, there's no hardware address gap doing the interleaving
+        # for it, so the source data must be pre-interleaved here instead
+        # (a physical-half split would show as the whole picture
+        # duplicated top and bottom, each half independently spanning the
+        # full image at half the row density).
         bytes_per_row = width // 8
         even = bytearray()
         odd = bytearray()

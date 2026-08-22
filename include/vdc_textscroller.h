@@ -103,10 +103,8 @@ struct TXTSCRScrollText {
 // comment above the font tables.
 #define CUPID_FONT_H 5 // glyph height in text rows
 // Scroll/render window height: CUPID_FONT_H + 2*max|cupid_sin_row|
-// clearance. Was 9 (for the original +/-2 sine amplitude); cupid_sin_row
-// was later capped to +/-1 (live feedback: the bounce was too strong) but
-// this wasn't shrunk to match until also live-diagnosed as unnecessary
-// per-frame VDC bus work. 7 is the exact fit for +/-1.
+// clearance. 7 is the exact fit for cupid_sin_row's +/-1 sine amplitude
+// (vdc_textscroller.c).
 #define CUPID_BAND_H 7
 #define CUPID_BASE_OFFSET 1 // row within the band the glyph's own row 0 sits at when row_offset==0
 // Total per-frame steps txtscr_cupid_render_letter_step() needs to render
@@ -127,11 +125,12 @@ struct TXTSCRCupidScroll {
 
 // Pre-rendered variant, for use with vdc_softscroll.c instead of the
 // per-column live-blit pair above -- see vdc_textscroller.c's own comment
-// above these two functions for why (the live-blit path's per-frame
-// hardware block-copy was diagnosed as the actual source of raster
-// instability this session; this path does all its VDC-bitmap-shaped work
-// once, up front, and lets vdc_softscroll's cheap register-only panning
-// handle the steady-state per-frame motion).
+// above these two functions for why: the live-blit path's per-frame
+// hardware block-copy is expensive enough to be the dominant per-frame
+// cost; this path does all its VDC-bitmap-shaped work once, up front,
+// and lets vdc_softscroll's cheap register-only panning handle the
+// steady-state per-frame motion. Prefer this path for any new per-frame
+// text scroll.
 unsigned txtscr_cupid_measure(const char *text);
 void txtscr_cupid_render(char cr, char *dest, const char *text, unsigned width, char total_height, char band_row, unsigned start_col);
 unsigned char txtscr_cupid_letter_width(unsigned char ch);

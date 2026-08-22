@@ -93,13 +93,13 @@ char raster_bar_segment(char line, const char *colors, unsigned char count)
 // raster_bar_line()/raster_bar_segment() call in the same sweep (matches
 // title_screen()'s multi-segment layout).
 //
-// Takes/returns `line` by value, not by pointer: this loop is cycle-critical
-// (raster_waitline()'s sub-line timing assumes a fixed cycle count between
-// "target reached" and "colour written"), and a pointer parameter adds an
-// extra memory indirection on every access inside the loop -- enough extra
-// cycles per line, accumulated over a long segment, to visibly destabilize
-// the timing. Confirmed live: an earlier pointer-based version of this
-// function caused exactly that in title_screen()'s 60-line segment.
+// Attention point: takes/returns `line` by value, not by pointer. This loop
+// is cycle-critical (raster_waitline()'s sub-line timing assumes a fixed
+// cycle count between "target reached" and "colour written"), and a pointer
+// parameter adds an extra memory indirection on every access inside the
+// loop -- enough extra cycles per line, accumulated over a long segment
+// (e.g. title_screen()'s 60-line segment), to visibly destabilize the
+// timing. Keep this by-value.
 {
     unsigned char i;
 
@@ -120,15 +120,15 @@ void raster_bar_end()
 // leaves interrupts disabled (SEI) for the duration of the sweep -- this is
 // what re-enables them afterward.
 //
-// sid_play_frame_foreground() (banking.c) inserted here, still under SEI,
-// right after the frame's own vblank wait -- every Mechanism-1 section
-// (this function is their shared per-frame sync point) holds interrupts
-// disabled for most of each frame, starving Krill's interrupt-driven music
-// of any real chance to fire on schedule; live-reported as the music
-// "slowing down" during these sections (worst in the FLI/MONO showcases,
-// whose raster sweeps span most/all of the visible area). One manual play
-// call per frame here, at a consistent frame-synced point, replaces
-// whatever the interrupt would otherwise have unreliably provided.
+// sid_play_frame_foreground() (banking.c) is called here, still under SEI,
+// right after the frame's own vblank wait. Attention point: every
+// Mechanism-1 section (this function is their shared per-frame sync point)
+// holds interrupts disabled for most of each frame, starving Krill's
+// interrupt-driven music of any reliable chance to fire on schedule (most
+// noticeable in the FLI/MONO showcases, whose raster sweeps span most/all
+// of the visible area) -- this one manual play call per frame, at a
+// consistent frame-synced point, is what keeps music timing correct
+// through those sections instead.
 {
     vdc_wait_vblank();
     sid_play_frame_foreground();
@@ -187,8 +187,13 @@ void raster_bar_draw_list(const struct RasterBarDef *bars, unsigned char count)
 }
 
 void raster_synch()
+// Synchronizes CIA2 Timer A/B to the VDC's own raster beam position (via
+// $D600 bit 5) and arms them for raster_waitline()'s own cycle-exact
+// sub-line timing. Leaves interrupts disabled (SEI, no matching CLI) --
+// raster_bar_end() is what re-enables them once the sweep this starts is
+// complete.
 {
-    __asm 
+    __asm
     {
         sei
         ldx #$7F
@@ -291,10 +296,10 @@ void raster_calibrate()
 // raster_irq_entry() against running its real logic -- and, critically,
 // rearming CIA1's timer -- if it's ever reached before
 // raster_music_irq_start() has genuinely installed it, or after
-// raster_music_irq_stop() has torn it down. Confirmed live in VICE:
-// Oscar64's C128E startup (crt.c, part of the toolchain, not this project)
-// banks out KERNAL ROM as literally the first instruction of the compiled
-// program, before main() ever runs and long before this project's own
+// raster_music_irq_stop() has torn it down. Attention point: Oscar64's
+// C128E startup (crt.c, part of the toolchain, not this project) banks out
+// KERNAL ROM as literally the first instruction of the compiled program,
+// before main() ever runs and long before this project's own
 // cia_init()/raster_music_irq_start() calls -- if the KERNAL's own
 // still-active jiffy-clock interrupt fires during that window, it lands on
 // whatever happens to be sitting at $fffe in the now-exposed, uninitialized
@@ -344,42 +349,33 @@ __interrupt void raster_irq_playframe()
 // fast as the tune's own play routine allows, not add unnecessary overhead
 // on top.
 //
-// MUST live in low/common memory ($0000-$1fff, the bcode1 segment banking.c's
-// krill_init()/sid_music_init()/etc. already use), NOT the main program's
-// ordinary code segment -- confirmed live to be the actual root cause of a
-// crash on the very first call, independent of which SID tune was used
-// (ruled out both a sidreloc relocation bug in one tune and this project's
-// own zero-page choice for another, cleanly-compiled tune, before finding
-// this). BNK_1_IO (0x7e) switches to bank 1 -- a genuinely different
-// physical 64KB RAM chip, not just a different ROM/IO overlay within the
-// same bank (contrast raster_music_irq_start()'s BMK_0_IO, which stays
-// within bank 0 and is therefore safe from ordinary code). Common RAM
-// (bnk_init(), xmmu.rcr=0x06) is the only address range guaranteed
-// identical across both banks; anything outside it -- like this function's
-// own remaining instructions, if placed in the main program's ordinary
-// (bank-0-only) code segment -- physically vanishes the instant mmu.cr
-// switches banks, replaced by whatever's actually sitting in bank 1's own
-// copy of that address range (confirmed empirically to be uninitialized
-// garbage here). The CPU keeps fetching from the same PC regardless, so it
-// silently executes that garbage instead of this function's own JSR/
-// bank-restore/RTS, eventually crashing into the KERNAL's BRK handler --
-// exactly the symptom observed, and only fixed by moving here.
+// Attention point: MUST live in low/common memory ($0000-$1fff, the bcode1
+// segment banking.c's krill_init()/sid_music_init()/etc. already use), NOT
+// the main program's ordinary code segment. BNK_1_IO (0x7e) switches to
+// bank 1 -- a genuinely different physical 64KB RAM chip, not just a
+// different ROM/IO overlay within the same bank (contrast
+// raster_music_irq_start()'s BMK_0_IO, which stays within bank 0 and is
+// therefore safe from ordinary code). Common RAM (bnk_init(),
+// xmmu.rcr=0x06) is the only address range guaranteed identical across
+// both banks; anything outside it -- like this function's own remaining
+// instructions, if placed in the main program's ordinary (bank-0-only)
+// code segment -- physically vanishes the instant mmu.cr switches banks,
+// replaced by whatever's actually sitting in bank 1's own copy of that
+// address range. The CPU keeps fetching from the same PC regardless, so it
+// would silently execute that garbage instead of this function's own
+// JSR/bank-restore/RTS, crashing into the KERNAL's BRK handler.
 {
-    // Deliberately unconditional -- see sid_play_frame_foreground()'s own
-    // comment (banking.c) for the full history of why a shared boolean
-    // "did someone already play this frame" flag between this function and
-    // that one doesn't work: it live-broke twice, in opposite directions
-    // (one-directional check let both paths double-play at ~2x speed;
-    // fixing that by also checking here got the flag stuck at 1 for the
-    // entire duration of any krill_loadcompd() call, since nothing resets
-    // it during a load -- silence with a hanging note). This function now
-    // has no awareness of sid_play_frame_foreground() at all and never did
-    // anything but play unconditionally before either of those attempts;
-    // the coordination is now entirely sid_play_frame_foreground()'s own
+    // Attention point: deliberately unconditional, with no awareness of
+    // sid_play_frame_foreground() at all. Coordination between this
+    // function and that one is entirely sid_play_frame_foreground()'s own
     // responsibility (comparing sid_music_framecount against
-    // sid_expected_framecount), which self-corrects regardless of what
-    // else is or isn't running, instead of relying on a flag that can be
-    // left stale by contexts (like a krill load) that never touch it.
+    // sid_expected_framecount, a self-correcting comparison that stays
+    // right regardless of what else is or isn't running) -- see that
+    // function's own comment (banking.c). Do not introduce a shared
+    // boolean "did someone already play this frame" flag between the two:
+    // it can be left stale by contexts (like an active krill load) that
+    // never touch it, and a self-correcting framecount comparison already
+    // covers the same coordination without that failure mode.
 
     // Rate accumulator: decide how many SIDPLAY calls are due this IRQ,
     // from common-RAM state only, BEFORE the bank switch below -- keeps the
@@ -481,24 +477,21 @@ __interrupt void raster_irq_tick()
 // When the table is exhausted, plays one SID frame and restarts from the
 // top for the next frame's redraw.
 //
-// __interrupt: kept for correctness (any __hwinterrupt-reachable function
-// that does ordinary C computation should be __interrupt, per
-// oscar64manual.md's "Interrupt handlers" note), but NOT the fix for a
-// zero-page scratch corruption theory once suspected here -- checked
-// directly against the compiler's generated assembly and disproved:
-// Oscar64 automatically excludes every function reachable from a
-// __hwinterrupt/__interrupt root (propagated transitively through the whole
-// call chain) from its normal call-graph-based local-variable/scratch reuse
-// analysis, specifically to prevent this class of bug. Separately, this
-// handler is deliberately paced to consume close to its entire own reload
-// period doing VDC-ready busy-waits (see the loop below), leaving
-// foreground code almost no CPU time regardless of raster_irq.linespertick
-// (which scales the work done per call and the reload period together, so
-// the starvation ratio doesn't change) -- keypress polling was tried both
-// from foreground code and from inside this function and neither reliably
-// detected anything (root cause never found, see memory:
-// mono_colorize_keypress_bug); callers must use raster_irq.framecount for a
-// fixed-duration exit instead of waiting for a key while this is active.
+// __interrupt: required per oscar64manual.md's "Interrupt handlers" note --
+// any __hwinterrupt-reachable function that does ordinary C computation
+// needs it, since Oscar64 automatically excludes every function reachable
+// from a __hwinterrupt/__interrupt root (propagated transitively through
+// the whole call chain) from its normal call-graph-based local-variable/
+// scratch reuse analysis. Attention point: this handler is deliberately
+// paced to consume close to its entire own reload period doing VDC-ready
+// busy-waits (see the loop below), leaving foreground code almost no CPU
+// time regardless of raster_irq.linespertick (which scales the work done
+// per call and the reload period together, so the starvation ratio doesn't
+// change). Keypress detection does not work reliably while this mechanism
+// is active, from either foreground code or from inside this function (see
+// memory: mono_colorize_keypress_bug) -- callers must use
+// raster_irq.framecount for a fixed-duration exit instead of waiting for a
+// key while this is active.
 {
     char n;
 
@@ -528,16 +521,15 @@ __interrupt void raster_irq_tick()
         {
             raster_irq.pos = 0;
 
-            // Keypress detection under this mechanism was tried both from
-            // foreground code and from here (once per frame, where CPU time
-            // is guaranteed) -- neither ever reliably detected a real
-            // keypress, root cause never found despite extensive live
-            // diagnosis (see memory: mono_colorize_keypress_bug). Given
-            // that, callers must not wait for a keypress while this is
-            // active at all -- use raster_irq.framecount (below) to run for
-            // a fixed duration instead, then call raster_music_irq_stop()
-            // and check for a keypress afterwards via the normal
-            // vdcwin_checkch() path, once KERNAL banking is back.
+            // Attention point: keypress detection does not work reliably
+            // under this mechanism, from either foreground code or from
+            // here (once per frame, where CPU time is guaranteed) -- see
+            // memory: mono_colorize_keypress_bug. Callers must not wait for
+            // a keypress while this is active at all -- use
+            // raster_irq.framecount (below) to run for a fixed duration
+            // instead, then call raster_music_irq_stop() and check for a
+            // keypress afterwards via the normal vdcwin_checkch() path,
+            // once KERNAL banking is back.
             raster_irq.framecount++;
 
             if (raster_irq.musicenabled)
@@ -551,28 +543,21 @@ __interrupt void raster_irq_tick()
 
 __interrupt void raster_irq_worker(void)
 // All of this handler's real C-level logic lives here, not in
-// raster_irq_entry() (below) -- __interrupt gives this function its own
-// zero-page save/restore prologue/epilogue, protecting the shared
-// compiler-register scratch space ("accu"/"tmp"/"ip"/"addr" etc.) that
-// this code's own expression evaluation and 16-bit arithmetic (the cia1.ta
-// assignment included) needs, from whatever foreground C code this
-// interrupt happens to preempt mid-computation. raster_irq_entry() being
+// raster_irq_entry() (below). Attention point: __interrupt gives this
+// function its own zero-page save/restore prologue/epilogue, protecting
+// the shared compiler-register scratch space ("accu"/"tmp"/"ip"/"addr"
+// etc.) that this code's own expression evaluation and 16-bit arithmetic
+// (the cia1.ta assignment included) needs, from whatever foreground C
+// code this interrupt happens to preempt mid-computation. Being
 // __hwinterrupt does NOT provide this protection -- __hwinterrupt only
 // saves CPU registers -- so nothing that touches shared zero-page scratch
-// can safely live directly in that function's own body; it has to be
-// isolated in a proper __interrupt worker like this one instead. See
-// raster_irq_tick()'s comment for the live-confirmed failure this fixes
-// (previously, only raster_irq_tick() itself had this attribute, but
-// this active-check and the CIA1 rearm, sitting directly in
-// raster_irq_entry()'s own body, were still unprotected and still
-// corrupted foreground code on every firing).
+// can safely live directly in a __hwinterrupt function's own body; it has
+// to be isolated in a proper __interrupt worker like this one instead.
 //
 // raster_irq.active is checked with a single exit point (if/no-else),
-// never an early `return` -- the same class of epilogue-skipping bug this
-// whole restructure fixes applies here too (oscar64manual.md's "Interrupt
-// handlers" note): an early `return` was tried first and, on its own,
-// also broke things (confirmed live) before this deeper zero-page issue
-// was found underneath it. Don't reintroduce one.
+// never an early `return` -- the same epilogue-skipping hazard
+// oscar64manual.md's "Interrupt handlers" note describes for
+// __hwinterrupt/__interrupt functions generally. Don't reintroduce one.
 {
     if (raster_irq.active)
     {

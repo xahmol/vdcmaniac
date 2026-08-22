@@ -92,39 +92,18 @@ char krill_loadcompd(char cr, const unsigned start, const char *fname)
 // the asset's own baked-in load address. It is passed for documentation /
 // call-site clarity only; it is NOT used to relocate (see below).
 //
-// --- Two bugs were fixed here; both had been mis-analysed as a zero-page
-//     initialization problem. The actual findings (static analysis against
-//     krill/loader/src/decompress/tsdecomp.s and the build's own linker map,
-//     July 2026): ---
-//
-// 1. decdest ($e4/$e5) IS initialized on the loadcompd path -- the earlier
-//    "decdest is never written with MEM_DECOMP_TO_API off" conclusion was
-//    wrong. It missed that tsdecomp.s aliases `tsput = decdestlo` (its line
-//    25) and, in its INPLACE init loop (the `.else` branch, ~line 86:
-//    `lda (tsget),y / sta tsput,y` for y=0..3), reads the first bytes of the
-//    compressed stream -- which are TSCrunch's baked-in depack address -- and
-//    writes them into decdest. The earlier grep only searched resident.s and
-//    only for the symbol name "decdestlo", so it never saw these writes under
-//    the alias "tsput" in tsdecomp.s.
-//
-// 2. THE CRASH. The previous "fix" called with carry SET and offset = start.
-//    In offset mode the decompressor does tsput = bakedDepackAddr + offset
-//    (tsdecomp.s LOADCOMPD_TO block, ~lines 92-101). For idi8blkr that is
-//    $5800 (baked) + $5800 (offset) = $B000 -- and the Oscar64 C runtime
-//    STACK for this build lives at $B000-$BFA4 (verified in the build's .map:
-//    `b000 - bfa4 : STACK, stack`). Decompressing ~4 KB onto the C stack
-//    corrupts every saved return address, so the return from the loader lands
-//    on garbage, executes a $00/BRK, and drops into the KERNAL BREAK handler
-//    around $C25E-$C365 -- exactly the observed crash. (This is why removing
-//    krill_interrupt's KERNAL chain never helped: the crash is stack
-//    corruption from a doubled destination address, not a zero-page/IRQ race.
-//    The $e4 watchpoint hit was real but incidental to this crash.)
-//
-// Fix: call with carry CLEAR (krill_loadcompd_core below), which routes
-// through resident.s's "depack to the address stored in the file" path.
-// openfile zeroes loadaddroffs on that path, and the decompressor sets
-// decdest from the stream header, so the asset lands at exactly its baked
-// address ($5800) -- no doubling, no stack collision.
+// Attention point: krill_loadcompd_core() below calls Krill's loader with
+// carry CLEAR, per loader.inc's own loadcompd contract -- c=0 means "depack
+// to the address stored in the file" (decdest is set from the compressed
+// stream's own baked address; openfile zeroes loadaddroffs on this path, so
+// no offset is added). Calling with carry SET instead switches to OFFSET
+// mode, where the decompressor computes tsput = bakedDepackAddr + `start`
+// -- if `start` equals the asset's own baked address (the natural thing to
+// pass), that DOUBLES the destination address rather than confirming it.
+// For an asset baked at $5800 that lands at $B000, inside this build's own
+// Oscar64 C runtime stack ($B000-$BFA4 per the build's .map) -- decompressing
+// onto the live C stack corrupts every saved return address. Always use the
+// carry-CLEAR path for TSCrunch assets baked at their real runtime address.
 {
     (void)start; // destination comes from the asset's own header; see above
     krillvar.oldcr = mmu.cr;
@@ -147,55 +126,29 @@ __asm krill_interrupt
 // krill_init() for the whole program run (not torn down until
 // krill_done() at the very end of main()).
 //
-// HISTORY (asset-loading-roadmap.md Phase 4): this was stripped down to a
-// bare `jmp $ff33` earlier in that phase's investigation, on the theory
-// that the real KERNAL chain below was vestigial (this project's own music,
-// raster_music_irq_start(), uses the direct hardware vector $fffe/$ffff,
-// never $314) and possibly responsible for zero-page corruption seen during
-// loadcompd debugging. That corruption turned out to be an unrelated bug
-// (a doubled decompression destination address landing on the C stack --
-// see krill_loadcompd()'s comment), so the removal never helped, and it
-// broke two things at once that only showed up later:
+// Attention point: `jsr $c024` (the real C128 KERNAL jiffy/keyboard-scan
+// routine) must run on every entry, unmodified, for two independent
+// reasons -- removing or masking it breaks both at once. First, $c024 is
+// what actually acknowledges VIC-II's $D019 raster-interrupt flag: a plain
+// `lda $d019` does NOT clear it (that C64/C128 gotcha applies to CIA's
+// ICR, not VIC-II's $D019, which clears only on a WRITE of a 1 bit) --
+// without that acknowledgment the VIC's /IRQ line stays asserted and the
+// CPU re-takes the interrupt immediately on every RTI (an IRQ storm, zero
+// mainline code ever runs). Second, $c024 is also what refills the
+// KERNAL's own keyboard buffer -- `vdcwin_checkch()` reads via KERNAL
+// GETIN ($FFE4), which only sees keys that scan has placed in the buffer.
 //
-// 1. An IRQ storm: nothing acknowledged VIC-II's $D019 raster-interrupt
-//    flag, so the VIC's /IRQ line stayed asserted and the CPU re-took the
-//    interrupt immediately on every RTI -- confirmed live via VICE's binary
-//    monitor, single-stepping showed zero mainline instructions executing,
-//    ever, in a tight $FF17->$0314->krill_interrupt->$FF33->RTI->$FF17 loop.
-// 2. Once the storm was papered over by masking `vic.intr_enable=0` in
-//    krill_init() (a dead end also tried and reverted), the demo hung
-//    forever at every "press a key" prompt instead: vdcwin_checkch() reads
-//    via KERNAL GETIN ($FFE4), which only sees keys the KERNAL's own
-//    keyboard-scan routine has placed in its buffer -- and that scan is
-//    exactly what `jsr $c024` below performs. With it removed (and/or the
-//    interrupt masked off entirely), that buffer is never filled again for
-//    the rest of the program.
-//
-// Root cause of both: `jsr $c024` (the real C128 KERNAL jiffy/keyboard-scan
-// routine) was doing its own correct $D019 acknowledgment as part of normal
-// system housekeeping -- a plain `lda $d019` does NOT clear the flag (that
-// C64/C128 gotcha applies to CIA's ICR, not VIC-II's $D019, which clears
-// only on a WRITE of a 1 bit); only $c024 was ever actually clearing it.
-// Fix: restore the original chain unmodified (verified against this file's
-// own pre-Phase-4 git history) and stop masking the VIC raster interrupt.
-//
-// Phase 5 (SID): a `jsr raster_irq_playframe` was tried here directly,
-// reasoning that it just adds one more nested call inside this handler.
-// Confirmed live (both automated and by the user) that this crashes
-// immediately, every time, regardless of which SID tune was used --
-// something about the ADDED STACK DEPTH from nesting *inside* this
-// specific handler (already reached via the KERNAL's own dispatch chain,
-// itself several JSRs deep) conflicts with Krill's own protocol, which
-// this handler's comment above already flags as delicate/timing-sensitive.
-// Reverted, unmodified, back to its exact original form. SID playback is
+// Attention point: don't nest additional calls (e.g. a `jsr` to play SID
+// music) directly inside this handler -- it's already reached several
+// JSRs deep through the KERNAL's own dispatch chain, and the added stack
+// depth conflicts with Krill's own protocol timing. SID playback is
 // instead chained in *ahead* of this handler via a separate trampoline
 // (sid_music_interrupt, banking.c) that REPLACES this at $314, plays one
 // SID frame via an ordinary JSR/RTS (fully unwound, no added depth here),
 // then JMPs (not JSRs -- no stack growth) to this function's own address,
-// saved at install time -- so krill_interrupt itself runs completely
-// unmodified, at its original call depth, exactly as before. Matches
-// Oscar64Test's own proven-working sid_interrupt/sid_startmusic() pattern
-// (banking.c there) rather than reinventing it.
+// saved at install time -- so krill_interrupt itself always runs at its
+// original, unmodified call depth. Matches Oscar64Test's own
+// sid_interrupt/sid_startmusic() pattern (banking.c there).
 {
     jsr $c024
     bcc krillirq
@@ -282,14 +235,12 @@ void krill_loadcompd_core()
 // runtime address into the compressed stream, and the decompressor restores
 // decdest ($e4/$e5) from it (tsdecomp.s INPLACE init loop). openfile also
 // zeroes loadaddroffs on this path, so there is no offset added -- the asset
-// lands at exactly its baked address. See krill_loadcompd()'s comment for the
-// full history: the previous carry-SET-with-offset call doubled the address
-// ($5800 + $5800 = $B000) straight onto the Oscar64 C stack and crashed.
+// lands at exactly its baked address. See krill_loadcompd()'s own comment
+// for why carry SET (offset mode) must be avoided here.
 //
 // Not wrapped in SEI/CLI (would defeat the point of using Krill -- background
-// loading so IRQ-driven music keeps playing). The earlier crash was stack
-// corruption from the doubled destination, not an IRQ/zero-page race, so no
-// interrupt masking is needed here.
+// loading so IRQ-driven music keeps playing). No interrupt masking is needed
+// for this call.
 {
     char filelo = (unsigned)krillvar.filename;
     char filehi = ((unsigned)krillvar.filename) >> 8;

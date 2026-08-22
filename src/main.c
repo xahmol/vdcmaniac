@@ -116,15 +116,12 @@ void init_plasma(char mode)
 	// first frame or two.
 
 	// Full vdc_init() (memsize re-detect, fastmode, extended-memory check),
-	// not a bare vdc_set_mode() -- every other section in this file
-	// transitions this way (see title_screen()/mono_colorize_demo()/
-	// fli_color_demo()/mono_hires_xl_demo()/init_rotate()); this was the one
-	// exception, relying on whatever the previous effect already set up.
-	// That went unnoticed as long as this ran right after mono_colorize_demo()
-	// (an ordinary non-interlaced mode), but the two new modes immediately
-	// before this one now push far more extreme register values (VDC-IMONO:
-	// interlace, VTOTAL=0x6a), so this no longer transitions reliably without
-	// the full re-init.
+	// not a bare vdc_set_mode() -- needed because a preceding section (e.g.
+	// VDC-IMONO's interlaced, VTOTAL=0x6a mode) can leave register values
+	// too extreme for a bare vdc_set_mode() to reliably clear. Same full
+	// re-init every other section in this file uses (see
+	// title_screen()/mono_colorize_demo()/fli_color_demo()/
+	// mono_hires_xl_demo()/init_rotate()).
 	vdc_init(mode, 1);
 	if (!vdc_state.bitmap)
 	{
@@ -133,12 +130,10 @@ void init_plasma(char mode)
 
 	// Blanked for the pattern-fill loop below -- vdc_init() already
 	// re-enabled the display before returning (see its own comment), so
-	// without this the fill would paint visibly onto a live screen --
-	// live-reported (2026-08-19) as brief corruption on entering both
-	// plasma_demo() and rotate_demo() (init_rotate() has the identical
-	// pattern below), same class of bug as every krill-loaded picture
-	// section already fixed, just never covered here since this fill is
-	// procedural, not an asset load.
+	// without this the fill would paint visibly onto a live screen. Same
+	// blanking discipline every krill-loaded picture section uses,
+	// applied here too since this fill is procedural rather than an asset
+	// load (see init_rotate()'s identical pattern below).
 	vdc_disable_display();
 
 	dp = vdc_state.base_text;
@@ -156,11 +151,10 @@ void init_plasma(char mode)
 	// base_text (the bitmap pattern). base_attr/swap_attr (the colour
 	// planes) are left holding whatever the previous mode's leftover VDC
 	// RAM had, and don't get real data until doplasma0()/doplasma1() run
-	// for the first time in plasma_demo()'s own loop. Re-enabling here (as
-	// this used to) exposed that garbage colour data as "corruption on
-	// screen fill" (live-reported 2026-08-19) even after the fill-loop-
-	// visibility bug above was fixed. plasma_demo() now owns the enable,
-	// once the first real attribute write has actually landed.
+	// for the first time in plasma_demo()'s own loop. plasma_demo() owns
+	// the display enable, once the first real attribute write has
+	// actually landed -- enabling any earlier would expose that leftover
+	// colour data.
 
 	for (int i = 0; i < 256; i++)
 	{
@@ -334,7 +328,7 @@ void init_rotate(char mode)
 	}
 
 	// Blanked for the pattern-fill loop below -- see init_plasma()'s own
-	// identical comment (2026-08-19).
+	// identical comment.
 	vdc_disable_display();
 
 	dp = vdc_state.base_text;
@@ -401,6 +395,7 @@ inline void rotright(char y)
 }
 
 void rotate_demo(char mode)
+// Color-rotate demo main loop
 {
 	// Init
 	init_rotate(mode);
@@ -472,11 +467,11 @@ void rotate_demo(char mode)
 }
 
 // Raster
-// ARCHIVED (2026-08-21): not called from anywhere (used to be reachable
-// via a 'T' key special case in main_menu(), retired to reclaim code-size
-// budget for the VDC-SCROLL family's third section -- see MENU_COUNT's
-// own comment). Kept in the codebase, unused, as a diagnostic snippet
-// for any future raster-timing/placement work -- not menu-wired.
+// ARCHIVED: not called from anywhere (used to be reachable via a 'T' key
+// special case in main_menu(), retired to reclaim code-size budget for
+// the VDC-SCROLL family's third section -- see MENU_COUNT's own
+// comment). Kept in the codebase, unused, as a diagnostic snippet for
+// any future raster-timing/placement work -- not menu-wired.
 void raster_place_test()
 {
 	static const char gradient16[16] = {15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0};
@@ -484,16 +479,12 @@ void raster_place_test()
 	char line;
 	char keypress = 0;
 
-	// This function used to inherit whatever mode the caller (main_menu())
-	// left the VDC in, which was always VDC_TEXT_80x25_PAL (attribute mode
-	// ON, so vdc_prints()'s text came out in vdc_state.text_attr's per-
-	// character colour) -- fine until main_menu() switched to
-	// VDC_TEXT_80x25_Mono_PAL for its own raster-driven header/highlight.
-	// Inheriting mono mode here left every vdc_prints() call using
-	// whatever the last raster_bar_*() write happened to leave in the
-	// single global VDCR_COLOR register instead (often black foreground),
-	// hence the black-ink regression. Set the mode explicitly instead of
-	// relying on inherited state, same as every other demo section does.
+	// Sets its own mode explicitly rather than relying on whatever the
+	// caller left the VDC in, same as every other demo section --
+	// VDC_TEXT_80x25_Mono_PAL (main_menu()'s own mode) leaves
+	// vdc_prints() dependent on the single global VDCR_COLOR register's
+	// leftover value instead of vdc_state.text_attr's per-character
+	// colour, which VDC_TEXT_80x25_PAL's attribute mode provides.
 	vdc_init(VDC_TEXT_80x25_PAL, 1);
 	raster_calibrate();
 
@@ -641,6 +632,8 @@ void vdc_mode_info_screen(const char *modename, const char *line1, const char *l
 }
 
 void raster_bar(char upper, char lower, char length)
+// Bounces a single flat-colour raster bar of `length` lines between
+// rasterlines `upper` and `lower` until a keypress or fire is detected.
 {
 	char count;
 	char position = upper;
@@ -789,6 +782,9 @@ void raster_bar(char upper, char lower, char length)
 static void krill_load_or_die(unsigned dest, const char *fname);
 
 void title_screen()
+// Loads and displays the demo's title screen (VDC_HIRES_640x400_Mono_PAL,
+// interlace even/odd fields), layering a colour-cycling raster bar
+// underneath while waiting for a keypress or fire.
 {
 	char color[16] = {
 			VDC_DGREY | 16 * VDC_DPURPLE,
@@ -812,21 +808,15 @@ void title_screen()
 	char i;
 	char line,count;
 
-	// Load screen -- asset-loading-roadmap.md Phase 1 proof, now folded into
-	// Phase 2's full rollout: krill_loadcode()/krill_init()/krill_done() are
+	// Load screen -- krill_loadcode()/krill_init()/krill_done() are
 	// installed/torn down once in main() (see its own comment) rather than
 	// per-function -- every load call site in this file is just the load
-	// itself (see idi8b_logo_demo()'s comment on this pattern).
-	// krill-loader-integration.md's plan recommended a cia_init() call
-	// after every Krill load as a "free" safety net -- tried, and it isn't
-	// free: cia_init() (c64/cia.c) unconditionally sets cia2.pra = 0x07,
-	// directly overwriting krill_init()'s own cia2.pra = 2 (the IEC bus
-	// control lines Krill's loader protocol depends on for its whole active
-	// session, install to done) -- confirmed live as the cause of a hang
-	// partway through the demo once more than one section had loaded via
-	// Krill. Oscar64Test's own reference usage never calls cia_init()
-	// during an active Krill session either (only once, before
-	// krill_loadcode()/krill_init() even run) -- removed here to match.
+	// itself. Attention point: never call cia_init() while Krill's loader
+	// is installed (between krill_init() and krill_done()) -- it
+	// unconditionally sets cia2.pra = 0x07, overwriting krill_init()'s own
+	// cia2.pra = 2 (the IEC bus control lines Krill's loader protocol
+	// depends on for its whole active session), which hangs the demo. See
+	// krill_manual.md.
 	// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
 	// KRILL_COMPRESSED_ASSETS comment for how titleevk/titleodk were derived
 	// from vdce-scrtit.eve/.odd (same content, re-baked destination header).
@@ -838,15 +828,13 @@ void title_screen()
 
 	// Init proper hires mode
 	// Must match the resolution the vdce-scrtit.eve/.odd assets were
-	// exported for: 640x400 mono (32000 bytes total, 16000/half). An
-	// in-session experiment switched this to VDC_HIRES_640x480_Mono_NTSC
-	// (with the load offset bumped to 19200 to match that taller mode's
-	// framebuffer) without regenerating the assets for the new height --
-	// that left a stale/garbage gap between the top and bottom halves in
-	// VRAM (19200-16000 unfilled bytes) and reinterpreted 400-line bitmap
-	// data as a 480-line layout (VDC bitmap memory is organized in
-	// per-character-row blocks, so the row layout differs by height),
-	// which is what caused the corruption/instability seen in VICE.
+	// exported for: 640x400 mono (32000 bytes total, 16000/half).
+	// Attention point: VDC bitmap memory is organized in per-character-row
+	// blocks, so the row layout differs by height -- switching this to a
+	// different-height mode (e.g. VDC_HIRES_640x480_Mono_NTSC) requires
+	// regenerating the assets for the new height and adjusting the load
+	// offset to match that mode's own framebuffer size, or the picture
+	// will read back corrupted.
 	// No wipe here -- raster_place_test()'s own exit loop already wiped
 	// right as it detected the keypress that ends it (see init_plasma()'s
 	// comment for why this convention moved there).
@@ -856,23 +844,19 @@ void title_screen()
 	// re-enabled the display before returning, so without this the
 	// still-loading/not-yet-pushed framebuffer (whatever vdc_init()'s own
 	// mode switch left behind) would be visible for the push's own
-	// duration. Live-diagnosed (2026-08-19) as a general issue across
-	// every section that loads picture data after vdc_init(), not just
-	// this one -- see vscroll_demo()'s own comment for the specific,
-	// worse case (vdc_detect_mem_size()'s own vdc_cls() call, inside
-	// vdc_init() itself, corrupting a picture loaded before it) that
-	// first surfaced this.
+	// duration. Same blanking discipline every section that loads picture
+	// data after vdc_init() uses -- see vdc_reference_manual.md's "Stale
+	// vdc_state mid-vdc_init()" for the related vdc_detect_mem_size() case.
 	vdc_disable_display();
 
 	// Deliberately NOT recalibrating here: this function's bar-position
 	// constants (182, 181, 176..117, 114, 85, 84 below) were hand-tuned
 	// against the static default raster_timer_reload (62, see
-	// vdc_raster.c), long before raster_calibrate() existed -- not against
-	// a live measurement. A recalibration pass was tried here and made the
-	// bars unstable, most likely because this mode's interlace flag (the
-	// "1" above) throws off raster_calibrate()'s VTOTAL/CSIZE-based
-	// lines-per-frame math, producing a value that no longer matches what
-	// these constants assume. main()'s one-time text-mode calibration
+	// vdc_raster.c), not against a live measurement. Attention point:
+	// this mode's interlace flag (the "1" above) throws off
+	// raster_calibrate()'s VTOTAL/CSIZE-based lines-per-frame math,
+	// producing a value that doesn't match what these constants assume --
+	// don't recalibrate here. main()'s own one-time text-mode calibration
 	// (62.218, confirmed via raster_place_test()) stays close enough to
 	// the hand-tuned default not to matter here.
 
@@ -900,18 +884,12 @@ void title_screen()
 		start++;
 		start &= 0xf;
 
-		// Bar positions retuned for the new "VDC Maniac" picture (the old
-		// values -- 182/181/176/114/85/84 -- were hand-tuned against the
-		// old "VDC Experience" picture's own content boundaries, which sit
-		// at different rows). Derived by measuring per-row pixel density in
-		// the new vdce-scrtit.eve/.odd to find the actual near-blank gaps
-		// between the top art / "VDC Maniac" text / "Experiments with..."
-		// text / bottom art, then mapping row -> raster-line using the old
-		// picture's own two known-good anchor points (182 <-> its top gap's
-		// centre row, 85 <-> its bottom gap's centre row) as a linear
-		// calibration, applied to the new picture's analogous rows -- then
-		// the top line nudged down 4 more (188, not 192) after a live
-		// check in VICE confirmed everything else. Live-confirmed working.
+		// Bar positions (188/187/186/120/89/88) are tuned to the
+		// vdce-scrtit.eve/.odd picture's own near-blank content gaps (top
+		// art / "VDC Maniac" text / "Experiments with..." text / bottom
+		// art) -- find those gaps by measuring per-row pixel density, then
+		// map row to raster-line and fine-tune live in VICE if the picture
+		// content ever changes.
 		raster_bar_begin();
 		raster_bar_line(188, VDC_DRED);
 		raster_bar_line(187, 16 * VDC_LYELLOW + VDC_DGREY);
@@ -933,89 +911,32 @@ void idi8b_logo_demo()
 // Showcases the idreamtin8bits.com logo (PETSCII text screen, standard
 // charset, exported from VDC Screen Editor as monochrome white -- see
 // assets/idi8blogo.scrn, copied verbatim from
-// idreamtin8bits-astro/src/assets/idi8b-80.scrn.prg) with a single animated
-// Mechanism-1 raster bar "behind" the logo: recolours only the background
-// nibble, foreground fixed white, so the logo stays legible against a
-// changing background.
+// idreamtin8bits-astro/src/assets/idi8b-80.scrn.prg) with two mirrored
+// Mechanism-1 raster bars "Fire" (physically upper half) and "Ice"
+// (physically lower half), both centred on CENTER and driven by one
+// shared bounce value t: they meet/overlap near t==0 and separate toward
+// the screen edges near t==AMPLITUDE. Which bar renders "in front of" the
+// logo (solid flash, wins any overlap) vs "behind" it (white ink, logo
+// stays legible) swaps between the two over time (fire_is_front toggles
+// at each direction change, t==AMPLITUDE) -- built as a single merged
+// per-frame colour buffer (resolving overlap by whichever bar is
+// currently "front") fed into the existing raster_bar_segment(), needing
+// no changes to vdc_raster.c itself.
 //
-// THIRD RESET (2026-07-22): two bars -> one bar -> added raster_calibrate()
-// -> dropped raster_bar_bounce() for a fixed position -- ALL still
-// unstable (see git history for each attempt). Dropping in the bar code
-// from raster_place_test() ("section 1") UNCHANGED, in VDC_TEXT_80x25_PAL
-// (attribute mode on, the mode that function itself is proven stable in)
-// FIXED it -- confirmed live. That isolated the untested VDC_TEXT_80x25_
-// Mono_PAL (attribute mode off) combination as the actual variable, not
-// bar count/calibration/bounce.
+// Runs in VDC_TEXT_80x25_Mono_PAL (attribute mode off). Attention point:
+// in this mode there's no per-character colour RAM, so $1A/VDCR_COLOR is
+// a single GLOBAL register -- raster_bar_end() never resets it, so
+// whatever the bar's own last write was keeps applying to every scanline
+// the bar itself doesn't touch. Segments are bookended with explicit
+// white-ink raster_bar_line() calls to keep the logo text legible outside
+// the bar's own lines, same convention title_screen()'s own "cap line"
+// calls use.
 //
-// FOURTH STEP (confirmed stable live): kept this exact bar code, switched
-// only the mode back to VDC_TEXT_80x25_Mono_PAL -- stable. So Mono_PAL was
-// never the culprit; the earlier unstable versions must have been broken
-// by something else that's no longer present.
-//
-// FIFTH STEP: stable, but the logo text outside the bar's own lines was
-// showing black ink. Root cause: in this non-attribute mode there's no
-// per-character colour RAM, so $1A/VDCR_COLOR is a single GLOBAL register
-// -- raster_bar_end() never resets it, so whatever the bar's *last* write
-// was (gradient16's final entry, 0 = black-on-black) keeps applying to
-// every scanline the bar itself doesn't touch, above and below it, same
-// as how title_screen()'s own "cap line" raster_bar_line() calls bookend
-// its segments for the same reason. Bookend the segment with explicit
-// white-ink raster_bar_line() calls instead.
-//
-// SIXTH STEP: moved to be the second section in main(), right after
-// raster_place_test() (previously ran after title_screen()) -- runs in the
-// same VDC_TEXT_80x25_* family raster_place_test() itself uses, so no mode
-// detour through a bitmap mode in between. Added a "PRESENTS...." line
-// below the logo, and centred the whole block (logo + line) both
-// horizontally and vertically on the 80x25 screen: idi8blogo.scrn's own
-// exported content is top-left anchored (rows 1-12, cols 1-54 -- computed
-// by inspecting the raw file), so instead of dumping it 1:1 via a single
-// bnk_cpytovdc() like before, only that content's bounding box is copied,
-// row by row, into a computed centred destination position.
-//
-// SEVENTH STEP: the "presents...." text was written UPPERCASE in the C
-// source on a theory (uppercase source -> case-inverted lowercase glyph,
-// derived from cross-referencing idi8blogo.scrn's own raw codes against
-// pet2screen()'s ASCII mapping) that turned out wrong live -- came out
-// uppercase on screen, not lowercase. Flipped to a plain lowercase source
-// string instead, empirically matching what's actually wanted, rather
-// than re-deriving the theory further.
+// idi8blogo.scrn's own exported content is top-left anchored (rows 1-12,
+// cols 1-54), not pre-centred -- only that content's own bounding box is
+// copied, row by row, into a computed centred destination position on
+// the 80x25 screen, with a "presents...." line placed below it.
 {
-	// NINTH STEP: single bouncing bar -> two mirrored bars ("Fire" always
-	// physically upper, "Ice" always physically lower, both centred on
-	// CENTER and driven by one shared bounce value t). They meet/overlap
-	// ("collide") near t==0 and separate toward the screen edges near
-	// t==AMPLITUDE. Which one is rendered "in front of" the logo (solid
-	// flash, wins any overlap) vs "behind" it (white ink, logo stays
-	// legible) is not fixed to either bar -- fire_is_front toggles (see
-	// ELEVENTH STEP below for exactly when), so the two swap roles over
-	// time. Built as a single merged per-frame colour buffer (resolving
-	// overlap by however fire_is_front says to) fed into the existing
-	// raster_bar_segment(), so this needed zero changes to vdc_raster.c --
-	// see git history for the design note (plan
-	// "want-to-revisit-timning-zany-patterson.md" at the time of writing).
-	//
-	// TENTH STEP, REVERTED (2026-08-18): tried a full-screen mirrored-bounce
-	// redesign here (each bar sweeping the whole screen, front/behind tied
-	// to direction instead of the collision point) per live feedback that
-	// NINTH STEP's bars never left their own half. Live-tested result was
-	// worse, not better: "music gets very slow and raster unstable" --
-	// reverted whole, back to this exact NINTH STEP version, rather than
-	// keep patching a design that's already shown two escalating failure
-	// modes on the first two attempts. See git history around this commit
-	// for the reverted code and TODO.md/session notes for the follow-up
-	// analysis of what actually went wrong before trying again.
-	//
-	// ELEVENTH STEP: keep NINTH STEP's motion (fire confined to the upper
-	// half, ice to the lower half -- explicitly NOT the reverted full-
-	// screen sweep), but move the fire_is_front toggle off the collision
-	// point (t==0, bars meeting at CENTER) to the OTHER extreme
-	// raster_bar_bounce() also flips `direction` at (t==AMPLITUDE, each
-	// bar at its own far edge) -- explicit live steer: swap "at the
-	// direction change at top or bottom, not on bars meeting each other in
-	// the middle". Purely a one-line condition change (t==0 -> t==
-	// AMPLITUDE below); motion range, sweep length, and per-frame cost are
-	// all untouched from the proven-stable NINTH STEP version.
 	static const char fire[16] = {
 		VDC_WHITE, VDC_WHITE, VDC_LYELLOW, VDC_LYELLOW, VDC_DYELLOW, VDC_DYELLOW,
 		VDC_LRED, VDC_LRED, VDC_LRED, VDC_DRED, VDC_DRED, VDC_DRED,
@@ -1029,16 +950,13 @@ void idi8b_logo_demo()
 		DEFAULTCOLOR = (VDC_WHITE * 16) | VDC_BLACK,
 		BARLEN = 16,
 		CENTER = 158,
-		// Reduced from 80 (real-hardware report, 2026-08-21): the bars
-		// "become stable" (visibly glitch/stick) at their own far extreme
-		// (t==AMPLITUDE, CENTER+-80) -- not reproduced in VICE, only on
-		// real hardware, consistent with the far extreme pushing one or
-		// both bars' rasterlines close to the edge of whatever range this
-		// project's raster-IRQ chain can reliably schedule against. Single
-		// shared constant governs both bars symmetrically already (CENTER
-		// +-AMPLITUDE), so just shrinking this keeps them symmetric without
-		// a separate per-bar value. Live-tune further on real hardware if
-		// still unstable.
+		// Attention point: on real hardware (not reproduced in VICE), the
+		// bars visibly glitch/stick at their own far travel extreme
+		// (t==AMPLITUDE) once that pushes a bar's rasterline close to the
+		// edge of what this project's raster-IRQ chain can reliably
+		// schedule against -- keep this comfortably below CENTER's own
+		// distance to either screen edge. Single shared constant governs
+		// both bars symmetrically (CENTER +-AMPLITUDE).
 		AMPLITUDE = 64,
 		CYCLE_FRAMES = 6,
 		BARBUFLEN = 2 * AMPLITUDE + BARLEN,
@@ -1077,28 +995,26 @@ void idi8b_logo_demo()
 	// in the previous section's own exit loop instead (title_screen()'s).
 	vdc_init(VDC_TEXT_80x25_Mono_PAL, 0);
 
-	// Recalibrate for this mode -- this function now runs right after
-	// raster_place_test() (VDC_TEXT_80x25_PAL), switching to a genuinely
-	// different mode of its own (VDC_TEXT_80x25_Mono_PAL, colorlines
-	// differs). Matches mono_colorize_demo()/mono_hires_xl_demo()'s
-	// established pattern of recalibrating fresh after their own
-	// vdc_init().
+	// Recalibrate for this mode -- switches to a genuinely different mode
+	// of its own (VDC_TEXT_80x25_Mono_PAL, colorlines differs from
+	// whatever ran before it). Matches mono_colorize_demo()/
+	// mono_hires_xl_demo()'s established pattern of recalibrating fresh
+	// after their own vdc_init().
 	raster_calibrate();
 
-	// SID playback starts here, not in main() right after the music load --
-	// see main()'s own comment on the SIDINIT krill_loadcompd() call for
-	// why: this is the LAST raster_calibrate() call in the whole startup
-	// sequence, so starting playback right after it (instead of right
-	// before it) means the ~1.3s SEI window above never has a chance to
-	// land on top of already-started music and cause an audible pause.
+	// SID playback starts here, not in main() right after the music load
+	// -- see main()'s own comment on the SIDINIT krill_loadcompd() call
+	// for why: this is the LAST raster_calibrate() call in the whole
+	// startup sequence, so starting playback right after it (instead of
+	// right before it) means its own ~1.3s SEI window never has a chance
+	// to land on top of already-started music and cause an audible pause.
 	sid_music_init(g_is_ntsc);
 
-	// Real fix for the earlier uppercase-logo bug (kept from before): see
-	// git history / memory (vdc_charset_selection_no_attribute_mode) for
-	// why vdc_set_charset_address(char_alt) can't work here -- overwrite
-	// char_std's own contents with the alternate/lowercase ROM image
-	// directly instead, exactly like the KERNAL's own SHIFT+COMMODORE
-	// 80-column toggle does.
+	// Attention point: vdc_set_charset_address(char_alt) cannot select
+	// the lowercase charset in this non-attribute mode (see project memory
+	// vdc_charset_selection_no_attribute_mode) -- overwrite char_std's own
+	// contents with the alternate/lowercase ROM image directly instead,
+	// exactly like the KERNAL's own SHIFT+COMMODORE 80-column toggle does.
 	bnk_redef_charset(vdc_state.char_std, BNK_CHARROM, (char *)0xd800, 256);
 
 	// idi8b-80.scrn.prg is VDC Screen Editor's own .scrn format: [2000
@@ -1162,10 +1078,9 @@ void idi8b_logo_demo()
 		// t==0 is the collision point (both bars meet at CENTER);
 		// t==AMPLITUDE is each bar's own far edge (fire at its own top,
 		// ice at its own bottom) -- raster_bar_bounce() flips `direction`
-		// at BOTH. Toggling here on t==AMPLITUDE (not t==0, the original
-		// NINTH STEP choice) per explicit live steer: front/behind should
-		// swap "at the direction change at top or bottom, not on bars
-		// meeting each other in the middle".
+		// at both. fire_is_front toggles at t==AMPLITUDE (the direction
+		// change, each bar at its own far edge), not at the collision
+		// point t==0.
 		t = raster_bar_bounce(t, 0, AMPLITUDE, &direction);
 		if (t == AMPLITUDE)
 		{
@@ -1419,11 +1334,9 @@ char fli_color_demo()
 		}
 
 		// Blanked for the VDC push below -- vdc_init() already re-enabled
-		// the display before returning; disabling it outright here is the
-		// general fix (2026-08-19, applied across every picture-loading
-		// section -- see vscroll_demo()'s own comment for the specific
-		// case, a vdc_init()-internal vdc_cls() call, that first surfaced
-		// this as a real bug, not just cosmetic).
+		// the display before returning, so disabling it again here avoids
+		// showing the not-yet-pushed framebuffer. Same discipline every
+		// picture-loading section in this file uses.
 		vdc_disable_display();
 
 		// CSIZE (register 9) is deliberately absent from this mode's
@@ -1433,43 +1346,23 @@ char fli_color_demo()
 		// the height-1 this mode needs. The per-frame toggle below corrects
 		// that once it starts.
 		//
-		// REMOVED (2026-08-21) a `vdc_reg_write(VDCR_CSIZE, 0xe0)` force
-		// here, right before the two bnk_cpytovdc() pushes below. It was
-		// purely cosmetic (its own comment: "so the toggle's own first
-		// pass isn't starting from the wrong height" -- the toggle's first
-		// fw1/fw2 pass writes both CSIZE states regardless of the starting
-		// value) but caused a genuine hang on REAL hardware, live-confirmed
-		// via the Ultimate II+L's own REST API while the machine sat
-		// frozen: $D600 read back E1 (bit 5, VBLANK status, permanently
-		// SET) across four separate reads spread over several real
-		// seconds, and register 9 (CSIZE, peeked by selecting it via
-		// $D600=09 then reading $D601) still read back 0xE0 -- i.e. the
-		// CPU was parked in the toggle loop's very first fw1 wait, having
-		// never completed even one pass. This mode's own VTOTAL=0xFF/
-		// VDISPLAY=0xFE (vdc_modes[] row, vdc_core.c) give an extremely
-		// narrow vblank duty cycle (~1-2 scanlines out of a 256-line
-		// frame) at a STATIC CSIZE=height1 -- the force-write held the VDC
-		// in exactly that fragile state for the real-time duration of both
-		// 15120-byte pushes below (per-byte ready-polled, not
-		// instantaneous), apparently long enough for the real 8563's own
-		// vertical sync generator to lock up before the per-frame toggle
-		// ever got a chance to start correcting it every frame (this
-		// mode's own vdc_modes[] row comment already documented that a
-		// STATIC CSIZE "works for a few lines then drifts" on real
-		// hardware -- this is that same fragility, just manifesting as a
-		// full lockup instead of visible drift, given how much longer the
-		// static hold is here than a single frame). Leaving CSIZE at
+		// Attention point: do NOT force CSIZE to height-1 (0xe0) here,
+		// before the two bnk_cpytovdc() pushes below. This mode's own
+		// VTOTAL=0xFF/VDISPLAY=0xFE (vdc_modes[] row, vdc_core.c) give an
+		// extremely narrow vblank duty cycle (~1-2 scanlines out of a
+		// 256-line frame) at a STATIC CSIZE=height-1 -- holding that state
+		// for the real-time duration of both 15120-byte pushes (per-byte
+		// ready-polled, not instantaneous) hangs real 8563 hardware (not
+		// reproduced in VICE -- see project memory
+		// vdcmaniac_wsl_vice_timing_artifacts for a related class of
+		// real-hardware-only timing sensitivity). Leaving CSIZE at
 		// whatever height-8 the previous mode left it during the two
 		// pushes keeps the VDC in the SAME static-but-stable configuration
-		// every other mode in this codebase sits in for as long as it
-		// likes with no drift issue, and the toggle loop's own first
-		// iteration reaches its own CSIZE=0xe0 write within one frame of
-		// starting -- minimising time spent in the fragile state to
-		// roughly a frame instead of two full picture pushes' worth.
-		// VICE never reproduced this -- another case (see project memory:
-		// vdcmaniac_wsl_vice_timing_artifacts, a different but related
-		// class) of real 8563 silicon being far less forgiving of a
-		// prolonged edge-case register state than emulation.
+		// every other mode in this codebase sits in indefinitely with no
+		// issue, and the toggle loop's own first iteration reaches its own
+		// CSIZE=0xe0 write within one frame of starting -- so the fragile
+		// state is only ever held for about a frame, not two full picture
+		// pushes' worth.
 
 		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 15120);
 		bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN + 15120, 15120);
@@ -1490,24 +1383,21 @@ char fli_color_demo()
 		// not vdcwin_checkch()/KERNAL GETIN -- matching Tokra's own
 		// sys4864, which reads $dc00/$dc01 directly inside this same
 		// SEI-held loop rather than re-enabling interrupts and going
-		// through the KERNAL. This loop holds SEI for nearly the entire VDC
-		// frame (fw1 waits out the active display period, fw2 waits out the
-		// following vblank), leaving only a brief CLI window each pass --
-		// not enough of a guarantee that the KERNAL's own keyboard-scan IRQ
-		// gets to run and populate GETIN's buffer, which is what going
-		// through vdcwin_checkch() here depended on and is the likely cause
-		// of this section previously appearing to hang (frozen in the
-		// pre-toggle CSIZE state above, never reaching a completed pass).
-		// keyb_poll() only touches CIA1 registers directly, so it's safe to
-		// call with interrupts still off.
+		// through the KERNAL. Attention point: this loop holds SEI for
+		// nearly the entire VDC frame (fw1 waits out the active display
+		// period, fw2 waits out the following vblank), leaving only a
+		// brief CLI window each pass -- not enough of a guarantee that the
+		// KERNAL's own keyboard-scan IRQ gets to run and populate GETIN's
+		// buffer, so vdcwin_checkch() can't be relied on here. keyb_poll()
+		// only touches CIA1 registers directly, so it's safe to call with
+		// interrupts still off.
 		do
 		{
 			// sid_expected_framecount incremented here (this loop's own
 			// per-frame boundary, one iteration = one frame) -- see
 			// sid_play_frame_foreground()'s own comment (banking.c) for the
-			// full mechanism (a self-correcting counter comparison, not a
-			// flag -- a flag design was tried and live-broke twice, see
-			// that comment's own history).
+			// full mechanism: a self-correcting counter comparison, not a
+			// flag.
 			sid_expected_framecount++;
 			__asm
 			{
@@ -1604,7 +1494,6 @@ char fli_ihfli_demo()
 // before applying its own mode (see vdc_reset_boot_registers() in
 // vdc_core.c) -- the next mode's own vdc_init() call handles it
 // automatically regardless of what this one leaves behind.
-// Live-confirmed working.
 {
 	static const char *descr[3] = {
 		"Passiflora caerulea macro",
@@ -1640,8 +1529,7 @@ char fli_ihfli_demo()
 		}
 
 		// Blanked for the four interleaved load+push pairs below -- see
-		// title_screen()'s own comment on this same general fix
-		// (2026-08-19).
+		// title_screen()'s own comment on this same general fix.
 		vdc_disable_display();
 
 		bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 9600);
@@ -1714,8 +1602,7 @@ char fli_itfli_demo()
 		}
 
 		// Blanked for the four interleaved load+push pairs below -- see
-		// title_screen()'s own comment on this same general fix
-		// (2026-08-19).
+		// title_screen()'s own comment on this same general fix.
 		vdc_disable_display();
 
 		bnk_cpytovdc(vdc_state.base_attr, BNK_1_FULL, (char *)MEM_SCREEN, 7680);
@@ -1788,7 +1675,7 @@ char fli_hfli_demo()
 		}
 
 		// Blanked for the two load+push pairs below -- see title_screen()'s
-		// own comment on this same general fix (2026-08-19).
+		// own comment on this same general fix.
 		vdc_disable_display();
 
 		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 32000);
@@ -1870,7 +1757,7 @@ void spectrum_demo()
 		}
 
 		// Blanked for the two load+push pairs below -- see title_screen()'s
-		// own comment on this same general fix (2026-08-19).
+		// own comment on this same general fix.
 		vdc_disable_display();
 
 		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 16000);
@@ -1900,9 +1787,8 @@ void spectrum_demo()
 // bitmap modes (colorlines=0), so the *entire* picture's "1" bits are
 // coloured by one single register (VDCR_COLOR high nibble, vdc_fgcolor()) --
 // same mechanism idi8b_logo_demo()'s raster bar exploits, just static here
-// instead of animated. Per-picture raster colour bands were tried first and
-// dropped (2026-07-26): unstable in VICE and not the effect actually
-// wanted. This replaces them with a manual colour cycle instead.
+// instead of animated. A manual colour cycle through this table, rather
+// than a per-picture raster colour band.
 static const char mono_cycle_colors[15] = {
 	VDC_WHITE, VDC_LGREY, VDC_DGREY, VDC_LYELLOW, VDC_DYELLOW,
 	VDC_LRED, VDC_DRED, VDC_LPURPLE, VDC_DPURPLE, VDC_LBLUE,
@@ -1957,15 +1843,13 @@ char mono_hires_xl_demo()
 // completion -- see fli_color_demo()'s own comment for why.
 //
 // Showcases VDC-IMONO (720x700, interlace monochrome -- see original/v12/).
-// Mechanism 2 (raster_music_irq_start()'s CIA1 hardware IRQ) was dropped
-// from this demo entirely, see mono_colorize_demo()'s comment in main():
-// even a fixed-duration timer exit didn't work reliably, it banks out
-// KERNAL/BASIC/char ROM for its whole active duration, which is
-// what made keyb_poll()-based keypress detection unreliable here (see
-// memory: mono_colorize_keypress_bug -- extensively diagnosed, root cause
-// never found). The proven-reliable vdcwin_checkch() (KERNAL GETIN) works
-// exactly like it does in title_screen() -- this sidesteps that bug
-// entirely rather than continuing to chase it. Picture converted from a
+// Mechanism 2 (raster_music_irq_start()'s CIA1 hardware IRQ) is not used
+// here, see mono_colorize_demo()'s comment in main(): it banks out KERNAL/
+// BASIC/char ROM for its whole active duration, which makes keyb_poll()-
+// based keypress detection unreliable (see memory:
+// mono_colorize_keypress_bug -- root cause never found). vdcwin_checkch()
+// (KERNAL GETIN) is used instead, exactly like it is in title_screen().
+// Picture converted from a
 // CC-BY-SA photograph by tools/vdc_convert.py -- see defines.h for the
 // source/license.
 //
@@ -2020,7 +1904,7 @@ char mono_hires_xl_demo()
 		}
 
 		// Blanked for the two load+push pairs below -- see title_screen()'s
-		// own comment on this same general fix (2026-08-19).
+		// own comment on this same general fix.
 		vdc_disable_display();
 
 		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 31500);
@@ -2129,7 +2013,7 @@ char mono_im800_demo()
 		}
 
 		// Blanked for the two load+push pairs below -- see title_screen()'s
-		// own comment on this same general fix (2026-08-19).
+		// own comment on this same general fix.
 		vdc_disable_display();
 
 		bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 30000);
@@ -2207,7 +2091,7 @@ void mono_im960_demo()
 	}
 
 	// Blanked for the two load+push pairs below -- see title_screen()'s
-	// own comment on this same general fix (2026-08-19). HSTART (register
+	// own comment on this same general fix. HSTART (register
 	// 34) is managed explicitly here rather than via vdc_enable_display()
 	// at the end: this mode's own vdc_modes[] row sets it to 6 (Tokra's
 	// own value) via the regset[] loop inside vdc_set_mode(), but
@@ -2308,14 +2192,13 @@ char vscroll_demo()
 // one). DISP_ADDR can already address any individual scanline directly, so
 // stepping it by VS_STRIDE bytes (one scanline) at a time IS a smooth
 // vertical scroll on its own -- VSCROLL was never doing anything DISP_ADDR
-// couldn't already do here. A combined DISP_ADDR+VSCROLL smooth scroll
-// (the standard technique for this effect, matching several published
-// real-hardware-tested references, and what this project tried first) was
-// live-tested extensively and reliably tore on both real hardware and
-// z64k regardless of write order/timing -- two registers fighting over the
-// same one degree of freedom, live-confirmed once this DISP_ADDR-only
-// version worked cleanly on the first try. See project memory
-// (vdcmaniac_vscroll_dispaddr_latch_lag.md) for the full investigation.
+// couldn't already do here. Attention point: a combined DISP_ADDR+VSCROLL
+// smooth scroll (the standard technique for this effect, matching several
+// published real-hardware-tested references) reliably tears on both real
+// hardware and z64k regardless of write order/timing -- two registers
+// fighting over the same one degree of freedom. Use DISP_ADDR alone. See
+// project memory (vdcmaniac_vscroll_dispaddr_latch_lag.md) for the full
+// investigation.
 {
     enum
     {
@@ -2329,8 +2212,7 @@ char vscroll_demo()
         VS_STRIDE = VS_WIDTH / 8, // 80 bytes/scanline -- same as the display's own width; also the byte step from one scanline's own display-start address to the next
         // Scanlines of travel.
         VS_MAXY = VS_HEIGHT - 200,
-        // Scanlines/frame the scroll glides toward its current waypoint --
-        // live-tune for pacing.
+        // Scanlines/frame the scroll glides toward its current waypoint.
         PAN_STEP_Y = 2,
         WAYPOINT_COUNT = 2,
         // Full bounce cycles (down-and-back-up) to auto-play before
@@ -2358,24 +2240,18 @@ char vscroll_demo()
     // Real artwork: Utagawa Hiroshige's "Kinryuzan Temple, Asakusa" (One
     // Hundred Famous Views of Edo, print #99, 1856) -- public domain
     // (Japanese copyright expired; artist died 1858), high-resolution
-    // scan from The Met's Open Access collection (object 56689,
-    // DP121552.jpg, 2624x3840 -- a large step up from an initial
-    // Wikimedia Commons scan at only 713x1087, live-diagnosed as visibly
-    // softer/noisier once dithered at this size) -- see
+    // scan (2624x3840, DP121552.jpg) from The Met's Open Access
+    // collection (object 56689) -- see
     // assets/source/vscroll_hiroshige_kinryuzan.jpg (source-cropped to
     // just the print itself, trimming the Met scan's own mat/border) and
-    // defines.h's credit block. Chosen specifically for the pivot to
-    // vertical scrolling (replacing the earlier, now-unsuitable
-    // horizontal Nihonbashi crop): a genuinely vertical-format ukiyo-e
+    // defines.h's credit block. A genuinely vertical-format ukiyo-e
     // composition -- a giant hanging lantern dominating the top of the
     // frame, the temple gate and a snowy crowd below -- tailor-made for a
     // top-to-bottom reveal. Converted via tools/vdc_convert.py --mode
     // vscroll (1-bit Floyd-Steinberg dither, --crop-top 0 --crop-left 110
     // -- top-anchored so the full lantern stays in frame, left-trimmed to
     // shave down the print's own decorative border pillar and centre the
-    // lantern, without cutting into the lantern's own left curve --
-    // 150 was tried first and clipped it, 50 left it too far right;
-    // 110 is the live-tuned middle ground). Note the inherent trade-off
+    // lantern without cutting into its own left curve). Note the inherent trade-off
     // at this mode's fixed 640:798 output aspect: trimming width to
     // shrink the pillar also shrinks how much of the source's OWN height
     // fits in frame (fit_to_size() derives crop height from post-trim
@@ -2425,8 +2301,7 @@ char vscroll_demo()
     // (colorlines=0, same as idi8b_logo_demo()'s own mode), so $1a/
     // VDCR_COLOR is a single GLOBAL register that otherwise keeps
     // whatever the PREVIOUS mode (the menu's own coloured text) last left
-    // it at -- live-diagnosed here as an unwanted yellow tint over the
-    // whole picture.
+    // it at, tinting the whole picture.
     vdc_reg_write(VDCR_COLOR, (VDC_WHITE * 16) | VDC_BLACK);
 
     // VDCR_VSCROLL is never touched by this section at all -- see this
@@ -2598,10 +2473,9 @@ char panorama_demo()
 // of travel with no vertical component, and glided toward scripted
 // waypoints exactly like vscroll_demo() above glides pan_y (a plain
 // "how many 1px steps have we taken" counter stands in for a literal
-// pixel position, since the real hardware step size per call was
-// empirically proven live rather than derived from a byte/hscroll
-// formula -- see r27_pan_test_demo()'s own Phase 1/2 diagnostic work,
-// now superseded by this shipped version).
+// pixel position -- Attention point: the real hardware step size per call
+// was determined empirically, not derived from a byte/hscroll formula;
+// don't assume one applies if this is ever reworked).
 //
 // CRITICAL: VDCR_ROWINC is written via an explicit vdc_reg_write() call
 // below, strictly AFTER vdc_set_disp_address() has already set the real
@@ -2787,8 +2661,7 @@ char panorama2d_demo()
         WAYPOINT_COUNT = 4,
         // Two full 4-corner tours -- same LOOP_COUNT=2 convention
         // vscroll_demo()/panorama_demo() use for their own simpler
-        // 2-point bounces, live-requested (2026-08-22) once one tour was
-        // confirmed working correctly.
+        // 2-point bounces.
         LOOP_COUNT = 2
     };
     // Tour all four corners of the stored picture -- top-left, top-right,
@@ -2935,14 +2808,13 @@ void demo_end_screen(const char *message)
 // $314/$315 and default MMU banking, so KERNAL/BASIC ROM is banked in here
 // exactly as it would be for a real RESET.
 //
-// Live-tested in VICE and confirmed live by the user (2026-08-17): the
-// jump correctly resets the machine, and since the disk/D81 is still
-// mounted with its boot sector set to autostart, the KERNAL cold-start
-// this triggers re-runs that autoboot, which reloads and restarts the
-// whole demo -- press-key-to-reset therefore loops the demo end-to-end,
-// same as many boot-sector-loaded C64/C128 demos are designed to do. No
-// visible BASIC banner/READY prompt is expected or seen, because the
-// autoboot takes over before KERNAL would ever get there.
+// Since the disk/D81 is still mounted with its boot sector set to
+// autostart, the KERNAL cold-start this triggers re-runs that autoboot,
+// reloading and restarting the whole demo -- press-key-to-reset
+// therefore loops the demo end-to-end, same as many boot-sector-loaded
+// C64/C128 demos are designed to do. No visible BASIC banner/READY
+// prompt is shown, because the autoboot takes over before KERNAL would
+// ever get there.
 {
     char col = (char)((80 - strlen(message)) / 2);
     vdc_prints(col, 12, message);
@@ -2970,12 +2842,6 @@ char raster_bar_flat(char line, char color, char count); // forward decl -- rast
 // around a single shared sync point instead of doing its own -- see
 // softscroll_pan_pre()'s own comment below for the two-waits-racing problem
 // this solves.
-//
-// (This code was briefly, wrongly, suspected of hanging the program when
-// this section first ran from its real call site -- reverting it made no
-// difference, which correctly ruled it out. The actual cause was a buffer
-// overflow in credits_screen()'s own message-sizing, unrelated to this
-// pan-step logic entirely; see credits_screen()'s own comment.)
 void softscroll_pan_pre(struct VDCSoftScrollSettings *settings, char step)
 // Call BEFORE raster_bar_begin(). Computes the new hscroll value (written
 // later, by the post half) and, on the boundary-crossing path only (1-in-8
@@ -3020,19 +2886,13 @@ void softscroll_buffer_shift_chunk(struct VDCSoftScrollSettings *settings, unsig
 // `plane` (0 then 1), then `row` (0 to settings->height-1), until the
 // whole shift is done -- see credits_screen()'s own state machine for how.
 //
-// This replaces an earlier version of this function (softscroll_buffer_
-// shift_row(), doing a whole row -- both planes, full width -- in one
-// call) that was ITSELF already a improvement over an even earlier
-// whole-buffer-at-once version, and still not enough: live feedback
-// showed the raster bars were still visibly disturbed with a whole row's
-// worth of work (up to ~280 bytes across 4 bnk_cpytovdc()/bnk_memcpy()
-// calls) landing in a single frame. Cutting to one small chunk of one row
-// of one plane per frame is the same "keep every frame's extra work small
-// and bounded" principle txtscr_cupid_render_letter_step() already uses, taken
-// further because a VDC-write's per-byte ready-flag poll (bnk_cpytovdc(),
-// vdc_write()) turned out to be costly enough that even modest amounts of
-// it, landing together, were still enough to disturb the cycle-critical
-// raster sweep running every frame alongside it.
+// Attention point: keep every frame's chunk small and bounded, one small
+// chunk of one row of one plane per call -- same principle
+// txtscr_cupid_render_letter_step() already uses. A VDC write's per-byte
+// ready-flag poll (bnk_cpytovdc(), vdc_write()) is costly enough that
+// landing a whole row's worth of work (both planes, full width) in a
+// single frame visibly disturbs the cycle-critical raster sweep running
+// alongside it.
 //
 // dest < src here always (shift > 0 whenever the caller uses this), so
 // bnk_memcpy()'s plain ascending byte-by-byte copy is safe (never
@@ -3074,21 +2934,13 @@ void credits_screen()
 // nibble only). Runs after main_menu() returns (ESC/STOP), before the
 // final krill_done()/vdc_exit()/demo_end_screen() teardown -- see main().
 //
-// REDESIGNED A THIRD TIME (live-diagnosed root cause, this time on the
-// *scroller* side, not the raster side): live feedback asked "what's
-// costly in the scroller calc, would dropping sine help" -- answer no,
-// sine is a single array lookup, negligible. The real cost was always
-// txtscr_cupid_scroll_do()'s per-frame vdcwin_scroll_left(): 2 VDC
-// hardware block-copy operations per row of the scroll window, and
-// vdc_block_copy_page() (vdc_core.c) triggers a copy by writing VDCR_DSIZE
-// and returns immediately -- it does not wait for the copy to finish
-// internally. Isolating the scroller entirely (disabled, raster running
-// alone) proved the raster bars are perfectly stable on their own;
-// re-enabling the scroller reintroduced the instability regardless of how
-// much settling delay was added afterward (tried 1 and 3 frames -- real,
-// measured improvement each time, never fully clean). Band-aiding the
-// symptom (more waiting) had diminishing returns; the actual fix is
-// architectural: stop doing a block-copy every frame at all.
+// Attention point: vdc_block_copy_page() (vdc_core.c) triggers a VDC
+// hardware block-copy by writing VDCR_DSIZE and returns immediately --
+// it does not wait for the copy to finish internally, so doing one every
+// frame (as a naive vdcwin_scroll_left()-per-frame scroller would)
+// visibly disturbs a concurrently-running raster bar. The fix is
+// architectural, not a settling delay: avoid block-copy in the per-frame
+// path entirely.
 //
 // This version pre-renders the whole message into a flat VDC-softscroll-
 // shaped buffer ONCE (txtscr_cupid_render(), including the per-letter sine
@@ -3101,23 +2953,18 @@ void credits_screen()
     // Endless stream of short segments (chunks[], cycling forever) fed
     // into the scroll buffer ONE LETTER AT A TIME, in the background, as
     // part of the main per-frame loop below (txtscr_cupid_render_letter_step(),
-    // vdc_textscroller.c) -- not one whole segment rendered in a single
-    // synchronous burst the way this section's two earlier designs both
-    // did. That mattered for two escalating reasons, both live-diagnosed
-    // here: (1) a single long message overflows vdc_softscroll's own real
-    // width ceiling (a ~1063-column first draft silently truncated on
-    // storage into the then-`char` sc.width field, desyncing the rendered
-    // buffer from the row stride vdc_softscroll_init() thought it had --
-    // glyph-shaped garbage smeared across the display); splitting into
-    // short chunks fixed that. (2) even after that fix, swapping a whole
-    // chunk in at once -- one big txtscr_cupid_render() + bnk_cpytovdc()
-    // pair, run between two frames' worth of raster_bar_begin()/end() --
-    // took long enough to visibly freeze the raster bars for its whole
-    // duration ("moving rasters visibly freeze"). Per-letter filling
-    // spreads that same total work across many frames instead, each call
-    // small enough (see txtscr_cupid_render_letter_step()'s own comment) to
-    // run safely every frame without a dedicated "outside the raster
-    // bracket" placement rule.
+    // vdc_textscroller.c). Attention points behind this shape: (1)
+    // vdc_softscroll's own width field is a `char` -- a single long
+    // message can silently overflow it, desyncing the rendered buffer
+    // from the row stride vdc_softscroll_init() expects (glyph-shaped
+    // garbage smeared across the display); keep messages short and chunk
+    // them. (2) rendering/pushing a whole chunk at once is long enough to
+    // visibly freeze a concurrently-running raster bar for its own
+    // duration -- per-letter filling spreads that same total work across
+    // many frames instead, each call small enough (see
+    // txtscr_cupid_render_letter_step()'s own comment) to run safely
+    // every frame without a dedicated "outside the raster bracket"
+    // placement rule.
     //
     // Each chunk's own trailing "     " is the only separation between
     // them -- reads as a natural word gap in one continuous flow, not a
@@ -3154,16 +3001,15 @@ void credits_screen()
     // Background fill for the CURRENT letter runs in two spread-out
     // stages, each its own state machine: first RENDER (Bank-1 side,
     // txtscr_cupid_render_letter_step(), CUPID_RENDER_STEPS separate
-    // frames, one row per frame -- live cycle measurement, this session,
-    // found a whole-letter render in one call cost over 2x this VDC
-    // revision's entire ~48-line VBLANK window on average), then PUSH to
-    // VDC (bnk_cpytovdc(), which does poll the VDC
+    // frames, one row per frame -- a whole-letter render in one call costs
+    // over 2x this VDC revision's entire ~48-line VBLANK window on
+    // average), then PUSH to VDC (bnk_cpytovdc(), which polls the VDC
     // ready flag, CUPID_BAND_H*2 (rows x planes) separate frames, one
-    // row/plane per frame -- live feedback: even a single letter's whole
-    // push together was still enough to visibly disturb the raster bars).
-    // fill_rendering/fill_active: which stage (if any) is in progress;
-    // fill_col only advances (committing the letter) once the push stage's
-    // every row/plane is done -- see the main loop's own comment.
+    // row/plane per frame -- even a single letter's whole push together
+    // is enough to visibly disturb the raster bars). fill_rendering/
+    // fill_active: which stage (if any) is in progress; fill_col only
+    // advances (committing the letter) once the push stage's every
+    // row/plane is done -- see the main loop's own comment.
     unsigned char fill_rendering = 0, fill_render_step = 0;
     unsigned char fill_active = 0, fill_row = 0, fill_plane = 0;
     unsigned fill_letter_col = 0;
@@ -3187,38 +3033,31 @@ void credits_screen()
     {
         // Bytes of one row/one plane shifted+pushed per frame while a
         // shift is in progress -- small enough to keep the raster bars
-        // undisturbed (live-tested clean at this granularity), but large
-        // enough that the whole shift (a fixed total amount of work,
-        // roughly shift_preserve*2 planes*CUPID_BAND_H rows bytes -- only
-        // the band rows are ever actually shifted, see the shift-completion
-        // check's own comment) doesn't take so many frames that the
-        // scroll-position freeze during it (see
-        // credits_screen()'s own comment on why it's frozen) becomes its
-        // own visible problem -- live feedback: "visible pauses ... bars
-        // keep moving but scroller stands still". SHIFT_CHUNK=8 kept the
-        // pause several seconds long; live cycle measurement (this session)
-        // found SHIFT_CHUNK=24 cost ~27-34 lines out of this VDC revision's
-        // measured ~48-line VBLANK budget -- comfortable room to go
-        // further. Combined with the band-row-only shift fix above
-        // (BAND_ROW's own comment, ~3.6x less total work on its own),
-        // live-measured exact pause length at each step: SHIFT_CHUNK=24
-        // gave 56 frames (1.12s) per shift; 32 gave 42 frames (0.84s),
-        // consistently, across repeated shifts -- adjust further only
-        // after re-measuring, not by guessing, if the pause still feels
-        // long or the bars start showing it.
+        // undisturbed, but large enough that the whole shift (a fixed
+        // total amount of work, roughly shift_preserve*2 planes*
+        // CUPID_BAND_H rows bytes -- only the band rows are ever actually
+        // shifted, see the shift-completion check's own comment) doesn't
+        // take so many frames that the scroll-position freeze during it
+        // (see credits_screen()'s own comment on why it's frozen) becomes
+        // visible as the scroller standing still while the bars keep
+        // moving. At SHIFT_CHUNK=24, one row/plane costs ~27-34 lines out
+        // of this VDC revision's ~48-line VBLANK budget, giving a ~1.12s
+        // pause per shift; 32 gives ~0.84s -- re-measure before adjusting
+        // further rather than guessing, if the pause still feels long or
+        // the bars start showing it.
         SHIFT_CHUNK = 32,
         // Rows processed per frame by both the letter-render stage
         // (txtscr_cupid_render_letter_step()) and the letter-push stage
-        // (bnk_cpytovdc(), above) -- live cycle measurement (this session)
-        // put a single row's cost at well under 1 line out of a ~48-line
+        // (bnk_cpytovdc(), above) -- a single row's cost measures well
+        // under 1 line out of a ~48-line
         // VBLANK budget for either stage, so batching several per frame
         // costs essentially nothing extra in raster-bar-safety terms. Not
         // 1: a from-scratch one-row-per-frame version doubled a letter's
         // total render+push latency (26 frames vs. the previous single-
         // call-render design's ~15), which ate almost all of the buffer's
-        // margin for staying ahead of the scroll position -- live-
-        // diagnosed as the fill visibly crawling behind the scroll and
-        // desyncing. FILL_ROW_BATCH=3 brings total per-letter latency back
+        // margin for staying ahead of the scroll position, causing the
+        // fill to visibly crawl behind the scroll and desync.
+        // FILL_ROW_BATCH=3 brings total per-letter latency back
         // down to ~9 frames (12/3 render + 14/3 push, rounded up), better
         // than the original margin, while still nowhere near the
         // whole-letter-in-one-frame cost that caused the raster jitter in
@@ -3282,9 +3121,9 @@ void credits_screen()
     // total_height=25 to match VDC_TEXT_80x25_PAL's own row count exactly
     // -- vdc_softscroll_init() remaps the whole screen's addressing to
     // this buffer, so every row it scans needs real content, not just the
-    // CUPID_BAND_H rows the glyphs actually occupy (see txtscr_cupid_
-    // render()'s own comment -- this was live-diagnosed as screen-wide
-    // corruption below the scroller line before this fix). band_row=8
+    // CUPID_BAND_H rows the glyphs actually occupy (a mismatch here
+    // corrupts the screen below the scroller line -- see txtscr_cupid_
+    // render()'s own comment). band_row=8
     // roughly centres the band vertically. entry_pad (not chunks[0]) is
     // used here -- see its own comment -- since this is the one place an
     // entry pad is actually still wanted (nothing precedes it on screen);
@@ -3417,10 +3256,10 @@ void credits_screen()
             // loop, both starting with hscroll==0 -- is already doing more
             // than a typical frame, since softscroll_pan_pre() immediately
             // hits its own boundary-crossing branch on exactly that
-            // condition. Skip ALSO starting a letter push that same frame.
-            // Live-diagnosed as (part of) "at restart bars temporarily are
-            // unstable": the coincidence of both landing together, not the
-            // scroll-resume or the fill individually.
+            // condition. Skip ALSO starting a letter push that same frame --
+            // Attention point: it's the coincidence of both landing together
+            // that destabilizes the bars at restart, not the scroll-resume
+            // or the fill individually.
             if (just_resumed)
             {
                 just_resumed = 0;
@@ -3429,16 +3268,14 @@ void credits_screen()
             {
                 // Letter fully rendered (Bank-1 side) and waiting to reach
                 // VDC -- push up to FILL_ROW_BATCH rows of one plane this
-                // frame, not all CUPID_BAND_H*2 of them together. Live
-                // feedback: even one letter's whole push landing in a
-                // single frame (up to 14 small bnk_cpytovdc() calls) was
-                // still enough to visibly disturb the raster bars.
-                // FILL_ROW_BATCH itself (not 1): live cycle measurement put
-                // a single row's push at ~0.57 lines out of a ~48-line
-                // VBLANK budget -- comfortable room to do several rows a
-                // frame -- and a from-scratch single-row-per-frame version
-                // was live-diagnosed to fall behind the scroll (see
-                // FILL_ROW_BATCH's own comment below).
+                // frame, not all CUPID_BAND_H*2 of them together (a whole
+                // letter's push landing in a single frame visibly disturbs
+                // the raster bars, up to 14 small bnk_cpytovdc() calls
+                // worth). FILL_ROW_BATCH itself (not 1): a single row's
+                // push costs ~0.57 lines out of a ~48-line VBLANK budget --
+                // comfortable room for several rows a frame -- and 1 row/
+                // frame falls behind the scroll (see FILL_ROW_BATCH's own
+                // comment below).
                 unsigned char fbi;
                 for (fbi = 0; fbi < FILL_ROW_BATCH && fill_active; fbi++)
                 {
@@ -3478,21 +3315,17 @@ void credits_screen()
             {
                 // Letter render in progress (Bank-1 side) -- up to
                 // FILL_ROW_BATCH rows this frame, not the whole letter at
-                // once. Live cycle measurement, this session: a
-                // whole-letter render in a single call cost over 2x this
-                // VDC revision's entire VBLANK window on average, often
-                // enough to be the dominant source of raster jitter -- this
-                // replaces the single txtscr_cupid_render_letter() call the
-                // earlier design used here. A first cut at one row per
-                // frame (FILL_ROW_BATCH==1) was live-diagnosed as its own
-                // regression: it roughly doubled this letter's total
-                // render+push pipeline latency (26 frames vs. the previous
-                // design's ~15), eating almost all of the buffer's
-                // stay-ahead-of-scroll margin -- visible as the fill
-                // position visibly crawling and drifting behind the scroll
-                // until the buffer desynced. FILL_ROW_BATCH restores
+                // once: a whole-letter render in a single call costs over
+                // 2x this VDC revision's entire VBLANK window on average,
+                // enough to be the dominant source of raster jitter.
+                // Attention point: FILL_ROW_BATCH==1 (one row/frame) is
+                // also too slow -- it roughly doubles this letter's total
+                // render+push pipeline latency, eating almost all of the
+                // buffer's stay-ahead-of-scroll margin and letting the
+                // fill position drift behind the scroll until the buffer
+                // desyncs. The current FILL_ROW_BATCH value keeps
                 // comfortable throughput while each frame's own cost stays
-                // a small fraction of the measured ~48-line VBLANK budget.
+                // a small fraction of the ~48-line VBLANK budget.
                 unsigned char fri;
                 for (fri = 0; fri < FILL_ROW_BATCH && fill_rendering; fri++)
                 {
@@ -3741,11 +3574,10 @@ typedef struct
 // (spectrum_demo() above) does add something new (8x8 flat colour-
 // attribute cells, coarser than anything else here) and gets its own
 // row. "Raster bar placement test" (raster_place_test(), formerly
-// reachable via a 'T' key special case here) served its purpose during
-// the raster-highlight sweep's own development and was retired
-// (2026-08-21) to reclaim code-size budget for the VDC-SCROLL family's
-// third section -- the function itself is left in the codebase, unused,
-// as a diagnostic snippet for any future raster-timing work.
+// reachable via a 'T' key special case here) is retired to reclaim
+// code-size budget for the VDC-SCROLL family's third section -- the
+// function itself is left in the codebase, unused, as a diagnostic
+// snippet for any future raster-timing work.
 #define MENU_COUNT 8
 
 static const menu_entry menu_entries[MENU_COUNT] = {
@@ -3756,32 +3588,17 @@ static const menu_entry menu_entries[MENU_COUNT] = {
 	{'5', "Colour rotation effect", menu_rotate_demo},
 	{'6', "VDC-SCROLL   (640x200 window, scripted vert.+horiz. scroll)", menu_scroll_family},
 	{'7', "VDC Spectrum (256x192, ZX Spectrum picture format)", spectrum_demo},
-	// 'E': an earlier revision used '.' here after 'E'/'e' both looked
-	// unreliable through VICE's own scripted keyboard-buffer injection
-	// (used for this project's automated live testing) -- live-tested by
-	// the user on the actual running demo (2026-08-18), 'E' works fine as
-	// a direct key match; the earlier flakiness was specific to that
-	// automation path, not a real runtime issue.
 	{'E', "End demo + credits", menu_end_demo},
 };
 
 #define MENU_REPEAT_DELAY 15 // frames held before auto-repeat kicks in (~0.3s @ 50Hz)
 #define MENU_REPEAT_RATE 5    // frames between repeats once repeating (~10/s)
 #define MENU_GLIDE_STEP 3     // rasterlines/frame the highlight glides toward its target (~1 row/frame at 8 lines/row, i.e. a quick but visible slide, not a snap)
-#define MENU_ITEM_NUDGE 1     // small live-tuning correction for the item highlight vs its text (independent of the header's own row-1 fix) -- 2->1, shifts all rasters back down one line, per live feedback
-#define HEADER_NUDGE 1        // small live-tuning correction for the header band vs its text, on top of the whole-row row-1 shift -- 2->1, same reason as MENU_ITEM_NUDGE above
-// First text row the menu ITEM list itself starts on -- was a hardcoded `5`
-// throughout this function, with items_bottom's own span separately
-// hardcoded to row 13 (correct only back when MENU_COUNT was 9, i.e. items
-// ran rows 5-13). Growing MENU_COUNT to 11 (VDC-VSCROLL + "End demo +
-// credits") pushed the real last item row to 15 without anyone updating
-// items_bottom to match -- the raster sweep's before/after-line-count math
-// then went out of sync once `selected` reached those last two rows,
-// producing visibly unstable/oversized gaps (live-reported, 2026-08-18).
-// Fixed here by moving the whole item block UP two rows (5->3) instead of
-// widening the span downward -- with MENU_COUNT=11 the last item row is
-// now exactly 3+11-1=13 again, matching items_bottom's own row-13
-// calibration below with no further change needed there.
+#define MENU_ITEM_NUDGE 1     // fine correction for the item highlight vs its text (independent of the header's own row-1 fix)
+#define HEADER_NUDGE 1        // fine correction for the header band vs its text, on top of the whole-row row-1 shift
+// First text row the menu ITEM list itself starts on. items_bottom (below)
+// is computed from MENU_ITEMS_ROW0 + MENU_COUNT, not a hardcoded row, so
+// changing MENU_COUNT needs no matching update here.
 // 4, not 3 -- leaves row 3 blank, one empty line between the "Main menu"
 // title (row 2, unchanged) and the first item. Safe as a pure gap_color
 // row (unlike an earlier attempt at a blank row that moved the TITLE
@@ -3803,13 +3620,13 @@ char raster_bar_flat(char line, char color, char count)
 	return line;
 }
 
-// PAL: empirically calibrated live against raster_place_test() -- rasterline
-// 153 landed on text row 13, i.e. TOP_LINE(13) = 255-8*13 = 151, within this
-// project's usual +/-2-line live-tuning margin. NTSC: not yet independently
-// calibrated -- placeholder uses the same offset until verified live in an
-// NTSC VICE session (see eager-sniffing-feather.md); PAL and NTSC share the
-// same 8-scanlines-per-text-row hardware constant (CSIZE doesn't change with
-// video standard), so only this reference offset can differ between them.
+// PAL: calibrated against raster_place_test() -- rasterline 153 landed on
+// text row 13, i.e. TOP_LINE(13) = 255-8*13 = 151, within this project's
+// usual +/-2-line tuning margin. NTSC: not yet independently calibrated --
+// placeholder uses the same offset until verified in an NTSC session (see
+// eager-sniffing-feather.md); PAL and NTSC share the same 8-scanlines-per-
+// text-row hardware constant (CSIZE doesn't change with video standard),
+// so only this reference offset can differ between them.
 #define PAL_ROW0_RASTERLINE 255
 #define NTSC_ROW0_RASTERLINE 255
 
@@ -3862,23 +3679,20 @@ void main_menu()
 {
 	// Every array below is a small (8-entry) compile-time constant, one
 	// entry per rasterline of a single row, read with plain sequential
-	// indexing -- exactly title_screen()'s own proven pattern, and nothing
-	// like the previous attempt's per-line phase/modulo lookup that caused
-	// a cycle-budget desync (see git history). The only thing that changes
-	// per frame is which *pre-existing* table entry a couple of scalar
-	// locals point at (pulse_highlight below) --
+	// indexing -- exactly title_screen()'s own proven pattern. Attention
+	// point: a per-line phase/modulo lookup instead of this plain table
+	// read causes a cycle-budget desync -- don't reintroduce one here. The
+	// only thing that changes per frame is which *pre-existing* table
+	// entry a couple of scalar locals point at (pulse_highlight below) --
 	// an array read, not a computation, so it costs the same one
 	// instruction whether the sweep is running or not.
 	//
 	// Header text: 2-tone gradient (top to bottom), on a flat green
-	// background -- title darker green, subtitle lighter, like before.
-	// The two rows deliberately use different tone pairs now (live-tuned
-	// per row, not copy-pasted): title (darker DGREEN background) uses
-	// bright white/light-cyan; subtitle (lighter LGREEN background) uses
-	// dark-grey/dark-cyan instead -- against the lighter background the
-	// darker pair reads better. (Earlier single-pair attempts -- dark-grey
-	// for both, then light-grey for both -- were too low-contrast on one
-	// row or the other; per-row tone pairs is what actually worked.) No
+	// background -- title darker green, subtitle lighter. The two rows
+	// use different tone pairs, not copy-pasted: title (darker DGREEN
+	// background) uses bright white/light-cyan; subtitle (lighter LGREEN
+	// background) uses dark-grey/dark-cyan -- against the lighter
+	// background the darker pair reads better. No
 	// pulsing accent here (tried, per live user feedback it read as
 	// distracting rather than subtle -- unlike the selected item below,
 	// this is on screen constantly, not just while attention is on one
@@ -3975,8 +3789,7 @@ void main_menu()
 		}
 		// ESC/STOP still exits (same menu_end_demo() path "E)" now also
 		// reaches) -- just dropped from this hint since it's no longer the
-		// only way there, per live steer. Key detection itself (below)
-		// is untouched.
+		// only way there. Key detection itself (below) is untouched.
 		vdc_prints(5, MENU_ITEMS_ROW0 + MENU_COUNT + 2, "Cursor/joystick + RETURN/fire, or its own key.");
 
 		holdframes = 0;
@@ -3987,9 +3800,9 @@ void main_menu()
 		// row's top minus 7 (its own 8 lines). No more manual gap-length
 		// arithmetic (the old GAP_TRIM hack): the gap fill's length is
 		// simply "whatever's left" between the header and items_top.
-		// MENU_ITEM_NUDGE: small live-tuned correction (independent of the
-		// header's own row-1 fix above, which is a whole-row change) --
-		// the highlight sat 1-2 lines too low against the item text.
+		// MENU_ITEM_NUDGE corrects the highlight sitting 1-2 lines too low
+		// against the item text (independent of the header's own row-1
+		// fix above, which is a whole-row change).
 		items_top = vdc_row_to_rasterline(MENU_ITEMS_ROW0) + MENU_ITEM_NUDGE;
 		items_bottom = vdc_row_to_rasterline(MENU_ITEMS_ROW0 + MENU_COUNT - 1) - 7 + MENU_ITEM_NUDGE;
 		// No animation on the very first draw -- start already at the
@@ -4059,11 +3872,11 @@ void main_menu()
 			// visible text (yellow-on-black) that gap_color's black-on-
 			// black foreground would otherwise hide. Last of these lines
 			// is instead drawn with the highlight's own (non-pulsing) blue
-			// background -- the selected item's background starting one
-			// pixel line earlier than its text/pulse actually does, per
-			// live feedback -- skipped entirely when the highlight is
-			// already at the very top row (before_count==0, nothing above
-			// it to borrow a line from).
+			// background, so the selected item's background starts one
+			// pixel line earlier than its text/pulse actually does --
+			// skipped entirely when the highlight is already at the very
+			// top row (before_count==0, nothing above it to borrow a line
+			// from).
 			before_count = line - highlight_top;
 			if (before_count > 0)
 			{
@@ -4137,17 +3950,14 @@ void main_menu()
 				break;
 			}
 			// Direct-select: scan the table for a matching key instead of
-			// assuming a contiguous '1'-'9' range -- needed once entries
-			// stopped being exactly 9 (see MENU_COUNT's own comment).
-			// Compared case-insensitively (`| 0x20` folds 'A'-'Z' to
-			// 'a'-'z', and is a no-op for digits/most symbols, which
-			// already have that bit set) -- live-reported (2026-08-19)
-			// that the 'E' entry's own key stopped matching a real
-			// keypress; this project's PETSCII keyboard mode determines
-			// whether an unshifted letter key sends the upper- or
-			// lower-case code, and this codebase doesn't pin that mode
-			// down explicitly, so accepting either case is the robust
-			// fix rather than re-guessing a single fixed case again.
+			// assuming a contiguous '1'-'9' range, since entries aren't
+			// necessarily numbered that way (see menu_entries[]). Attention
+			// point: compared case-insensitively (`| 0x20` folds 'A'-'Z' to
+			// 'a'-'z', a no-op for digits/most symbols, which already have
+			// that bit set) -- this project's PETSCII keyboard mode
+			// determines whether an unshifted letter key sends the upper-
+			// or lower-case code, and isn't pinned down explicitly, so a
+			// single-case comparison can silently stop matching.
 			//
 			// `key >= 0x20` gate added 2026-08-21 -- real-hardware keyboard
 			// testing found CH_CURS_DOWN (PETSCII 0x11) OR'd with 0x20
@@ -4202,13 +4012,13 @@ char detect_ntsc()
 // full VIC-II frame (raster line 0 -> away from 0 -> back to 0), using the
 // VIC's own hardware raster counter directly -- not any KERNAL/ROM-
 // provided flag, since this project boots via a raw boot sector (not a
-// normal KERNAL cold start) and this session already established KERNAL/
-// ROM soft state can't be trusted after that (see krill_interrupt's own
-// $314/$315 comment). VIC-II keeps generating its own raster timing even
-// while blanked in 2MHz fast mode (confirmed this session -- it's exactly
-// what keeps krill_interrupt's jsr $c024 jiffy/keyboard-scan working), so
-// this works regardless of fastmode(). PAL is 312 lines * 63 cycles/line =
-// 19656 cycles/frame; NTSC is 263 lines * 65 cycles/line = 17095 -- a wide
+// normal KERNAL cold start), so KERNAL/ROM soft state can't be trusted
+// (see krill_interrupt's own $314/$315 comment). VIC-II keeps generating
+// its own raster timing even while blanked in 2MHz fast mode -- this is
+// exactly what keeps krill_interrupt's jsr $c024 jiffy/keyboard-scan
+// working -- so this works regardless of fastmode(). PAL is 312 lines *
+// 63 cycles/line = 19656 cycles/frame; NTSC is 263 lines * 65 cycles/line
+// = 17095 -- a wide
 // enough gap (>2500 cycles) that a simple midpoint threshold is reliable
 // even with a few cycles of measurement slop. Returns 1 if NTSC, 0 if PAL.
 {
@@ -4326,16 +4136,15 @@ void menu_end_demo()
 	// krill_init() comment near the top of main().
 	krill_done();
 
-	// krill_done() just tore out $314/$315 (sid_music_interrupt chained
-	// ahead of krill_interrupt, both replaced with the default KERNAL
-	// vectors) -- it stops the periodic SID play calls but never touches
-	// the SID chip itself, so whatever note was gated open at that exact
-	// instant kept sounding after exit (live-reported, 2026-08-18).
-	// sid_resetsid() (banking.c) already exists for exactly this --
-	// zeroes every SID register and force-releases all three voices via
-	// the test-bit trick, same routine sid_music_interrupt's own periodic
-	// tune-restart already calls mid-play -- just never called on the
-	// way out until now.
+	// Attention point: krill_done() just tore out $314/$315
+	// (sid_music_interrupt chained ahead of krill_interrupt, both replaced
+	// with the default KERNAL vectors), which stops the periodic SID play
+	// calls but never touches the SID chip itself -- whatever note was
+	// gated open at that exact instant would otherwise keep sounding
+	// after exit. sid_resetsid() (banking.c) zeroes every SID register and
+	// force-releases all three voices via the test-bit trick, same
+	// routine sid_music_interrupt's own periodic tune-restart calls
+	// mid-play.
 	sid_resetsid();
 
 	vdc_exit();
@@ -4343,7 +4152,12 @@ void menu_end_demo()
 	demo_end_screen("VDC Maniac -- demo finished");
 }
 
-// Main routine
+// Entry point: one-time hardware/loader init (cia_init(), bnk_init(),
+// krill_loadcode()/krill_init()), the fixed intro sequence
+// (system_diagnostic_screen() -> idi8b_logo_demo() -> title_screen()),
+// SID load, then hands off to main_menu() (loops until ESC/STOP or "End
+// demo + credits") and menu_end_demo() -> demo_end_screen() (never
+// returns).
 int main(void)
 {
 	char pattern[2][8] = {{0x00, 0xd4, 0xaa, 0xd4, 0xaa, 0xd4, 0xaa, 0xff}, {0x01, 0x38, 0x7c, 0x7c, 0x7c, 0x38, 0x01, 0x83}};
@@ -4352,26 +4166,21 @@ int main(void)
 
 	// Init
 	// cia_init() must run first: resets both CIA chips to a known-clean
-	// state and explicitly acks their interrupt-control registers. Without
-	// it, whatever CIA1 interrupt-pending state the boot-sector/disk-load
-	// process left behind stuck around, and later corrupted $314/$315 by
-	// the time raster_music_irq_start() tried to save it (confirmed live
-	// in VICE: it read back as $ffff, garbage). Oscar64Test's main.c calls
-	// this first for the same reason and its IRQ-driven music works there.
+	// state and explicitly acks their interrupt-control registers.
+	// Without it, whatever CIA1 interrupt-pending state the boot-sector/
+	// disk-load process left behind sticks around and corrupts $314/$315
+	// by the time raster_music_irq_start() tries to save it. Oscar64Test's
+	// main.c calls this first for the same reason.
 	cia_init();
 
 	bnk_init();
 
-	// asset-loading-roadmap.md Phase 2: install Krill's loader once, here,
-	// for the whole program run -- matches Oscar64Test's own proven
-	// sequence (krill_loadcode() right after bnk_init(), krill_init() right
-	// after the first vdc_init()) rather than installing/tearing down per
-	// function the way Phase 1's title_screen()-only proof did. Every demo
-	// function's own load call (see idi8b_logo_demo()'s comment) is just
-	// that -- no per-load cia_init() (the plan's own
-	// recommended "safety net", which turned out to actively conflict with
-	// Krill's own cia2.pra usage and hang the demo partway through once
-	// live-tested; see title_screen()'s comment for the full explanation).
+	// Krill's loader is installed once, here, for the whole program run
+	// (matches Oscar64Test's own proven sequence: krill_loadcode() right
+	// after bnk_init(), krill_init() right after the first vdc_init())
+	// rather than per function. Every demo function's own load call is
+	// just the load itself -- see title_screen()'s comment for why never
+	// to call cia_init() again while Krill's loader is installed.
 	// krill_done() below, at the very end, is the one teardown for the
 	// whole run -- cia_init() itself only ever runs once, at the very top
 	// of main(), before any of this.
@@ -4395,9 +4204,8 @@ int main(void)
 	system_diagnostic_screen();
 
 	// Intro: black screen, black border, "loading assets" message, then
-	// start the music -- SID load+init moved here (from its old position
-	// right after the 64KB check) so it happens right after this message
-	// is on screen, matching the demo spec's own "give message... start
+	// start the music -- SID load+init happens right after this message is
+	// on screen, matching the demo spec's own "give message... start
 	// music" ordering. VDC_TEXT_80x25_PAL is the attribute-mode text mode
 	// (colorlines=8, unlike VDC_TEXT_80x25_Mono_PAL) -- vdc_fgcolor() only
 	// sets the physical border nibble here; per-character text colour
@@ -4419,38 +4227,30 @@ int main(void)
 	// playback, driven from then on by krill_interrupt (krill.c) calling
 	// raster_irq_playframe() (vdc_raster.c) once per VIC raster interrupt)
 	// is deferred to inside idi8b_logo_demo(), right after ITS OWN
-	// raster_calibrate() call -- see that call's own comment for why:
-	// starting playback here, immediately before idi8b_logo_demo()'s
-	// mode-specific recalibration, meant the calibration's ~1.3s SEI
-	// window (raster_calibrate() blocks IRQs for 64 frames) landed right
-	// after the first couple of notes, live-reported as "plays two notes
-	// then pauses". Music keeps playing through every subsequent
-	// krill_loadcompd() picture load either way, not just this one
-	// section -- only the very first raster_calibrate() after playback
-	// starts was ever a problem.
+	// raster_calibrate() call. Attention point: starting playback any
+	// earlier, before idi8b_logo_demo()'s own mode-specific
+	// recalibration, would land raster_calibrate()'s ~1.3s SEI window
+	// (it blocks IRQs for 64 frames) right after the first couple of
+	// notes, pausing playback. Music keeps playing through every
+	// subsequent krill_loadcompd() picture load regardless -- only the
+	// very first raster_calibrate() after playback starts needs this care.
 	krill_load_or_die(SIDINIT, "musick");
 
 	idi8b_logo_demo();
 
 	title_screen();
 
-	// Dropped for good (2026-07-22): mono_colorize_demo() is the last
-	// remaining caller of Mechanism 2 (raster_music_irq_start()). Its
-	// keypress-detection loop never worked (root cause never found, see
-	// memory: mono_colorize_keypress_bug); replacing that with a fixed
-	// frame-count timer (raster_irq.framecount) didn't work either -- live
-	// testing showed it still never proceeds, so something about this
-	// mechanism is more broken than just "can't detect a keypress".
-	// mono_hires_xl_demo() already proved the better path forward: use
-	// Mechanism 1 (raster_bar_*()) instead, which doesn't have any of these
-	// problems. Not calling mono_colorize_demo() here; left intact
-	// (unused) in case Mechanism 2 gets revisited later.
+	// mono_colorize_demo() (Mechanism 2, raster_music_irq_start()) is not
+	// called here -- its own keypress-detection never reliably proceeds
+	// (see memory: mono_colorize_keypress_bug). mono_hires_xl_demo() uses
+	// Mechanism 1 (raster_bar_*()) instead, which doesn't have this
+	// problem. Left intact, unused, in case Mechanism 2 is revisited.
 	// mono_colorize_demo();
 
-	// Dropped from the demo run (2026-07-22): confirmed live in VICE that
-	// VDC-IM960 doesn't render correctly here -- matches Tokra's own readme
-	// note ("specifically designed for the RGBtoHDMI-device. It will
-	// probably not work otherwise"). Function left intact in the codebase
+	// VDC-IM960 doesn't render correctly without RGBtoHDMI hardware --
+	// matches Tokra's own readme note ("specifically designed for the
+	// RGBtoHDMI-device. It will probably not work otherwise"). Function
+	// left intact in the codebase
 	// (unused) for real-hardware/RGBtoHDMI testing later; not on the menu
 	// since nothing else in this file depends on it running.
 	// mono_im960_demo();

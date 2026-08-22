@@ -62,47 +62,34 @@ __noinline void krill_loadcompd_core();
 //                                 off, only LOAD_COMPD_API); with it off,
 //                                 resident.s falls back to a bare
 //                                 `decdestlo: .res 1` / `decdesthi: .res 1`
-//                                 (line ~79 of resident.s).
-//                                 CORRECTION (July 2026): an earlier note here
-//                                 claimed "nothing ever writes decdest on the
-//                                 loadcompd path". That was WRONG -- it only
-//                                 grepped resident.s, and only for the symbol
-//                                 "decdestlo". tsdecomp.s ALIASES this cell as
+//                                 (line ~79 of resident.s). Attention point:
+//                                 tsdecomp.s ALIASES this cell as
 //                                 `tsput = decdestlo` (its line 25) and DOES
-//                                 write it: the INPLACE init loop (the .else
-//                                 branch, ~line 86: `lda (tsget),y / sta
-//                                 tsput,y` for y=0..3) copies the compressed
-//                                 stream's first bytes -- TSCrunch's baked-in
-//                                 depack address -- into decdest. So on a
-//                                 carry-clear ("use file address") load,
-//                                 decdest is correctly set from the asset.
-//                                 Address empirically confirmed at $e4/$e5 via the
-//                                 linker's own verbose map file (krill/loader
-//                                 build's intermediate/loader-c128.map, kept
-//                                 out of a normal build -- rebuild manually
-//                                 with `make PLATFORM=c128 prg ...` directly
-//                                 in krill/loader/ without the cleanup step
-//                                 our own Makefile does, if this ever needs
-//                                 re-checking against a future Krill version):
-//                                 endaddrlo/hi confirmed at $e8/$e9,
-//                                 BLOCKDESTLO at $ea, consistent with
-//                                 decdestlo/hi + 2 unnamed TSCrunch dummy
-//                                 bytes filling exactly $e4-$e7.
-//                                 History of the bug fixed here (see the full
-//                                 write-up on krill_loadcompd() in krill.c):
-//                                 the code briefly used LOAD_TO_API offset mode
-//                                 (carry set) with offset = the full target
-//                                 address, on the mistaken belief that decdest
-//                                 was uninitialized. Because decdest IS set
-//                                 from the asset's baked address (see the
-//                                 CORRECTION above), offset mode DOUBLED the
-//                                 address: $5800 (baked) + $5800 (offset) =
-//                                 $B000, which is the Oscar64 C stack for this
-//                                 build (map: `b000 - bfa4 : STACK`). That
-//                                 depacked ~4 KB onto the stack and crashed
-//                                 into the KERNAL BREAK handler. Correct fix:
-//                                 call with carry CLEAR so the asset lands at
-//                                 its own baked address, no offset, no doubling.
+//                                 write it on a loadcompd call: the INPLACE
+//                                 init loop (the .else branch, ~line 86:
+//                                 `lda (tsget),y / sta tsput,y` for y=0..3)
+//                                 copies the compressed stream's first bytes
+//                                 -- TSCrunch's baked-in depack address --
+//                                 into decdest. So on a carry-clear ("use
+//                                 file address") load, decdest is already
+//                                 correctly set from the asset -- no
+//                                 additional zero-page initialization is
+//                                 needed before the call. Address empirically
+//                                 confirmed at $e4/$e5 via the linker's own
+//                                 verbose map file (krill/loader build's
+//                                 intermediate/loader-c128.map, kept out of a
+//                                 normal build -- rebuild manually with
+//                                 `make PLATFORM=c128 prg ...` directly in
+//                                 krill/loader/ without our own Makefile's
+//                                 cleanup step, if this ever needs
+//                                 re-checking against a future Krill
+//                                 version): endaddrlo/hi confirmed at
+//                                 $e8/$e9, BLOCKDESTLO at $ea, consistent
+//                                 with decdestlo/hi + 2 unnamed TSCrunch
+//                                 dummy bytes filling exactly $e4-$e7. See
+//                                 krill_loadcompd()'s own comment (krill.c)
+//                                 for why the caller must use carry CLEAR
+//                                 (not the offset-mode carry-SET path) here.
 // Not contiguous with the old raw-only ($f5-$fc) layout -- loadaddroffslo/hi
 // and decdestlo/hi did not exist there, so endaddrlo/hi immediately followed
 // loadaddrhi. That endaddr field is dropped here: END_ADDRESS_API is disabled

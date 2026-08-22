@@ -245,9 +245,8 @@ char menu_pulldown(char xpos, char ypos, char menunumber, unsigned char escapabl
 }
 
 char menu_main()
+// Function for main menu selection
 {
-    /* Function for main menu selection */
-
     unsigned char menubarchoice = 1;
     unsigned char menuoptionchoice = 0;
     unsigned char key;

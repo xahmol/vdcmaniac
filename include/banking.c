@@ -353,20 +353,16 @@ __asm sid_music_interrupt
 // krill_interrupt's own address, self-modified into the placeholder below
 // from sid_krill_irq_saved.
 //
-// This exact structure matters: an earlier attempt called
-// raster_irq_playframe() with a nested jsr *from inside* krill_interrupt
-// itself (one more call depth on top of a handler already reached several
-// JSRs deep through the KERNAL's own dispatch chain) and crashed
-// immediately, every time, regardless of which SID tune was used --
-// something about the added stack depth conflicts with Krill's own
-// protocol timing (see krill_interrupt's own comment, krill.c). Chaining
-// this way instead -- play, fully return, *then* jmp onward -- means
-// krill_interrupt always runs at its original, unmodified call depth,
-// exactly as if this trampoline didn't exist. This is the same mechanism
-// Oscar64Test's own sid_interrupt/sid_startmusic() (banking.c there)
-// already proved works correctly alongside Krill -- reused rather than
-// reinvented, once the nested-jsr attempt here confirmed why it's built
-// this way.
+// Attention point: this exact structure -- play, fully return, *then* jmp
+// onward -- matters. krill_interrupt is itself already reached several
+// JSRs deep through the KERNAL's own dispatch chain; calling
+// raster_irq_playframe() with a NESTED jsr from inside krill_interrupt
+// (one more call-depth level on top of that) conflicts with Krill's own
+// protocol timing (see krill_interrupt's own comment, krill.c) and must be
+// avoided. Chaining via jmp instead means krill_interrupt always runs at
+// its original, unmodified call depth, exactly as if this trampoline
+// didn't exist -- the same mechanism Oscar64Test's own
+// sid_interrupt/sid_startmusic() (banking.c there) uses alongside Krill.
 {
     jsr raster_irq_playframe
 
@@ -399,15 +395,13 @@ void sid_music_init(char is_ntsc)
 // A CIA-tempo tune needs correction only when its own default rate doesn't
 // match this host's standard.
 //
-// sei/cli bracket the bank-switch below for the same reason
-// raster_irq_playframe() (vdc_raster.c) does: BNK_1_IO banks out KERNAL ROM
-// at $C000-$FFFF, where the hardware IRQ vector's real target lives -- an
-// interrupt landing mid-call without this would fetch that vector from
-// bank-1 RAM garbage instead of ROM and crash. Confirmed live: this
-// function originally shipped without the bracketing and crashed on the
-// very first run (screen corruption, PC in the weeds) -- a single missed
-// spot, not a new failure mode; raster_irq_playframe() already had it from
-// the start per the Phase 5 safety assessment.
+// Attention point: sei/cli bracket the bank-switch below for the same
+// reason raster_irq_playframe() (vdc_raster.c) does -- BNK_1_IO banks out
+// KERNAL ROM at $C000-$FFFF, where the hardware IRQ vector's real target
+// lives. An interrupt landing mid-call without this bracket would fetch
+// that vector from bank-1 RAM garbage instead of ROM and crash. Any
+// future code that switches to BNK_1_IO (or another config banking out
+// that ROM range) needs the same sei/cli bracket if interrupts are live.
 {
 	char old = mmu.cr;
 	__asm { sei }
@@ -490,42 +484,28 @@ void sid_play_frame_foreground()
 // fli_ihfli_demo(), fli_itfli_demo(), mono_hires_xl_demo(),
 // mono_im800_demo()) and fli_color_demo()'s own standalone SEI/CSIZE-toggle
 // loop (main.c) -- both starve Krill's interrupt-driven music of any real
-// chance to fire on schedule, live-reported as the music "slowing down"
-// while such a section is on screen. Swapping to a VBI-tempo tune
-// (defines.h) fixed a DIFFERENT symptom (the old CIA-tempo tune's
-// occasional rate-accumulator double-tick not fitting the same raster
-// budget) but not this one -- this is about missed/delayed opportunities
-// for ANY SIDPLAY call to happen at all, independent of tempo.
+// chance to fire on schedule.
 //
-// FALLBACK, not unconditional -- but NOT via a shared "did the interrupt
-// already play" boolean flag either, after that design went through two
-// live-broken iterations in a row (2026-08-19): a one-directional check
-// (only this function checked it) let the interrupt play unconditionally
-// AND set the flag after, so whichever side fired first played and set
-// the flag, then the OTHER side fired anyway regardless -- near-universal
-// double-play, ~2x speed. Making raster_irq_playframe() ALSO check the
-// same flag fixed that, but broke something worse: NOTHING resets a plain
-// flag during a krill_loadcompd() call (neither raster_bar_begin() nor
-// fli_color_demo()'s own loop run during a load), so the very first play
-// from EITHER side right before a load started left the flag stuck at 1
-// for the load's ENTIRE duration -- total silence with a hanging note on
-// every load, exactly as live-reported.
-//
-// Replaced with a self-correcting counter comparison instead of a flag
-// that can be left stale: sid_expected_framecount (banking.h) is
+// FALLBACK, not unconditional: whether to actually play here is decided by
+// comparing sid_expected_framecount against sid_music_framecount (both
+// banking.h) rather than a shared boolean "did the interrupt already play"
+// flag. Attention point: a plain flag doesn't work for this -- nothing
+// resets it during a krill_loadcompd() call (neither raster_bar_begin()
+// nor fli_color_demo()'s own loop runs during a load), so a flag set right
+// before a load started would stay stuck for the load's entire duration.
+// The counter comparison self-corrects instead: sid_expected_framecount is
 // incremented once per frame boundary by each fallback-using caller
 // (raster_bar_begin(), fli_color_demo()'s own loop top) -- NOT by this
 // function or by raster_irq_playframe(), so it only advances when a
 // fallback-using caller is actually running. sid_music_framecount (actual
 // plays so far, from EITHER path) keeps growing normally the whole time,
-// including throughout a krill load (nothing about this comparison needs
-// anything to happen during a load -- expected just stops advancing until
-// a fallback-using caller runs again, and the comparison self-corrects,
-// no special-casing needed). If actual has fallen behind expected, the
-// interrupt isn't keeping up -- play here. If actual is caught up or
-// ahead, the interrupt is handling it fine -- skip, avoiding double-play
-// in sections whose raster sweep is short enough to leave the VIC's own
-// interrupt an opening.
+// including throughout a krill load, so expected simply stops advancing
+// until a fallback-using caller runs again and the comparison catches up
+// naturally, no special-casing needed. If actual has fallen behind
+// expected, the interrupt isn't keeping up -- play here. If actual is
+// caught up or ahead, the interrupt is handling it fine -- skip, avoiding
+// double-play in sections whose raster sweep is short enough to leave the
+// VIC's own interrupt an opening.
 //
 // Call once per frame from within such a section's own already-SEI-held
 // window (this function does NOT sei/cli itself -- unlike sid_music_init(),
@@ -579,6 +559,9 @@ void sid_play_frame_foreground()
 }
 
 bool bnk_load(char device, char bank, const char *start, const char *fname)
+// Function to load a raw file from the given IEC device into the given MMU
+// bank, at the address the file's own PRG header specifies. Returns true on
+// success, false on error (KERNAL LOAD's own carry flag).
 {
 	krnio_setbnk(bank, 0);
 	krnio_setnam(fname);
@@ -603,6 +586,8 @@ bool bnk_load(char device, char bank, const char *start, const char *fname)
 #pragma native(bnk_load)
 
 bool bnk_save(char device, char bank, const char *start, const char *end, const char *fname)
+// Function to save memory range [start, end) from the given MMU bank to the
+// given IEC device, as a raw PRG file named fname. Returns true on success.
 {
 	krnio_setbnk(bank, 0);
 	krnio_setnam(fname);

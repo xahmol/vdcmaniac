@@ -274,15 +274,14 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 #define MEM_SCREEN 0x4000
 #define MEM_CHARSET 0xC000
 
-// "Maniac" by Antti Hannula (Flex), 2010, Artline Designs -- a PAL-native
-// composition of the same tune, swapped in for exactly this reason
-// (2026-08-19): the previous tune (Paul Kleimeyer's 1983 original, CIA-
-// timer/NTSC-tempo) needed a software rate accumulator to correct its
-// tempo on PAL hardware, and that accumulator's occasional extra SIDPLAY
-// tick didn't fit in the FLI/MONO sections' own raster-time budget (they
-// hold interrupts disabled for nearly the whole frame) -- audible as the
-// music "playing weirdly" there. This tune needs no such correction at
-// all -- see SID_TUNE_USES_CIA_SPEED below.
+// "Maniac" by Antti Hannula (Flex), 2010, Artline Designs -- a PAL-
+// native/VBI-tempo composition (see SID_TUNE_USES_CIA_SPEED below),
+// needing no software tempo-rate correction. Attention point for any
+// future tune swap: a tune that DOES need correction (a CIA-timer tune,
+// not VBI-tempo) risks an occasional extra SIDPLAY tick from the rate
+// accumulator, which doesn't fit the FLI/MONO sections' own raster-time
+// budget (they hold interrupts disabled for nearly the whole frame) --
+// prefer a VBI-tempo tune if given a choice.
 //
 // https://csdb.dk/release/?id=94553 (source release) /
 // https://deepsid.chordian.net/?file=/MUSICIANS/H/Hannula_Antti/Maniac.sid
@@ -295,19 +294,16 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 //
 //   tools/sidreloc/sidreloc -v -p 20 -z 80-df Maniac.sid maniac_pal_reloc.sid
 //
-// Result: init $2000, play $2003 (NOT $2080/$2087 like the previous tune
-// -- sidreloc places init/play wherever the tune's own internal layout
-// happens to land within the target page, tune-specific, don't assume it
-// carries over), zero page $fc/$fd -> $80/$81 (clear of both Oscar64's own
-// default zeropage, $f7-$ff, and Krill's loader, $e0-$f5 -- same target
-// window as before). sidreloc's own emulated verification: 0% bad
-// pitches, 0% bad pulse widths. assets/music.prg is maniac_pal_reloc.sid's
-// PSID payload with the PSID header stripped (payload already starts with
-// its own 2-byte $2000 load-address prefix, i.e. it's already a valid PRG
-// -- no repacking needed). assets/musick is the TSCrunch-compressed form,
-// built via the SAME two-step pipeline the previous tune's asset used
-// (reverse-engineered by reproducing it byte-for-byte, since it isn't
-// documented anywhere in this repo or the vendored krill submodule):
+// Result: init $2000, play $2003 -- sidreloc places init/play wherever
+// the tune's own internal layout happens to land within the target
+// page, tune-specific; don't assume these addresses carry over to a
+// future tune swap. Zero page $fc/$fd -> $80/$81 (clear of both
+// Oscar64's own default zeropage, $f7-$ff, and Krill's loader, $e0-$f5).
+// sidreloc's own emulated verification: 0% bad pitches, 0% bad pulse
+// widths. assets/music.prg is maniac_pal_reloc.sid's PSID payload with
+// the PSID header stripped (payload already starts with its own 2-byte
+// $2000 load-address prefix, i.e. it's already a valid PRG -- no
+// repacking needed). assets/musick is the TSCrunch-compressed form:
 //
 //   tscrunch -i music.prg music_inplace.prg
 //   perl krill/loader/tools/compressedfileconverter.pl music.prg music_inplace.prg musick
@@ -315,9 +311,7 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 // (`-i`, not `-p` -- in-place mode's own load-address prefix is what the
 // converter script's default (non-lc) type expects to read and replace;
 // feeding it a headerless `-p` output silently consumes 2 bytes of real
-// compressed data instead. Confirmed by reproducing the previous tune's
-// own committed assets/musick byte-for-byte with this exact pipeline
-// before trusting it for this tune.)
+// compressed data instead.)
 #define SIDINIT 0x2000
 #define SIDPLAY 0x2003
 
@@ -326,23 +320,22 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 // stripped from assets/music.prg, so it can't answer this at runtime).
 // These drive sid_music_init()'s rate-accumulator setup (banking.c) so
 // playback tempo is correct regardless of tune/machine PAL-NTSC combination
-// -- see TODO.md history and vdc_raster.c's raster_irq_playframe().
+// -- see vdc_raster.c's raster_irq_playframe().
 //
-// IMPORTANT for future tune swaps: derive these from the PSID "speed"
-// field (offset 0x12-0x15, one bit per subtune, song 1 = bit 0), NOT the
-// "flags" field's clock-standard bits (offset 0x76-0x77, bits 2-3) -- see
-// the previous tune's own note here (git history) on why the flags field
-// can give a false negative. The speed field is authoritative: per the
-// PSID v2 spec, a 0 bit means "vertical blank interrupt" (the tune follows
-// whatever rate it's called at -- correct on any host, needs
-// SID_TUNE_USES_CIA_SPEED=0 and no further tuning), and a 1 bit means "CIA
-// 1 timer interrupt" (a fixed rate of its own, ignoring the host's actual
-// vsync rate). This tune's speed field is 0x00000000 (song 1's bit clear)
-// -- confirmed VBI/vsync tempo, the reason it was picked: needs zero rate
-// compensation, so sid_music_init() (banking.c) sets sid_rate_inc=0
-// unconditionally when SID_TUNE_USES_CIA_SPEED==0, and
-// raster_irq_playframe() (vdc_raster.c) then always does exactly one
-// SIDPLAY call per IRQ -- no more occasional double-tick, on any section.
+// Attention point for future tune swaps: derive these from the PSID
+// "speed" field (offset 0x12-0x15, one bit per subtune, song 1 = bit 0),
+// NOT the "flags" field's clock-standard bits (offset 0x76-0x77, bits
+// 2-3) -- the flags field can give a false negative for this purpose.
+// The speed field is authoritative: per the PSID v2 spec, a 0 bit means
+// "vertical blank interrupt" (the tune follows whatever rate it's
+// called at -- correct on any host, needs SID_TUNE_USES_CIA_SPEED=0 and
+// no further tuning), and a 1 bit means "CIA 1 timer interrupt" (a
+// fixed rate of its own, ignoring the host's actual vsync rate). This
+// tune's speed field is 0x00000000 (song 1's bit clear) -- VBI/vsync
+// tempo, needing zero rate compensation: sid_music_init() (banking.c)
+// sets sid_rate_inc=0 unconditionally when SID_TUNE_USES_CIA_SPEED==0,
+// and raster_irq_playframe() (vdc_raster.c) then always does exactly
+// one SIDPLAY call per IRQ.
 #define SID_TUNE_USES_CIA_SPEED 0 // 1=CIA-timer tempo (fixed, needs correction to match); 0=vsync tempo (follows host automatically, SID_TUNE_IS_NTSC below is then irrelevant)
 #define SID_TUNE_IS_NTSC 0        // inert while SID_TUNE_USES_CIA_SPEED==0 (this tune) -- only meaningful for a future CIA-timer tune
 

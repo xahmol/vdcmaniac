@@ -87,6 +87,12 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 #include "vdc_win.h"
 #include "vdc_textscroller.h"
 
+// Big-font scroller (txtscr_bigfont_*/txtscr_scroller_*): a simple
+// character-by-character scrolling text banner using a large custom
+// font stored as raw screen-code tiles. Not currently called from
+// main.c -- superseded by the Cupid font scroller below -- kept for
+// possible future use.
+
 void txtscr_bigfont_init(struct TXTSCRBigFont *settings, char scr, char *sp, char width, char ch_width, char ch_height, char ch_num, char *color)
 // Initialise big font
 {
@@ -122,6 +128,8 @@ void txtscr_bigfont_printchar(struct TXTSCRBigFont *settings, char ch, char x, c
 }
 
 void txtscr_scroller_init(struct TXTSCRScrollText *settings, struct TXTSCRBigFont *bigfont, char *textscr, char xs, char ys, char xw, char border)
+// Initialise a big-font scroll window (position/width/border) bound to
+// a bigfont and a NUL-terminated source text.
 {
     settings->textscr = textscr;
     settings->bigfont = bigfont;
@@ -133,6 +141,9 @@ void txtscr_scroller_init(struct TXTSCRScrollText *settings, struct TXTSCRBigFon
 }
 
 void txtscr_scroll_do(struct TXTSCRScrollText *settings)
+// One scroll step: shifts the window one column left, then prints the
+// next column of the current (or next, on wrap) character from
+// settings->textscr at the newly-revealed edge.
 {
     char y, ch;
 
@@ -302,10 +313,8 @@ static const unsigned char cupid_letter_width[86] = {
     3,3,3,4,3,3,4,2,2,2,2,2,2,3,2
 };
 
-// Sine table for the scroller wave: +/-2 rows, 64 entries (subtle wave).
-// +/-1 row, not +/-2 -- live feedback was the original (a direct port of
-// UltimateDemo2026's own table) bounced too much; capping at +/-1 keeps
-// the same wave shape, just gentler.
+// Sine table for the scroller wave: +/-1 row, 64 entries (subtle wave).
+// Gentler than UltimateDemo2026's own +/-2 source table, same wave shape.
 static const signed char cupid_sin_row[64] = {
      0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0,
     -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, 0, 0, 1,
@@ -314,6 +323,9 @@ static const signed char cupid_sin_row[64] = {
 };
 
 static unsigned char cupid_font_ch(unsigned char li, unsigned char ci, unsigned char ri)
+// Screen-code glyph pixel for letter index li, glyph column ci, glyph
+// row ri -- looks up the correct one of the six per-case/digit/symbol
+// tables above by li's range.
 {
     unsigned char sc = (unsigned char)(cupid_letter_start[li] + ci);
     if (li < 13) return cupid_am_ch[ri][sc];
@@ -325,6 +337,7 @@ static unsigned char cupid_font_ch(unsigned char li, unsigned char ci, unsigned 
 }
 
 static unsigned char cupid_font_co(unsigned char li, unsigned char ci, unsigned char ri)
+// Colour byte for the same glyph pixel cupid_font_ch() looks up.
 {
     unsigned char sc = (unsigned char)(cupid_letter_start[li] + ci);
     if (li < 13) return cupid_am_co[ri][sc];
@@ -376,8 +389,11 @@ static unsigned char cupid_letter_idx(unsigned char c)
 }
 
 void txtscr_cupid_init(struct TXTSCRCupidScroll *settings, const char *textscr, char xs, char ys, char xw)
-// xs/ys/xw: screen position and width (columns) of the scroll window;
-// height is always CUPID_BAND_H.
+// Initialise a Cupid-font per-column live-blit scroll window bound to a
+// NUL-terminated, looping source text. Not currently called from
+// main.c -- superseded by the pre-rendered variant further down this
+// file -- kept for reference. xs/ys/xw: screen position and width
+// (columns) of the scroll window; height is always CUPID_BAND_H.
 {
     settings->textscr = textscr;
     settings->count_char = 0;
@@ -448,16 +464,18 @@ void txtscr_cupid_scroll_do(struct TXTSCRCupidScroll *settings)
 
 // =================================================================
 // Cupid pre-rendered scroller -- for use with vdc_softscroll.c instead
-// of the per-column live-blit approach above. Live-diagnosed this
-// session: txtscr_cupid_scroll_do()'s per-frame vdcwin_scroll_left()
-// (hardware block-copy, 2 operations per row of the scroll window) was
-// the actual cost driver behind persistent raster instability -- NOT the
+// of the per-column live-blit approach above (txtscr_cupid_scroll_do(),
+// not currently called anywhere; kept for reference). Attention point:
+// txtscr_cupid_scroll_do()'s per-frame vdcwin_scroll_left() (hardware
+// block-copy, 2 operations per row of the scroll window) is expensive
+// enough to be the dominant cost of a per-frame text scroll -- not the
 // sine calculation, which is a single array lookup and negligible. The
-// fix is architectural: render the whole message once, up front (a
-// one-time cost with no per-frame budget to blow), then let
-// vdc_softscroll's own VDCR_HSCROLL/display-address register panning
-// (single synchronous register writes, no block-copy, no async
-// completion uncertainty) handle the actual per-frame motion.
+// functions below avoid it architecturally: render the whole message
+// once, up front (a one-time cost with no per-frame budget to blow),
+// then let vdc_softscroll's own VDCR_HSCROLL/display-address register
+// panning (single synchronous register writes, no block-copy) handle
+// the actual per-frame motion. Prefer this pre-rendered path for any
+// new per-frame text scroll.
 // =================================================================
 
 unsigned txtscr_cupid_measure(const char *text)
@@ -482,14 +500,12 @@ void txtscr_cupid_render(char cr, char *dest, const char *text, unsigned width, 
 // expects (see vdc_softscroll.c). `width` must be >= txtscr_cupid_
 // measure(text)'s own return value.
 //
-// total_height MUST match the visible mode's own row count (e.g. 25 for
-// VDC_TEXT_80x25_PAL), not just CUPID_BAND_H -- vdc_softscroll_init()
-// remaps the *entire* screen's addressing to this buffer, so every row
-// the display actually scans needs real (even if blank) content; leaving
-// rows unwritten reads back as whatever garbage was already sitting in
-// that VDC memory. Live-diagnosed: an earlier version sized this buffer
-// to CUPID_BAND_H rows only and the screen showed a correct scroller line
-// over a screenful of corruption below it. band_row is which row of the
+// Attention point: total_height MUST match the visible mode's own row
+// count (e.g. 25 for VDC_TEXT_80x25_PAL), not just CUPID_BAND_H --
+// vdc_softscroll_init() remaps the *entire* screen's addressing to this
+// buffer, so every row the display actually scans needs real (even if
+// blank) content; leaving rows unwritten reads back as whatever garbage
+// was already sitting in that VDC memory. band_row is which row of the
 // full buffer the glyph band's own row 0 sits at (CUPID_BAND_H rows tall
 // from there); every other row is flat blank space.
 //
@@ -573,25 +589,21 @@ void txtscr_cupid_render_letter_step(char cr, char *dest, unsigned width, char t
 // (step-CUPID_BAND_H) (skipped for a space, cupid_letter_idx()==52 --
 // already blank from the earlier blank steps). Column bounds
 // (col+width<=width) must already be checked by the caller via
-// txtscr_cupid_letter_width() before starting a letter's steps -- this
-// function assumes it, unlike the whole-letter version it replaces.
+// txtscr_cupid_letter_width() before starting a letter's steps.
 //
-// Exists so credits_screen() (main.c) can extend its scroll buffer one
-// ROW at a time, not one whole letter at a time -- live-measured (VIC-II
-// raster-line-count instrumentation, credits_screen()'s own dbg_* comment)
-// that a single whole-letter render (up to CUPID_BAND_H*2 blank writes
-// plus CUPID_FONT_H*2 glyph writes, ~70 bnk_writeb() calls worst case) cost
-// over 2x this VDC revision's entire ~48-line VBLANK window on average,
-// frequently enough (about every 25 frames) to be the dominant source of
-// "less stable everywhere" raster jitter -- the whole-letter render, not
-// its already-spread VDC push, was the actual bottleneck. One row here
-// (at most BAND_LETTER_MAX_W columns x 2 planes = 10 bnk_writeb() calls)
-// is a small fraction of that.
+// Attention point: exists so credits_screen() (main.c) can extend its
+// scroll buffer one ROW at a time, not one whole letter at a time -- a
+// single whole-letter render (up to CUPID_BAND_H*2 blank writes plus
+// CUPID_FONT_H*2 glyph writes, ~70 bnk_writeb() calls worst case) costs
+// more than this VDC revision's entire ~48-line VBLANK window, so doing
+// it in one frame risks raster jitter. One row here (at most
+// BAND_LETTER_MAX_W columns x 2 planes = 10 bnk_writeb() calls) is a
+// small fraction of that, safe to spread across several frames instead.
 //
-// Only ever touches CUPID_BAND_H rows starting at band_row -- see the
-// function this replaced for why that's provably safe (every row outside
-// that band was already blanked once, across the buffer's full width, when
-// the buffer was first set up, and nothing else ever writes there).
+// Only ever touches CUPID_BAND_H rows starting at band_row -- every row
+// outside that band was already blanked once, across the buffer's full
+// width, when the buffer was first set up, and nothing else ever writes
+// there.
 {
     unsigned char li = cupid_letter_idx(ch);
     unsigned char lw = cupid_letter_width[li];

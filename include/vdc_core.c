@@ -80,15 +80,15 @@ char linebuffer[81];
 struct VDCStatus vdc_state;
 unsigned multab[72];
 
-// Registers no vdc_modes[] row (and no other code path) ever resets to a
-// known baseline -- either because no mode's row lists them at all (VSCROLL:
-// vdc_block_fill()/vdc_block_copy_page(), used by every vdc_wipe_mem() call
-// among others, only ever touch its bit 7 "COPY" flag, preserving whatever
-// its vertical-scroll-amount bits happen to be -- confirmed live: a later
-// section came out shifted, tracked down to this register never having been
-// given a baseline anywhere in the codebase), or because only the one mode
-// that first changes them away from the KERNAL's boot-time default ever
-// touches them again (HDISPLAY/HSYNC/SYNCSIZE/HSCROLL/DISP_ADDR/ATTR_ADDR:
+// Attention point: registers no vdc_modes[] row (and no other code path)
+// ever resets to a known baseline will leak a stale value forward into
+// any later mode that doesn't override them itself -- either because no
+// mode's row lists them at all (VSCROLL: vdc_block_fill()/
+// vdc_block_copy_page(), used by every vdc_wipe_mem() call among others,
+// only ever touch its bit 7 "COPY" flag, preserving whatever its
+// vertical-scroll-amount bits happen to be), or because only the one
+// mode that first changes them away from the KERNAL's boot-time default
+// ever touches them again (HDISPLAY/HSYNC/SYNCSIZE/HSCROLL/DISP_ADDR/ATTR_ADDR:
 // VDC-FLI/VDC-IMONO's rows set these to their own narrow/bitmap-specific
 // values; VDC_TEXT_80x25_PAL's row lists none of them). Without resetting
 // all of these to a known baseline, whichever effect last touched one leaks
@@ -99,17 +99,14 @@ unsigned multab[72];
 // call and by vdc_exit().
 // HSTART (register 34): vdc_disable_display()/vdc_enable_display() use this
 // to blank/unblank the screen by pushing the visible window off-screen and
-// back -- previously two bare hardcoded literals (0x80 disabled, 0x7d
-// enabled), with no link to any mode's own timing and no boot-time capture
-// at all. Captured/used the same way as the registers above so "enabled"
-// always restores the real baseline instead of an assumed-universal literal.
-// ROWINC (register 27) added here 2026-08-20, defense-in-depth for
-// VDC_HIRES_640x200_Mono_PANORAMA_R27 (the R27 horizontal-scroll test mode,
-// see that row's own comment) -- that mode's demo function already resets
-// VDCR_ROWINC to 0 explicitly before returning (the primary guarantee), but
-// capturing/restoring it here too matches how every other register this
-// project has ever needed a non-baseline value for is handled, in case a
-// future exit path misses the explicit reset.
+// back. Attention point: "enabled" must restore the real captured baseline
+// here, not an assumed-universal literal like 0x7d -- that value isn't
+// linked to any particular mode's own timing.
+// ROWINC (register 27): captured/restored here too, defense-in-depth for
+// VDC_HIRES_640x200_Mono_PANORAMA_R27 (the horizontal-scroll mode, see
+// that row's own comment) -- panorama_demo() already resets VDCR_ROWINC
+// to 0 explicitly before returning as the primary guarantee, but this
+// covers any future exit path that misses that explicit reset.
 struct VDCBootBaseline
 {
     char captured;
@@ -149,16 +146,15 @@ struct VDCModeSet vdc_modes[22] =
         {80, 60, 0, 8, 1, 0x0000, 0x1800, 0x6000, 0x7800, 0x4000, 0x5000, 0x9000, {VDCR_HTOTAL, 0x7e, VDCR_VTOTAL, 0x41, VDCR_VADJUST, 0x00, VDCR_VDISPLAY, 0x3c, VDCR_VSYNC, 0x3d, VDCR_LACE, 0x03, VDCR_CSIZE, 0x07, VDCR_REFRESH, 0x00, 255}},
         // VDC_HIRES_640x200_Color_PAL / VDC_HIRES_640x200_Mono_PAL (next
         // two rows): 640x200 bitmap, PAL, colour (attribute mode on) and
-        // mono variants -- used by plasma_demo()/rotate_demo(). HSCROLL
-        // (register 25) explicitly set to 0x07 below on both these rows --
-        // previously omitted (leaving it inherited from whichever mode ran
-        // before) or wrongly set to 0x00 (an unverified assumption that
-        // briefly caused plasma_demo()/rotate_demo()'s "isolated shifted
-        // fragment" bug, see memory: rotate_demo_shift_bug). 0x07 matches
-        // Tokra's own convention seen on several other modes' HSCROLL
-        // values (0x87/0xc7 etc., always low-nibble 7), needed to
-        // correctly align this bitmap mode's scan start to its
-        // character-cell-based addressing. Live-confirmed working.
+        // mono variants -- used by plasma_demo()/rotate_demo(). Attention
+        // point: HSCROLL (register 25) must be explicitly set to 0x07 on
+        // both these rows, not left inherited or 0x00 -- matches Tokra's
+        // own convention seen on several other modes' HSCROLL values
+        // (0x87/0xc7 etc., always low-nibble 7), needed to correctly align
+        // this bitmap mode's scan start to its character-cell-based
+        // addressing (see "Boot-baseline register leaks" in
+        // vdc_reference_manual.md for why an omitted register here leaks
+        // forward from whatever mode ran before it).
         {640, 200, 1, 8, 1, 0x0000, 0x4000, 0x4800, 0x8800, 0x9000, 0xa000, 0xb000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x26, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x20, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0x7e, VDCR_HSCROLL, 0x07, 255}},
         {640, 200, 1, 0, 1, 0x0000, 0x4000, 0x4800, 0x8800, 0x9000, 0xa000, 0xb000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x26, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x20, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0x7e, VDCR_HSCROLL, 0x07, 255}},
         // VDC_HIRES_640x400_Color_PAL: 640x400 bitmap, PAL, colour
@@ -177,14 +173,12 @@ struct VDCModeSet vdc_modes[22] =
         // vdc_set_disp_address() instead (see vdc_set_mode()); char_std/
         // char_alt below are left 0x0000, which makes vdc_set_mode() skip
         // charset setup for this mode entirely (no room/need for one).
-        // HSCROLL (register 25) restored from the same source table: Tokra's
-        // 0xc7 (bits 7/6 = bitmap/attribute enable, already applied
-        // generically by vdc_set_mode() regardless of what's written here;
-        // bits 0-3 = horizontal smooth-scroll amount = 7). This row omitted
-        // it entirely at first -- leaving the scroll nibble inherited from
-        // whichever mode ran before -- which is the likely cause of this
-        // mode's picture looking subtly misaligned/"unrecognisable" rather
-        // than outright broken.
+        // Attention point: HSCROLL (register 25) must be explicitly set
+        // here -- Tokra's 0xc7 (bits 7/6 = bitmap/attribute enable,
+        // already applied generically by vdc_set_mode() regardless of
+        // what's written here; bits 0-3 = horizontal smooth-scroll amount
+        // = 7). Leaving it unset inherits whatever scroll nibble the
+        // previous mode left behind, misaligning the picture.
         // "8x1" in the mode's name means 8 pixels wide by 1 scanline tall
         // per colour cell --
         // true per-scanline colour resolution -- so the bitmap is plain
@@ -193,21 +187,15 @@ struct VDCModeSet vdc_modes[22] =
         // (rather than omitted) so a previously active interlaced mode
         // can't leave stale interlace state behind.
         //
-        // CSIZE (register 9) is deliberately NOT set here -- Tokra's own
-        // DATA statement for this mode omits it too, with the comment
-        // "register 9 set by assembler loop". Disassembling that routine
-        // (sys4864 in vdcmodemania.bas, POKEd from DATA at line 4) shows
-        // it's not a static value at all: every frame, while idle, it
-        // writes CSIZE=$e0 (char height 1) right as the VDC's status bit 5
-        // (see raster_synch()'s identical wait pattern) clears (start of
-        // active display), then writes CSIZE=$e7 (char height 8) right as
-        // bit 5 sets again (start of the next vblank) -- i.e. the real
-        // 8563/8568 hardware needs char-height toggled every single frame
-        // to hold this resolution's addressing stable; a static value
-        // (either one) works for a few lines then drifts, which is exactly
-        // the tiled/repeating corruption seen when this was first tried as
-        // a fixed 0x00 or 0xe7 in this table. See fli_color_demo() in
-        // main.c for the per-frame toggle that replaces the missing entry.
+        // Attention point: CSIZE (register 9) is deliberately NOT set
+        // here -- the real 8563/8568 hardware needs char-height toggled
+        // every single frame to hold this resolution's addressing stable
+        // (CSIZE=$e0/char-height-1 at the start of active display,
+        // CSIZE=$e7/char-height-8 at the start of the next vblank; see
+        // raster_synch()'s identical wait pattern). A static value, either
+        // one, works for a few lines then drifts into tiled/repeating
+        // corruption. See fli_color_demo() in main.c for the per-frame
+        // toggle that replaces the missing entry.
         //
         // DISP_ADDR/ATTR_ADDR (registers 12/13/20/21) restored to Tokra's
         // exact values (248,8 / 63,196 = 0xf808/0x3fc4) below, instead of
@@ -230,18 +218,15 @@ struct VDCModeSet vdc_modes[22] =
         // 720/8*700 = 63000 bytes -- only ~2.5KB spare in the 64KB VDC, so
         // char_std/char_alt are left 0x0000 (no room for a charset copy);
         // vdc_set_mode() skips charset setup for any mode with char_std==0,
-        // which this row's zeros trigger. HSCROLL (register 25) restored
-        // from the same source table -- Tokra's 0x87 (bits 7/6 bitmap/
-        // attribute enable, already applied generically by vdc_set_mode();
-        // bits 0-3 = horizontal smooth-scroll amount = 7, same nibble as
-        // VDC-FLI above) -- previously omitted here too.
-        // VDCR_VSYNC corrected from 0x65 to 0x64 (2026-07-26): this mode's
-        // own value was off by one from VTOTAL-VADJUST (0x6a-0x06=0x64), the
-        // formula independently verified against Tokra's own working demo
-        // for VDC-IHFLI (see vdc_interlace_vsync_alignment memory/gotcha #--
-        // IHFLI's and VDC-ITFLI's own VSYNC values below both match this
-        // formula exactly; this row and VDC-IM800's did not, likely a slip
-        // in whichever pass extrapolated them rather than cross-checking).
+        // which this row's zeros trigger. HSCROLL (register 25) is Tokra's
+        // 0x87 (bits 7/6 bitmap/attribute enable, already applied
+        // generically by vdc_set_mode(); bits 0-3 = horizontal
+        // smooth-scroll amount = 7, same nibble as VDC-FLI above).
+        // Attention point: VDCR_VSYNC=0x64 follows VTOTAL-VADJUST
+        // (0x6a-0x06=0x64) -- see "VSYNC and interlace field alignment" in
+        // vdc_reference_manual.md for why this relationship matters for
+        // interlaced modes specifically (IHFLI/ITFLI below use the same
+        // formula).
         {720, 700, 1, 0, 1, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_HDISPLAY, 0x5a, VDCR_HSYNC, 0x6b, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x6a, VDCR_VADJUST, 0x06, VDCR_VDISPLAY, 0x6a, VDCR_VSYNC, 0x64, VDCR_LACE, 0x03, VDCR_CSIZE, 0x06, VDCR_HSCROLL, 0x87, 255}},
         // VDC-IHFLI: 640x480, interlace, 8x2 colour cells, near-NTSC (Tokra's
         // original/v12/source/vdcmodemania.bas line 42). Genuinely
@@ -254,12 +239,10 @@ struct VDCModeSet vdc_modes[22] =
         // 0x0230 colour) are literals in the demo function, same
         // convention as VDC-IMONO's 0x82c8. char_std/char_alt left 0x0000
         // (no charset room -- picture data alone is 57600 of 65536 bytes).
-        // VDCR_VSYNC=0x81 found via live register comparison against
-        // Tokra's original demo: every other geometry register already
-        // matched exactly, VSYNC was the one difference (ours read a
-        // leftover boot-baseline value, neither program had ever
-        // explicitly set it for this mode) -- 0x81 = VTOTAL(0x84) -
-        // VADJUST(3), confirmed live. Live-confirmed working.
+        // Attention point: VDCR_VSYNC=0x81 = VTOTAL(0x84) - VADJUST(3) --
+        // see "VSYNC and interlace field alignment" in
+        // vdc_reference_manual.md; this register otherwise defaults to a
+        // leftover boot-baseline value that doesn't match this formula.
         {640, 480, 1, 8, 1, 0xaa00, 0x2b70, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7e, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x84, VDCR_VADJUST, 0x03, VDCR_VDISPLAY, 0x84, VDCR_VSYNC, 0x81, VDCR_LACE, 0x03, VDCR_CSIZE, 0x03, VDCR_DISP_ADDRH, 0x52, VDCR_DISP_ADDRL, 0x80, VDCR_ATTR_ADDRH, 0x00, VDCR_ATTR_ADDRL, 0x00, VDCR_HSCROLL, 0xc7, VDCR_CHAR_ADDRH, 0xff, VDCR_REFRESH, 0x02, 255}},
         // VDC-ITFLI: 640x576, interlace, 8x3 colour cells, near-PAL (Tokra's
         // vdcmodemania.bas line 64) -- same dual-field structure as
@@ -268,9 +251,8 @@ struct VDCModeSet vdc_modes[22] =
         // bottom-field literals (0x4100 bitmap, 0x0000 colour) belong in
         // the demo function. Tightest fit of the whole set: picture data
         // alone is 61440 of 65536 bytes, ~4KB spare -- no charset room
-        // either. VDCR_VSYNC=0x63 extrapolated using the same VTOTAL-
-        // VADJUST relationship that matched IHFLI's live-confirmed value:
-        // VTOTAL(0x68=104) - VADJUST(5) = 99 = 0x63. Live-confirmed working.
+        // either. VDCR_VSYNC=0x63 follows the same VTOTAL-VADJUST formula
+        // as VDC-IHFLI above: VTOTAL(0x68=104) - VADJUST(5) = 99 = 0x63.
         {640, 576, 1, 8, 1, 0xa280, 0x2080, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_HSYNC, 0x68, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x68, VDCR_VADJUST, 0x05, VDCR_VDISPLAY, 0x68, VDCR_VSYNC, 0x63, VDCR_LACE, 0x03, VDCR_CSIZE, 0x05, VDCR_DISP_ADDRH, 0x40, VDCR_DISP_ADDRL, 0x10, VDCR_ATTR_ADDRH, 0x00, VDCR_ATTR_ADDRL, 0x00, VDCR_HSCROLL, 0xc7, VDCR_CHAR_ADDRH, 0xff, VDCR_REFRESH, 0x02, 255}},
         // VDC-HFLI: 640x400, non-interlace, 8x2 colour cells (Tokra's
         // vdcmodemania.bas line 89). Simplest of the three remaining colour
@@ -293,10 +275,8 @@ struct VDCModeSet vdc_modes[22] =
         // the demo function, same convention as VDC-IMONO. COLOR (register
         // 26) = 32 here is just Tokra's initial ink/paper default -- the
         // original lets the user retune it live with cursor keys, optional
-        // for a first pass. Live-confirmed working.
-        // VDCR_VSYNC corrected from 0x57 to 0x56 (2026-07-26): same
-        // off-by-one fix as VDC-IMONO above, same VTOTAL-VADJUST formula
-        // (0x5c-0x06=0x56).
+        // for a first pass. VDCR_VSYNC=0x56 follows the same VTOTAL-VADJUST
+        // formula as VDC-IMONO above (0x5c-0x06=0x56).
         {800, 600, 1, 0, 1, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_HDISPLAY, 0x64, VDCR_HSYNC, 0x70, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x5c, VDCR_VADJUST, 0x06, VDCR_VDISPLAY, 0x5c, VDCR_VSYNC, 0x56, VDCR_LACE, 0x03, VDCR_CSIZE, 0x06, VDCR_HSCROLL, 0x87, VDCR_COLOR, 0x20, VDCR_CHAR_ADDRH, 0xff, VDCR_HEND, 0x6a, 255}},
         // VDC-IM960: 960x540, interlace, monochrome (Tokra's vdcmodemania.bas
         // line 181) -- Tokra's own readme note: "specifically designed for
@@ -329,7 +309,7 @@ struct VDCModeSet vdc_modes[22] =
         // colour when attribute mode is off (in attribute mode, each
         // character's own colour-RAM entry overrides the raster's
         // foreground nibble -- only the background nibble still applies
-        // globally). Confirmed via live testing earlier this session.
+        // globally). Confirmed via live testing.
         {80, 25, 0, 0, 0, 0x0000, 0x0800, 0x1000, 0x1800, 0x2000, 0x3000, 0x4000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x26, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x20, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0x7e, 255}},
         // VDC_HIRES_640x200_Mono_VSCROLL: width/height (640,200) describe
         // the visible WINDOW only -- the STORED bitmap vscroll_demo()
@@ -341,25 +321,16 @@ struct VDCModeSet vdc_modes[22] =
         // the DISPLAYED window within it every frame via its own
         // display-address writes.
         //
-        // PIVOTED (2026-08-18) from horizontal to VERTICAL panning: an
-        // earlier version of this row used VDC-FLI's CSIZE=1/ROWINC-per-
-        // frame-toggle timing to support panning through a bitmap WIDER
-        // than the 640px display (ROWINC only applies once per CHARACTER
-        // ROW on real VDC hardware, not once per scanline, so a wider-
-        // than-display stride needs CSIZE=1 to correct at every line --
-        // see fli_color_demo()'s own identical technique). That mechanism
-        // was proven to render correctly in short bursts but never fully
-        // stabilised (intermittent garbling, root cause never isolated
-        // despite extensive live debugging) -- abandoned per explicit
-        // user decision rather than keep chasing it. Panning through a
-        // bitmap TALLER than 640x200 instead needs no such trick: the
-        // stored bitmap's stride is exactly 640px/80 bytes per row, same
-        // as the display's own width, so plain whole-row display-address
-        // writes (vdc_set_disp_address(), no ROWINC/CSIZE involvement at
-        // all) select which 200-line vertical slice is visible -- this is
-        // just VDC_HIRES_640x200_Mono_PAL's own proven, non-interlaced
-        // timing (register row identical to that mode, VDCR_ROWINC never
-        // touched).
+        // Panning through a bitmap TALLER than 640x200 needs no ROWINC/
+        // CSIZE tricks: the stored bitmap's stride is exactly 640px/80
+        // bytes per row, same as the display's own width, so plain
+        // whole-row display-address writes (vdc_set_disp_address()) select
+        // which 200-line vertical slice is visible -- this is just
+        // VDC_HIRES_640x200_Mono_PAL's own proven, non-interlaced timing
+        // (register row identical to that mode, VDCR_ROWINC never
+        // touched). Panning through a bitmap WIDER than the display needs
+        // a different mechanism -- see VDC_HIRES_640x200_Mono_PANORAMA_R27
+        // below.
         {640, 200, 1, 0, 1, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x26, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x20, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0x7e, VDCR_HSCROLL, 0x07, 255}},
         // VDC_HIRES_640x200_Mono_PANORAMA_R27: VDC-PANORAMA, the shipped
         // real feature (panorama_demo(), grouped into the same menu entry
@@ -434,17 +405,11 @@ void screen_setmode(char mode)
 void fastmode(char set)
 // Set (1) or disable (0) fast 2 MHz mode. Set blanks VIC.
 //
-// REVERTED (2026-08-20): a previous edit removed the two $D011 bit-7 pokes
-// below on the theory they corrupted the KERNAL system IRQ's raster-compare
-// line and caused SID "faltering" in bitmap modes. That theory turned out
-// to be wrong -- the faltering was confirmed live to be a WSL2/WSLg VICE
-// timing artifact (native Windows VICE played every mode correctly), not a
-// real bug here. Meanwhile removing the pokes caused a real regression:
-// keypresses stopped registering (confirmed live, could not even get past
-// the hardware-detection screen) -- clearing $D011 bit 7 here is in fact
-// load-bearing for keeping the KERNAL's own raster-compare/IRQ chain (and
-// therefore keyboard scanning) working across repeated fastmode()/mode
-// switches. Restored both pokes.
+// Attention point: both $D011 bit-7 pokes below are load-bearing for
+// keeping the KERNAL's own raster-compare/IRQ chain -- and therefore
+// keyboard scanning -- working across repeated fastmode()/mode switches,
+// despite looking like they only affect VIC screen blanking. Removing
+// them stops keypresses from registering at all.
 {
     if (set)
     {
@@ -493,7 +458,9 @@ void vdc_set_disp_address(unsigned text, unsigned attr)
 }
 
 void vdc_set_charset_address(unsigned address)
-// Function to set the VDC display addresses for text and attributes
+// Function to set the VDC character set start address (register 28,
+// bits 7:5 -- 8KB granularity, see "Charset swapping" in
+// vdc_reference_manual.md)
 {
     vdc_reg_write(VDCR_CHAR_ADDRH, ((vdc_reg_read(VDCR_CHAR_ADDRH) & 0x10) | ((address >> 8) & 0xe0)));
 }
@@ -545,16 +512,12 @@ char vdc_set_mode(char mode)
     // Set VDC addresses
     vdc_disable_display();
     vdc_set_disp_address(vdc_modes[mode].base_text, vdc_modes[mode].base_attr);
-    // Reverted: this used to key off "!vdc_state.bitmap" to skip charset
-    // setup for any bitmap mode, on the assumption bitmap modes never render
-    // text glyphs. That's too broad -- several pre-existing bitmap modes
-    // (e.g. title_screen()'s VDC_HIRES_640x400_Mono_PAL, char_std=0xe000) DO
-    // reserve/populate a real charset area and relied on this call to do it;
-    // skipping it left stale/uninitialized VDC state behind and destabilized
-    // those modes' raster bars (confirmed live: title_screen()'s bars no
-    // longer held steady). char_std==0 is what actually distinguishes the
-    // two new modes that truly have no charset room (VDC_HIRES_480x252_Color_PAL,
-    // VDC_HIRES_720x700_Mono_PAL, both 0x0000) from every mode that has one.
+    // Attention point: gate this on char_std==0, not on !vdc_state.bitmap
+    // -- several bitmap modes (e.g. title_screen()'s
+    // VDC_HIRES_640x400_Mono_PAL, char_std=0xe000) DO reserve/populate a
+    // real charset area and rely on this call to do it; only
+    // VDC_HIRES_480x252_Color_PAL and VDC_HIRES_720x700_Mono_PAL
+    // (char_std=0x0000) genuinely have no charset room to set up.
     if (vdc_modes[mode].char_std != 0)
     {
         vdc_set_charset_address(vdc_modes[mode].char_std);
@@ -700,20 +663,10 @@ void vdc_init(char mode, char extmem)
     // vdc_set_mode() below always re-enables the display at its own end
     // regardless (see its own final vdc_enable_display() call), so every
     // existing caller's behaviour by the time vdc_init() returns is
-    // unchanged; this just hides what happens in between. Live-diagnosed
-    // (2026-08-19) as a real, general bug, not just cosmetic:
-    // vdc_detect_mem_size() below unconditionally ends with its own
-    // vdc_cls() call, which runs BEFORE vdc_set_mode() has updated
-    // vdc_state to the mode being switched TO -- so it clears using
-    // whatever mode is being switched FROM, still fully live on screen at
-    // that point. For a caller switching AWAY FROM a bitmap mode INTO any
-    // new mode, that's a brief but real flash of text-mode fill bytes
-    // over the outgoing picture, visible regardless of whether the
-    // destination mode's own caller does any of its own blanking (that
-    // only covers what happens AFTER vdc_init() returns, not during it)
-    // -- reported live as corruption on leaving hires sections, and
-    // separately on entering plasma_demo() (whose own vdc_init() call had
-    // no surrounding blanking of its own).
+    // unchanged; this just hides what happens in between. Attention
+    // point: this blanking is required because vdc_state still describes
+    // the OUTGOING mode until vdc_set_mode() below runs -- see "Stale
+    // vdc_state mid-vdc_init()" in vdc_reference_manual.md.
     vdc_disable_display();
 
     // Init screen colors
@@ -1088,6 +1041,9 @@ void vdc_cls()
 }
 
 void vdc_hires_colorarea(char xc, char yc, char xw, char yw, char fg, char bg)
+// Function to fill a rectangular area of the attribute plane (xc,yc
+// cell coordinates, xw x yw cells wide/tall) with a fixed fg/bg colour
+// pair
 {
     unsigned address;
     char charwidth = vdc_state.width / 8;

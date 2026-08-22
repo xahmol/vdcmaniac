@@ -166,10 +166,9 @@ extern unsigned raster_cycles_per_line_x1000; // measured cycles/line, fixed-poi
 //     neither a foreground keyb_poll()/key_pressed() loop (starved of CPU:
 //     this mechanism is deliberately paced to consume close to its entire
 //     own reload period doing VDC-ready busy-waits, see raster_irq_tick()
-//     in vdc_raster.c) nor polling from inside the ISR itself (also tried;
-//     neither approach ever reliably detected a real keypress, root cause
-//     never found despite extensive live diagnosis -- see memory:
-//     mono_colorize_keypress_bug). Use `raster_irq_framecount` (extern,
+//     in vdc_raster.c) nor polling from inside the ISR itself works
+//     reliably -- see memory: mono_colorize_keypress_bug. Use
+//     `raster_irq_framecount` (extern,
 //     incremented once per frame) instead: run the effect for a fixed
 //     number of frames, call raster_music_irq_stop(), then check for a
 //     keypress via the normal vdcwin_checkch() path once KERNAL banking is
