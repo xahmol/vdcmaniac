@@ -24,9 +24,6 @@ tools/z64k/
 # Release ZIPs generated in project root
 vdcmaniac_*.zip
 
-# Generated docs (make docs)
-README.pdf
-
 # VICE snapshots (debugging artifacts)
 *.vsf
 

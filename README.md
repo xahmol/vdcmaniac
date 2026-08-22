@@ -4,6 +4,20 @@ A modern Commodore 128 VDC (8563/8568, 80-column chip) demo, written from
 scratch in C with the [Oscar64](https://github.com/drmortalwombat/oscar64)
 cross-compiler.
 
+## Contents
+
+- [Inspiration](#inspiration)
+- [Screenshots](#screenshots)
+- [Known issues](#known-issues)
+- [Requirements](#requirements)
+- [Building from source](#building-from-source)
+- [License](#license)
+- Further documentation:
+  [`ARCHITECTURE.md`](ARCHITECTURE.md) (code layout),
+  [`vdc_reference_manual.md`](vdc_reference_manual.md) (VDC registers/modes),
+  [`raster_lib_manual.md`](raster_lib_manual.md) (raster bar/IRQ library),
+  [`krill_manual.md`](krill_manual.md) (fastloader integration)
+
 ## Inspiration
 
 This project is inspired by **VDC Mode Mania**, a 2012 demo by **Tokra**
@@ -158,19 +172,6 @@ Scrolling-text and colour-cycling-bars credits sequence.
 - **SD2IEC is not supported.** Krill's loader needs cycle-exact IEC bus
   timing, which SD2IEC's own IEC emulation does not provide. Use a real
   1541/1571/1581 (or equivalent, e.g. an Ultimate II+) drive.
-
-## Contents
-
-- [Inspiration](#inspiration)
-- [Screenshots](#screenshots)
-- [Known issues](#known-issues)
-- [Requirements](#requirements)
-- [Building from source](#building-from-source)
-- Further documentation:
-  [`ARCHITECTURE.md`](ARCHITECTURE.md) (code layout),
-  [`vdc_reference_manual.md`](vdc_reference_manual.md) (VDC registers/modes),
-  [`raster_lib_manual.md`](raster_lib_manual.md) (raster bar/IRQ library),
-  [`krill_manual.md`](krill_manual.md) (fastloader integration)
 
 ## Building from source
 

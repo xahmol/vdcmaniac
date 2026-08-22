@@ -33,10 +33,11 @@ MAIN = vdcmaniac
 LMC  = vdcelmc
 
 # Build versioning
-VERSION_MAJOR     = 0
-VERSION_MINOR     = 1
+VERSION_MAJOR     = 1
+VERSION_MINOR     = 0
+VERSION_PATCH     = 0
 VERSION_TIMESTAMP = $(shell date "+%Y%m%d-%H%M")
-VERSION           = v$(VERSION_MAJOR)$(VERSION_MINOR)-$(VERSION_TIMESTAMP)
+VERSION           = v$(VERSION_MAJOR).$(VERSION_MINOR).$(VERSION_PATCH)-$(VERSION_TIMESTAMP)
 
 # Common compile flags
 #   -i=include       : add include/ to header search path
@@ -106,10 +107,10 @@ ifdef ULTIP3
 ULTFTP3  = ftp://$(ULTIP3)$(ULTPATH3)
 endif
 
-# ZIP file contents
+# Versioned release ZIP -- disk image + README.pdf, flattened to the
+# zip's own root (no build/krill/ path prefix inside the archive).
 ZIP = build/$(MAIN)_$(VERSION).zip
 README = README.pdf
-ZIPLIST = build/krill/*.* $(README)
 PRGLIST = -write $(MAIN).prg $(MAIN) -write $(LMC).prg $(LMC)
 KRILLLIST = -write install-c128.prg install-c128 -write loader-c128.prg loader-c128
 # TSCrunch-compressed real assets, loaded via krill_loadcompd() -- krill is
@@ -157,9 +158,9 @@ GENERATED_ASSETS = assets/vdce-scrtit.eve assets/vdce-scrtit.odd
 ########################################
 
 .SUFFIXES:
-.PHONY: all clean deploy deploy2 deploy3 check-deploy check-deploy2 check-deploy3 docs vice z64k krill
+.PHONY: all clean deploy deploy2 deploy3 check-deploy check-deploy2 check-deploy3 docs vice z64k krill zip
 
-all: $(MAIN).prg bootsect.bin krill README.pdf
+all: $(MAIN).prg bootsect.bin krill README.pdf zip
 
 $(MAIN).prg: $(MAIN_SRCS)
 	@$(MKDIR) build/krill 2>$(NULLDEV) ; true
@@ -223,10 +224,15 @@ krill: $(MAIN).prg bootsect.bin loader-c128.prg
 	c1541 -cd build/krill -attach $(MAIN).d81 -bam 1 1
 	c1541 -cd build/krill -attach $(MAIN).d81 $(PRGLIST) $(KRILLLIST) $(KRILL_COMPRESSED_ASSETS)
 
-## Creating ZIP file for distribution
-#$(ZIP):
-#	zip -j $(ZIP) build/krill/*.d* build/standard/*.d* $(README)
-#
+# Versioned release ZIP for distribution -- the disk image plus a PDF copy
+# of README.md, flattened into the zip's own root (-j: no build/krill/
+# path prefix stored). $(README) is a real prerequisite, not just named in
+# the recipe, so `make zip` (or `make`/`make all`, which depends on this
+# target) always regenerates README.pdf from the current README.md first
+# -- the zip can never ship a stale PDF.
+zip: krill $(README)
+	@$(MKDIR) build 2>$(NULLDEV) ; true
+	zip -j $(ZIP) build/krill/$(MAIN).d81 $(README)
 
 # Converted picture assets (requires python3 + Pillow: pip install Pillow).
 # See tools/vdc_convert.py for the conversion technique (credited there).
