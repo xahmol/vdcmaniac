@@ -211,7 +211,8 @@ revisiting if a future mode reordering ever breaks it.
 
 The eight "Tokra VDC Mode Mania" hires modes (VDC-FLI through VDC-IM960)
 are all reconstructed directly from Tokra's original BASIC source
-(`original/v12/source/vdcmodemania.bas`) — the sections below note what's
+(`vdcmodemania.bas`, part of the original release on CSDb —
+https://csdb.dk/release/?id=234174) — the sections below note what's
 genuinely non-obvious about each family, not a field-by-field walkthrough
 (the source comments on each row in `vdc_core.c` have that level of detail
 already).

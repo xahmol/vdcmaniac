@@ -7,9 +7,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 An Oscar64/C remake of "VDC Mode Mania" (Tokra/Mike, Akronyme Analogiker,
 2012) — a Commodore 128 demo showcasing the VDC (8563, 80-column chip)'s
 rare 64KB-VDC-RAM bitmap modes, from 480x252 colour up to 720x700
-monochrome. The original BASIC version ships in `original/v12/` for
-reference only (detokenised source, disk images, its own image
-converters) — this is a from-scratch C rewrite: its own menu-driven demo
+monochrome. The original BASIC version (detokenised source, disk images,
+its own image converters) is available from CSDb:
+https://csdb.dk/release/?id=234174 — kept locally under `original/` for
+reference only, not tracked in this repo (gitignored) — this is a
+from-scratch C rewrite: its own menu-driven demo
 driver, its own VDC mode/register library, its own picture converter, its
 own asset loader, and its own sourced/credited artwork throughout (see
 `include/defines.h`'s own credit block — none of Tokra's original
@@ -164,11 +166,13 @@ rebuild otherwise).
 - `src/main.-vdctestold.c` is a superseded earlier version of `main.c`,
   kept for reference; not part of the build (`MAINSRC` in the `Makefile`
   points only at `src/main.c`).
-- `assets/vdcmodemania/` holds the ORIGINAL demo's own per-image bitmap/
-  colour data, carried over from `original/v12/sd2iec-version/` for
-  reference only — no longer used by anything (every section now loads
-  its own converted assets, built from `assets/source/*.jpg` via
-  `tools/vdc_convert.py`, TSCrunch-compressed per `krill_manual.md`).
+- `assets/vdcmodemania/` (gitignored, not tracked) held the ORIGINAL
+  demo's own per-image bitmap/colour data, carried over from its
+  sd2iec-version release for reference only — no longer used by anything
+  (every section now loads its own converted assets, built from
+  `assets/source/*.jpg` via `tools/vdc_convert.py`, TSCrunch-compressed
+  per `krill_manual.md`); see the original release on CSDb
+  (https://csdb.dk/release/?id=234174) if this data is ever needed again.
 
 ## Related reference material
 

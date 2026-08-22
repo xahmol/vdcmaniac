@@ -13,9 +13,17 @@ Connected 9 party (Sep 2, 2012), later extended twice (an 800x600 mode in
 C128's rare, little-used 64KB-VDC-RAM graphics modes -- interlaced and
 non-interlaced colour and monochrome modes at resolutions far beyond the
 VIC-II's usual 320x200, from 480x252 colour up to 960x540 monochrome -- with
-converted picture assets and BASIC-based viewers. The original demo, its
-BASIC source, its image converters, and its own README are kept for
-reference under `original/v12/`.
+converted picture assets and BASIC-based viewers. The original demo,
+including its BASIC source and image converters, is available from CSDb:
+https://csdb.dk/release/?id=234174
+
+A second main inspiration: Peter Hulstede's "VDC-Intromaker: Perfektes
+Rasterzeilen-Timing", **64'er Sonderheft 95**, p.45 -- its example CIA-timer
+VDC raster-sync routine (SYNC/WAITLINE/WAITJUMP/LINEND, 6502 listing) is
+the basis this project's own `raster_synch()`/`raster_waitline()`
+(`include/vdc_raster.c`) are translated from into C, driving every
+raster-bar effect in the demo -- see that file's own credit comment for
+the full technical mapping.
 
 `vdcmaniac` is **not a port** of that BASIC codebase. It's a from-scratch
 reimplementation in C, targeting the same family of rare VDC modes but built
@@ -36,9 +44,9 @@ around this project's own tooling and techniques:
   original's PC-side C converters -- see `vdc_reference_manual.md`.
 
 The set of VDC modes being brought back is the same one VDC Mode Mania
-demonstrated (see `original/v12/readme.txt` for the full list and Tokra's
-own notes on real-hardware/monitor compatibility per mode); the techniques
-driving them are new.
+demonstrated (see the original's own README, linked above, for the full
+list and Tokra's own notes on real-hardware/monitor compatibility per
+mode); the techniques driving them are new.
 
 **On pictures**: every showcase section uses this project's own sourced
 artwork, converted via `tools/vdc_convert.py` -- public-domain paintings/
@@ -46,12 +54,85 @@ prints and CC-licensed photographs, each with a full attribution/licence
 note in `include/defines.h`'s own credit block. None of Tokra's original
 converted images are used.
 
+## Screenshots
+
+Captured in VICE (x128). VDC pixels are not square, so a raw capture
+misrepresents every mode's true on-screen proportions -- each screenshot
+below is cropped to that mode's own visible content and restored to a
+standard 4:3 aspect ratio. Full picture licence/attribution detail lives
+in `include/defines.h`'s own credit block; the captions below summarise
+it per picture.
+
+### Intro sequence
+
+|  |  |
+|---|---|
+| ![System diagnostics](screenshots/01_system_diagnostics.png) | ![idi8b logo](screenshots/02_idi8b_logo.png) |
+| System diagnostics (PAL/NTSC, VDC revision, 64KB check) | idi8b logo section |
+| ![Title screen](screenshots/03_title_screen.png) | ![Main menu](screenshots/04_main_menu.png) |
+| Title screen, raster bar underneath | Main menu, raster-bar row highlight |
+
+### VDC-FLI (480x252, colour, non-interlace) + VDC-HFLI (640x400, colour, non-interlace)
+
+|  |  |  |
+|---|---|---|
+| ![Wheat Field with Cypresses](screenshots/05_fli_vangogh_wheatfield_cypresses.jpg) | ![Starry Night Over the Rhone](screenshots/06_fli_vangogh_starry_night_rhone.jpg) | ![Irises](screenshots/07_fli_vangogh_irises.jpg) |
+| "Wheat Field with Cypresses" (1889), Vincent van Gogh, The Met, public domain | "Starry Night Over the Rhone" (1888), Vincent van Gogh, Musee d'Orsay, public domain | "Vase with Irises Against a Yellow Background" (1890), Vincent van Gogh, Van Gogh Museum, public domain |
+| ![The Great Wave off Kanagawa](screenshots/08_hfli_hokusai_great_wave.jpg) | ![Fine Wind, Clear Morning](screenshots/09_hfli_hokusai_red_fuji.jpg) | ![Ejiri in Suruga Province](screenshots/10_hfli_hokusai_ejiri_suruga.jpg) |
+| "The Great Wave off Kanagawa" (c. 1831), Katsushika Hokusai, public domain | "Fine Wind, Clear Morning" ("Red Fuji", c. 1830-1832), Katsushika Hokusai, public domain | "Ejiri in Suruga Province" (c. 1830-1832), Katsushika Hokusai, public domain |
+
+### VDC-IFLI: VDC-IHFLI (640x480, colour, interlace) + VDC-ITFLI (640x576, colour, interlace)
+
+|  |  |  |
+|---|---|---|
+| ![Passiflora caerulea](screenshots/11_ihfli_passiflora.jpg) | ![Sunflower](screenshots/12_ihfli_sunflower.jpg) | ![Keel-billed Toucan](screenshots/13_ihfli_toucan.jpg) |
+| "Passiflora caerulea (makro close-up)" by Petar Milosevic, CC BY-SA 4.0 | "Sonnenblume Helianthus 1" by Bohringer Friedrich, CC BY-SA 2.5 | "Keel-billed Toucan, Caves Branch Jungle Lodge, Belize" by Judy Gallagher, CC BY 2.0 |
+| ![Tutankhamun mask](screenshots/14_itfli_tutankhamun_mask.jpg) | ![Hyacinth macaw](screenshots/15_itfli_hyacinth_macaw.jpg) | ![Utrecht](screenshots/16_itfli_utrecht_bridge.jpg) |
+| "Tutanchamun Maske" (funerary mask) by MykReeve, CC BY-SA 3.0 / GFDL 1.2+ | "Hyacinth macaw head", the Pantanal, Brazil, by Charles J. Sharp, CC BY-SA 4.0 | "De Hamburgerbrug met de Oudegracht en de Domtoren in de Stad Utrecht" by Jan dijkstra, CC BY-SA 4.0 |
+
+### VDC-mono: VDC-IMONO (720x700, interlace) + VDC-IM800 (800x600, interlace)
+
+|  |  |  |
+|---|---|---|
+| ![Strasbourg Cathedral](screenshots/17_imono_strasbourg_cathedral.jpg) | ![Zebras, Ngorongoro Crater](screenshots/18_imono_zebras_ngorongoro.jpg) | ![Berber woman portrait](screenshots/19_imono_berber_woman_portrait.jpg) |
+| "Strasbourg Cathedral Exterior" by David Iliff (Diliff), CC BY-SA 3.0 / GFDL 1.2+ | "Zebras Ngorongoro Crater" by Muhammad Mahdi Karim, GFDL 1.2 | "Portrait de femme en tenue traditionnelle de Berbere Algerien" by Samia Dib Benkaci, CC BY-SA 4.0 |
+| ![Portrait of a woman](screenshots/20_im800_portrait_of_a_woman.jpg) | ![The History of Apple Pie](screenshots/21_im800_history_of_apple_pie.jpg) | ![Maupi](screenshots/22_im800_maupi_the_cat.jpg) |
+| "Portrait-of-a-woman" by Mark Sherman, CC BY 2.0 | "The History of Apple Pie - Kelly Lee Owens (2013)" by Sylvain lasco, CC BY-SA 4.0 | "Maupi", the author's own cat |
+
+### Plasma effect / Colour rotation effect
+
+|  |  |
+|---|---|
+| ![Plasma effect](screenshots/23_plasma_effect.jpg) | ![Colour rotation effect](screenshots/24_colour_rotation_effect.jpg) |
+| Sine-table plasma, own procedural content | Colour-cycling bitmap, own procedural content |
+
+### VDC-SCROLL: VDC-VSCROLL + VDC-PANORAMA + VDC-PANORAMA 2D
+
+|  |  |  |
+|---|---|---|
+| ![Kinryuzan Temple, Asakusa](screenshots/25_vscroll_hiroshige_kinryuzan_temple.jpg) | ![Nine Dragons](screenshots/26_panorama_chenrong_nine_dragons.jpg) | ![The Last Stand of the Kusunoki at Shijonawate](screenshots/27_panorama2d_kuniyoshi_kusunoki.jpg) |
+| "Kinryuzan Temple, Asakusa", print #99 from One Hundred Famous Views of Edo (1856), Utagawa Hiroshige, public domain -- vertical scroll | "Nine Dragons" (1244), Chen Rong, Museum of Fine Arts, Boston, public domain -- horizontal pan | "The Last Stand of the Kusunoki at Shijonawate" (1857), Utagawa Kuniyoshi, British Museum, public domain -- combined 2D pan |
+
+### VDC Spectrum (256x192, doubled to 512x192)
+
+|  |  |  |
+|---|---|---|
+| ![np](screenshots/28_spectrum_np_prof4d.jpg) | ![Prisoner of Time](screenshots/29_spectrum_prisoner_of_time_pheel.jpg) | ![Cursed Eighth](screenshots/30_spectrum_cursed_eighth_piesiu.jpg) |
+| "np" (2015), prof4d, 1st place at CC Winter - DiHalt Lite 2015 | "Prisoner of Time" (2001), PheeL, 1st place at Chaos Constructions 2001 | "Cursed Eighth" (2010), Piesiu, 1st place at the Chaos Constructions 2010 ZX Graphics compo |
+
+### End demo + credits
+
+![End credits](screenshots/31_end_credits.png)
+
+Scrolling-text and colour-cycling-bars credits sequence.
+
 ## Known issues
 
 - **Monitor compatibility varies by VDC mode.** Not every one of the VDC's
   rare bitmap modes displays cleanly on every monitor -- this is a
-  real-hardware VDC characteristic, not a bug in this demo (see
-  `original/v12/readme.txt` for Tokra's own notes on the same thing). A
+  real-hardware VDC characteristic, not a bug in this demo (see the
+  original VDC Mode Mania's own README, linked in "Inspiration" above,
+  for Tokra's own notes on the same thing). A
   **Commodore 1901** monitor is confirmed to show every mode correctly,
   but may still need its own horizontal/vertical size and centering
   controls adjusted per mode -- as may any other monitor.
@@ -81,6 +162,7 @@ converted images are used.
 ## Contents
 
 - [Inspiration](#inspiration)
+- [Screenshots](#screenshots)
 - [Known issues](#known-issues)
 - [Requirements](#requirements)
 - [Building from source](#building-from-source)

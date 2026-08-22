@@ -1,6 +1,18 @@
 # Local deployment config -- never commit
 .env
 
+# Original VDC Mode Mania release (Tokra/Mike, Akronyme Analogiker, 2012) --
+# kept locally for reference only, not tracked. See README.md's Inspiration
+# section for the CSDb release link. Anchored to repo root (leading slash)
+# -- unanchored "original/" also matches assets/original/, which holds
+# unrelated, actively-used title-screen source art that must stay tracked.
+/original/
+
+# Original VDC Mode Mania's own per-image bitmap/colour data (carried over
+# from its sd2iec-version release) -- reference only, not used by anything
+# in src/ or include/. Same CSDb link as above if ever needed again.
+assets/vdcmodemania/
+
 # Build outputs
 build/
 tools/sidreloc/sidreloc

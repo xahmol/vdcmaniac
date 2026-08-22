@@ -8,10 +8,11 @@ day-to-day build commands and `Makefile` targets, see `CLAUDE.md`.
 An Oscar64/C rewrite, for the Commodore 128 VDC (8563/8568, 80-column
 chip), of **VDC Mode Mania** — a 2012 BASIC demo/tool by Tokra and Mike
 (group "Akronyme Analogiker") that shows off the VDC's unusual bitmap
-resolutions (480x252 up to 720x700, see `original/v12/readme.txt`). The
-original ships in full under `original/v12/` (detokenised BASIC source,
-disk images, PC-side image converters) for reference only — no code or
-converted images from it are used. This is a from-scratch rewrite: its
+resolutions (480x252 up to 720x700). The original (detokenised BASIC
+source, disk images, PC-side image converters) is available from CSDb:
+https://csdb.dk/release/?id=234174 — kept locally for reference only (not
+tracked in this repo, `original/` is gitignored); no code or converted
+images from it are used. This is a from-scratch rewrite: its
 own menu-driven demo, its own `vdc_core`/`vdc_win`/`banking` Oscar64
 library (the same library suite used in `VDCScreenEditor2`), its own
 picture converter (`tools/vdc_convert.py`), its own asset loader (Krill's
@@ -247,11 +248,12 @@ CC-licensed photographs, one set per showcased picture — see
 `include/defines.h`'s own credit block for full attribution), converted
 via `tools/vdc_convert.py`.
 
-`assets/vdcmodemania/` holds the ORIGINAL demo's own per-image bitmap/
-colour data, carried over from `original/v12/sd2iec-version/` for
-reference only — **not referenced anywhere in `src/` or `include/`**
-(checked via grep). Every section now uses this project's own converted
-assets instead.
+`assets/vdcmodemania/` (gitignored, not tracked) held the ORIGINAL demo's
+own per-image bitmap/colour data, carried over from its sd2iec-version
+release for reference only — **not referenced anywhere in `src/` or
+`include/`** (checked via grep). Every section now uses this project's
+own converted assets instead; see the original release on CSDb
+(https://csdb.dk/release/?id=234174) if this data is ever needed again.
 
 ## Build & tooling state
 
