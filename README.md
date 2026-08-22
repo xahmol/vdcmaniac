@@ -12,6 +12,7 @@ cross-compiler.
 - [Requirements](#requirements)
 - [Building from source](#building-from-source)
 - [License](#license)
+- [Changelog](#changelog)
 - Further documentation:
   [`ARCHITECTURE.md`](ARCHITECTURE.md) (code layout),
   [`vdc_reference_manual.md`](vdc_reference_manual.md) (VDC registers/modes),
@@ -217,6 +218,7 @@ USB port is numbered differently. `deploy3` uses its own dedicated path
 | `make deploy2` | Upload to second Ultimate II+ (requires `ULTIP2` in `.env`) |
 | `make deploy3` | Upload build to a real-hardware test machine (requires `ULTIP3` in `.env`) |
 | `make docs` | Regenerate `README.pdf` from `README.md` (requires pandoc) |
+| `make zip` | Build `build/vdcmaniac_<version>.zip` -- the D81 plus `README.pdf`, for distribution |
 
 ## License
 
@@ -229,3 +231,15 @@ README's own Inspiration section, per their own license terms. Every
 picture/artwork/music asset has its own individual attribution and
 licence noted in `include/defines.h`'s credit block -- see "On
 pictures" above.
+
+## Changelog
+
+### [v1.0.0](https://github.com/xahmol/vdcmaniac/releases/tag/v1.0.0)
+
+Initial public release: all eight VDC bitmap-mode showcases (VDC-FLI,
+VDC-HFLI, VDC-IHFLI, VDC-ITFLI, VDC-IMONO, VDC-IM800, VDC Spectrum, plus
+the Plasma and Colour rotation procedural effects), the scripted
+VDC-SCROLL family (vertical, horizontal, and combined 2D pan), a
+real-hardware-verified raster-IRQ engine, Krill-fastloader/TSCrunch asset
+loading, and complete documentation -- verified on real Commodore 128D/
+128DCR hardware with an Ultimate II+, not just in emulation.
