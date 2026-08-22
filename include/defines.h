@@ -184,10 +184,7 @@ et al in src/main.c), converted via tools/vdc_convert.py:
     scroll) and converted via tools/vdc_convert.py --mode panorama
     (plain Floyd-Steinberg 1-bit dither, same convert_imono() every
     other mono mode uses) -- see assets/source/panorama_chenrong_
-    ninedragons.jpg. `assets/source/panorama_hiroshige_nihonbashi.jpg`
-    is an unrelated leftover from an earlier, abandoned horizontal-pan
-    attempt (see vscroll_demo()'s own comment) and is not used by
-    anything.
+    ninedragons.jpg.
 
 -   VDC-PANORAMA 2D:
 
