@@ -123,10 +123,8 @@ rebuild otherwise).
   R27 mechanism only works if `VDCR_ROWINC` is written via an explicit
   call strictly *after* `DISP_ADDR` already holds its real value, never
   baked into a mode's own `vdc_modes[]` regset row — see project memory
-  `vdcmaniac_r27_real_hardware_quirk_found.md` for why (an earlier
-  version of exactly that mistake caused a multi-day "R27 doesn't work
-  on real hardware" investigation that turned out to be self-inflicted,
-  not a chip quirk). `load_chunk_to_vdc()`/`krill_load_or_die()`
+  `vdcmaniac_r27_real_hardware_quirk_found.md` for the full technical
+  history of this ordering requirement. `load_chunk_to_vdc()`/`krill_load_or_die()`
   (defined just above `vscroll_demo()`) are shared asset-loading helpers
   used project-wide, not just by this family.
 - `raster_bar()`/`main_menu()`'s own highlight sweep are built on

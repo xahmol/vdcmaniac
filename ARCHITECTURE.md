@@ -161,20 +161,16 @@ to decide whether to keep chaining).
   display (`VDC_HIRES_640x200_Mono_PANORAMA_R27` mode) using VDC
   register 27 (`ROWINC`) for per-scanline addressing beyond the
   display's own native 80-byte stride, plus `VDCR_HSCROLL` for sub-byte
-  (0-7px) smooth motion between byte crossings. This mechanism went
-  through two earlier, fully abandoned attempts (CSIZE/ROWINC raster
-  toggling, then a CPU shift-and-refill) before a genuinely new idea —
-  driving R27 directly — was tried and proven live on real hardware; see
-  project memory `vdcmaniac_horizontal_pan_abandoned_twice.md` and
-  `vdcmaniac_r27_real_hardware_quirk_found.md` for the full history,
-  including the one hard rule this mode depends on: `VDCR_ROWINC` must
-  only ever be written via an explicit call *after* `DISP_ADDR` already
-  holds its real value, never baked into a mode's own `vdc_modes[]`
-  regset row (which gets applied before the caller can correct
-  `DISP_ADDR`) — an early version of exactly this mistake was the real
-  cause of a multi-day "R27 doesn't work on real hardware" investigation
-  that turned out to be a self-inflicted init-order bug, not a chip
-  quirk.
+  (0-7px) smooth motion between byte crossings. Two earlier horizontal-
+  pan mechanisms (CSIZE/ROWINC raster toggling, then a CPU shift-and-
+  refill) were tried and abandoned before this one — see project memory
+  `vdcmaniac_horizontal_pan_abandoned_twice.md`. **Attention point**:
+  `VDCR_ROWINC` must only ever be written via an explicit call *after*
+  `DISP_ADDR` already holds its real value — never baked into a mode's
+  own `vdc_modes[]` regset row, which gets applied before the caller can
+  correct `DISP_ADDR` — see project memory
+  `vdcmaniac_r27_real_hardware_quirk_found.md` for the full technical
+  history of this ordering requirement.
 - **`panorama2d_demo()` (both axes)**: combines the above two mechanisms
   — vertical `DISP_ADDR` stepping and horizontal `DISP_ADDR`+`HSCROLL`
   stepping — into one diagonal glide touring all four corners of a
@@ -188,20 +184,18 @@ Shared helpers (all `static`, defined just above `vscroll_demo()`):
 `bnk_cpytovdc()`-push pair, used by all three sections' own three-way
 picture-chunk splits) and `krill_load_or_die(dest, fname)` (project-wide
 — every asset load site in `main.c` uses this, not just this family) wrap
-the "load, report+exit(1) on failure" boilerplate that used to be spelled
-out at ~24 call sites individually. `panorama_step_offset()` (pure
-offset/hscroll arithmetic, no register writes) and
+the "load, report+exit(1) on failure" boilerplate. `panorama_step_offset()`
+(pure offset/hscroll arithmetic, no register writes) and
 `panorama_write_addr_hscroll()` (writes `DISP_ADDR` — framed by
 `vdc_wait_no_vblank()`/`vdc_wait_vblank()` whenever it actually changes —
 then `VDCR_HSCROLL`, unconditionally, in that order) are shared between
-`panorama_demo()` and `panorama2d_demo()`; the safety framing lives
-inside `panorama_write_addr_hscroll()` itself rather than being left to
-each caller to apply conditionally — an earlier version split this the
-other way and shipped a real regression (`panorama2d_demo()`'s own
-per-frame vertical `DISP_ADDR` change hit the unprotected
-`DISP_ADDR`+`HSCROLL` combination far more often than
-`panorama_demo()`'s rare byte crossings ever did, reported live as
-jarring/jumpy motion) before landing on this shape.
+`panorama_demo()` and `panorama2d_demo()`. **Attention point**: the
+safety framing lives inside `panorama_write_addr_hscroll()` itself,
+unconditionally, rather than being left to each caller to apply only
+when it judges a byte crossing occurred — `panorama2d_demo()`'s own
+vertical component changes `DISP_ADDR` almost every frame, so this
+combination needs the framing far more often than `panorama_demo()`'s
+own rare byte crossings do.
 
 ### `credits_screen()`
 

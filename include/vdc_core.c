@@ -129,7 +129,7 @@ struct VDCBootBaseline
 static struct VDCBootBaseline vdc_boot;
 
 // VDC mode settings. Credits to Tokra.
-struct VDCModeSet vdc_modes[23] =
+struct VDCModeSet vdc_modes[22] =
     {
         // VDC_TEXT_80x25_PAL: standard 80x25 text mode, PAL -- this
         // project's default/baseline mode (main() switches here first,
@@ -367,56 +367,29 @@ struct VDCModeSet vdc_modes[23] =
         // Uses R27 (ROWINC) for per-scanline bitmap addressing beyond the
         // display's own native 80-byte stride, letting a bitmap WIDER than
         // the 640px display be panned through smoothly (VDCR_HSCROLL for
-        // sub-byte motion, DISP_ADDR for whole-byte steps) -- the C128
-        // Programmer's Reference Guide's own R27 description ("increments
-        // the address of the bit-mapped data from one scan line to the
-        // next") turned out to be exactly correct, PROVIDED R27 is only
-        // ever written after DISP_ADDR already holds its real, final
-        // value -- see project memory
-        // vdcmaniac_r27_real_hardware_quirk_found.md for the full
-        // diagnostic history (two earlier panorama attempts abandoned for
-        // unrelated reasons, then a long real-hardware-only wave-
-        // distortion symptom that turned out to be a self-inflicted
-        // init-order bug in this project's own test code, not a chip
-        // quirk). char_std/char_alt/extended/swap_text/swap_attr/
-        // base_attr are all 0x0000 -- this mode never displays text or
-        // double-buffers, and colorlines=0 (no attribute plane), so that
-        // memory is freed for the wide bitmap itself (confirmed live:
-        // giving this mode real charset addresses had no effect on the
-        // wave symptom either, ruled out before the real fix was found).
-        // VDCR_ROWINC is NOT part of this row's own regset -- it must be
-        // written via an explicit vdc_reg_write() call in panorama_demo()
-        // itself, strictly after vdc_set_disp_address() has already set
-        // the real offset (baking it into this table applies it via
-        // vdc_set_mode()'s own regset loop, which runs BEFORE the caller
-        // gets a chance to correct DISP_ADDR -- exactly the bug that
-        // caused the wave). NOT part of VDCBootBaseline's own captured
-        // set by default (added there too for defense-in-depth) --
-        // panorama_demo()'s own explicit vdc_reg_write(VDCR_ROWINC, 0)
+        // sub-byte motion, DISP_ADDR for whole-byte steps) -- matches the
+        // C128 Programmer's Reference Guide's own R27 description
+        // ("increments the address of the bit-mapped data from one scan
+        // line to the next"). char_std/char_alt/extended/swap_text/
+        // swap_attr/base_attr are all 0x0000 -- this mode never displays
+        // text or double-buffers, and colorlines=0 (no attribute plane),
+        // so that memory is freed for the wide bitmap itself. Attention
+        // point: VDCR_ROWINC is deliberately NOT part of this row's own
+        // regset -- it must be written via an explicit vdc_reg_write()
+        // call in panorama_demo() itself, strictly after
+        // vdc_set_disp_address() has already set the real offset (baking
+        // it into this table would apply it via vdc_set_mode()'s own
+        // regset loop, which runs BEFORE the caller gets a chance to
+        // correct DISP_ADDR -- see project memory
+        // vdcmaniac_r27_real_hardware_quirk_found.md for why this
+        // ordering matters). Also NOT part of VDCBootBaseline's own
+        // captured set by default (added there too for defense-in-depth)
+        // -- panorama_demo()'s own explicit vdc_reg_write(VDCR_ROWINC, 0)
         // before returning is the primary guarantee this doesn't leak
         // forward into later modes the way the HEND leak once did
         // (memory: rotate_demo_shift_bug). width/height (640,200)
         // describe the visible WINDOW only, same convention as VSCROLL.
         {640, 200, 1, 0, 1, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x26, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x20, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0x7e, VDCR_HSCROLL, 0x07, 255}},
-        // VDC_HIRES_640x200_Mono_PANORAMA_R27_ATTR: same test as the row
-        // above, ATTRIBUTE MODE ON (colorlines=8) -- added 2026-08-21 to
-        // directly test a real, documented hardware quirk found via
-        // research (z64k's own changelog + c-128.freeforums.net thread
-        // 917 "vdc-3-high-chars-colour", see project memory
-        // vdcmaniac_r27_real_hardware_quirk_found.md): on real 8563/8568
-        // silicon, R27>0 combined with attribute mode ON makes the
-        // address generator drift into the attribute plane partway
-        // through the SECOND scanline of bitmap data -- not a clean
-        // per-row skip -- something neither VICE nor (until a specific
-        // fix) z64k modeled. The mono row above deliberately runs with
-        // NO attribute plane on the assumption this quirk wouldn't apply
-        // -- unverified until now. base_attr placed at 0x5dc0 (0x28=40
-        // hex tiles/row short of R27_STRIDE(120)*R27_ROWS(200)=24000=
-        // 0x5dc0 bytes, i.e. immediately after the bitmap plane's own
-        // natural end) so any bleed between planes is easy to reason
-        // about. Same timing/ROWINC as the mono row -- only colorlines
-        // and base_attr differ.
-        {640, 200, 1, 8, 1, 0x0000, 0x5dc0, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_VTOTAL, 0x26, VDCR_VADJUST, 0xe0, VDCR_VDISPLAY, 0x19, VDCR_VSYNC, 0x20, VDCR_LACE, 0xfc, VDCR_CSIZE, 0xe7, VDCR_REFRESH, 0x7e, VDCR_HSCROLL, 0x07, VDCR_ROWINC, 0x28, 255}},
         // VDC_HIRES_640x200_Mono_PANORAMA2D: VDC-PANORAMA 2D, the shipped
         // combined horizontal+vertical scroll (panorama2d_demo(), the
         // third leg of menu_scroll_family()'s own chain). Same timing
@@ -837,24 +810,18 @@ void vdc_detect_mem_size()
     // Restore bit 4 of register 28
     vdc_reg_write(VDCR_CHAR_ADDRH, ramtype);
 
-    // REMOVED (2026-08-22) a `vdc_cls()` here -- this runs from inside
-    // vdc_init(), BEFORE vdc_set_mode() has updated vdc_state.width/
-    // height to the mode being switched TO, so it was clearing using the
-    // OUTGOING mode's still-stale dimensions. The display is already
-    // disabled for this entire stretch of vdc_init() (see that
-    // function's own 2026-08-19 fix for the visual half of this same
-    // root cause -- a brief flash of the wrong-geometry clear was
-    // visible before that fix), so this clear was invisible but still
-    // real work: live-reported (2026-08-22) as IHFLI (640x480) taking
-    // "extremely long" to return to text mode after a picture, since
-    // this was clearing 480 lines' worth instead of the destination's
-    // real ~25-70 -- ITFLI (576) and IMONO (700) would have been worse
-    // still. Also just redundant regardless of size: vdc_set_mode()
-    // (called right after this function returns, from vdc_init()) does
-    // its own correctly-sized vdc_cls() for text-mode destinations, and
-    // every bitmap-mode destination's own caller overwrites the whole
-    // screen itself (bnk_cpytovdc()/vdc_wipe_transition()) before ever
-    // enabling the display again -- nothing relied on this clear.
+    // No vdc_cls() here on purpose: this runs from inside vdc_init(),
+    // BEFORE vdc_set_mode() has updated vdc_state.width/height to the
+    // mode being switched TO -- a clear here would use the OUTGOING
+    // mode's dimensions, not the new mode's (see vdc_reference_manual.md,
+    // "Stale vdc_state mid-vdc_init()"). It would also be redundant
+    // regardless of size: vdc_set_mode() (called right after this
+    // function returns, from vdc_init()) already does its own
+    // correctly-sized vdc_cls() for text-mode destinations, and every
+    // bitmap-mode destination's own caller overwrites the whole screen
+    // itself (bnk_cpytovdc()/vdc_wipe_transition()) before ever enabling
+    // the display again -- nothing relies on this function to clear
+    // anything.
 }
 
 void vdc_disable_display()

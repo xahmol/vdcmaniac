@@ -2563,20 +2563,14 @@ static void panorama_write_addr_hscroll(unsigned addr, unsigned *prev_addr, char
 // vdc_wait_no_vblank()/vdc_wait_vblank() -- the same pair
 // vdc_softscroll_right()/left() use around a byte crossing) then
 // VDCR_HSCROLL, in that order -- shared by panorama_demo() and
-// panorama2d_demo() below. The safety framing lives HERE,
-// unconditionally, rather than being left to each caller to remember to
-// apply only when it judges a "crossing" occurred: an earlier version
-// split this same way but left panorama2d_demo() writing DISP_ADDR+
-// HSCROLL together with no framing at all (reasoning, wrongly, that its
-// combined single-write-per-frame shape made the framing unnecessary) --
-// live-reported (2026-08-22) as jarring/jumpy motion, since its own
-// vertical component changes DISP_ADDR almost every frame, hitting the
-// unprotected DISP_ADDR+HSCROLL combination far more often than
-// panorama_demo()'s rare byte crossings ever did. Baking the framing
-// into the one shared write path removes the possibility of a caller
-// skipping it again. See project memory
+// panorama2d_demo() below. Attention point: the safety framing lives
+// HERE, unconditionally, rather than being left to each caller to apply
+// only when it judges a "crossing" occurred -- panorama2d_demo()'s own
+// vertical component changes DISP_ADDR almost every frame, so this
+// combination needs the framing far more often than panorama_demo()'s
+// own rare byte crossings do. See project memory
 // vdcmaniac_r27_real_hardware_quirk_found.md for the underlying ordering
-// rule this all traces back to.
+// rule this traces back to.
 {
     if (addr != *prev_addr)
     {
