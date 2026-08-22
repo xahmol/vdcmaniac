@@ -22,11 +22,17 @@ extern char raster_timer_reload;
 extern unsigned raster_cycles_per_line_x1000;
 ```
 
-Call once at startup, right after `vdc_init()`, before using anything else
-in this library. Measures actual CPU cycles per VDC rasterline on the
-running machine (varies by 8563 vs 8568 and PAL vs NTSC) by timing 64 VDC
-VBlank-to-VBlank periods against a free-running CIA1 timer, then dividing
-by the rasterlines/frame of whatever VDC mode is currently active.
+Called exactly once for the whole program, from `system_diagnostic_screen()`
+in `src/main.c` (early in `main()`, before the demo proper starts) — not
+per mode or per effect. Measures actual CPU cycles per VDC rasterline on
+the running machine (varies by 8563 vs 8568 and PAL vs NTSC) by timing 64
+VDC VBlank-to-VBlank periods against a free-running CIA1 timer, then
+dividing by the rasterlines/frame of whatever VDC mode is currently
+active. Attention point: don't add another call site without good reason
+— each call holds interrupts off for ~1.3s (64 frames at 50Hz PAL), which
+is audible as a music pause; a single early calibration has been
+confirmed live (real hardware, VICE, z64k) to stay accurate enough for
+every mode's own raster effects in this project.
 
 - `raster_timer_reload` — the measured value rounded to the nearest integer
   cycle count. This is what `raster_synch()` (below) uses as its CIA2 Timer
@@ -37,24 +43,19 @@ by the rasterlines/frame of whatever VDC mode is currently active.
   just the rounded integer.
 
 Both have sane hardcoded defaults (`62` / `63056`) in case `raster_calibrate()`
-is never called, but real hardware/emulator sessions should always call it —
-see `raster_place_test()` in `src/main.c` for a tool that lets you eyeball
-whether the calibrated value holds a bar steady at a given line.
+is somehow never called.
 
 **Interlaced modes** (LACE register bits 0-1 = `11`, e.g.
 `VDC_HIRES_720x700_Mono_PAL`): the VBlank status bit this function times
-against toggles once per *field*, not once per full frame, so the raw result
-here reads half the true cycles/line for those modes (confirmed live: ~31.4
-instead of the expected ~63). `raster_calibrate()` itself does **not**
-correct for this — an earlier attempt special-cased interlace inside this
-shared function, but that also changed the calibrated value for every other
-caller (`mono_colorize_demo()`, also interlaced) and destabilized the
-already-working raster bars in `raster_place_test()`/`title_screen()`, so it
-was reverted. If a specific effect needs the correction, apply it locally
-after calling `raster_calibrate()` — see `mono_hires_xl_demo()` in
-`src/main.c`, which doubles `raster_cycles_per_line_x1000` and recomputes
-`raster_timer_reload` itself rather than relying on this function to know
-about interlace.
+against toggles once per *field*, not once per full frame, so the raw
+result reads half the true cycles/line for those modes. None of this
+project's own live raster-bar effects (`idi8b_logo_demo()`'s bars,
+`main_menu()`'s highlight sweep, `title_screen()`'s bars) run in an
+interlaced mode, so this doesn't need correcting for any current call
+site — but if a future effect needs a raster bar in a genuinely
+interlaced mode, account for this doubling explicitly at that call site
+rather than inside `raster_calibrate()` itself (a shared correction here
+would change the value for every other caller too).
 
 ---
 

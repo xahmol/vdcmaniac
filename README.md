@@ -46,9 +46,43 @@ prints and CC-licensed photographs, each with a full attribution/licence
 note in `include/defines.h`'s own credit block. None of Tokra's original
 converted images are used.
 
+## Known issues
+
+- **Monitor compatibility varies by VDC mode.** Not every one of the VDC's
+  rare bitmap modes displays cleanly on every monitor -- this is a
+  real-hardware VDC characteristic, not a bug in this demo (see
+  `original/v12/readme.txt` for Tokra's own notes on the same thing). A
+  **Commodore 1901** monitor is confirmed to show every mode correctly,
+  but may still need its own horizontal/vertical size and centering
+  controls adjusted per mode -- as may any other monitor.
+- **z64k**: the title screen renders mangled. Every other mode is
+  unaffected. VICE shows every mode correctly.
+- **RGBtoHDMI**: each VDC mode needs its own RGBtoHDMI mode definition.
+  This project does not currently provide RGBtoHDMI mode definitions for
+  any of its VDC modes.
+- **VICE/z64k under WSL2/WSLg**: SID music playback can noticeably slow
+  down in some sections -- a WSL2/WSLg performance characteristic, not
+  reproduced on native Windows/Linux or real hardware. For accurate
+  timing/audio, prefer running VICE/z64k natively rather than under WSL2.
+
+## Requirements
+
+- **Krill's fastloader requires exclusive use of the IEC bus.** Only one
+  device may be active on the bus: the drive holding the demo disk, at
+  device ID 8. Power off (or otherwise disable) any other IEC device --
+  printers, second drives, etc. -- before running the demo.
+- **Only a D81 disk image is supported.** D71 and especially D64 would
+  need far more disk swapping to fit this project's own asset sizes, so
+  neither is built or supported.
+- **SD2IEC is not supported.** Krill's loader needs cycle-exact IEC bus
+  timing, which SD2IEC's own IEC emulation does not provide. Use a real
+  1541/1571/1581 (or equivalent, e.g. an Ultimate II+) drive.
+
 ## Contents
 
 - [Inspiration](#inspiration)
+- [Known issues](#known-issues)
+- [Requirements](#requirements)
 - [Building from source](#building-from-source)
 - Further documentation:
   [`ARCHITECTURE.md`](ARCHITECTURE.md) (code layout),

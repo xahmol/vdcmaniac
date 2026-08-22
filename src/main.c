@@ -486,7 +486,6 @@ void raster_place_test()
 	// leftover value instead of vdc_state.text_attr's per-character
 	// colour, which VDC_TEXT_80x25_PAL's attribute mode provides.
 	vdc_init(VDC_TEXT_80x25_PAL, 1);
-	raster_calibrate();
 
 	// Clear first -- entered from the menu (or looped back to from a
 	// previous ESC/STOP), whose own text would otherwise still show through
@@ -995,13 +994,6 @@ void idi8b_logo_demo()
 	// in the previous section's own exit loop instead (title_screen()'s).
 	vdc_init(VDC_TEXT_80x25_Mono_PAL, 0);
 
-	// Recalibrate for this mode -- switches to a genuinely different mode
-	// of its own (VDC_TEXT_80x25_Mono_PAL, colorlines differs from
-	// whatever ran before it). Matches mono_colorize_demo()/
-	// mono_hires_xl_demo()'s established pattern of recalibrating fresh
-	// after their own vdc_init().
-	raster_calibrate();
-
 	// SID playback starts here, not in main() right after the music load
 	// -- see main()'s own comment on the SIDINIT krill_loadcompd() call
 	// for why: this is the LAST raster_calibrate() call in the whole
@@ -1171,12 +1163,6 @@ void mono_colorize_demo()
 	{
 		return;
 	}
-
-	// Recalibrate for this mode -- see the comment in title_screen(); this
-	// mode's VTOTAL/CSIZE (and PAL clock) differ from both text mode and
-	// title_screen()'s NTSC hires mode, so raster_music_irq_start()'s reload
-	// math (which reads raster_cycles_per_line_x1000) needs a fresh value.
-	raster_calibrate();
 
 	// Placeholder bitmap: a repeated box pattern.
 	dp = vdc_state.base_text;
@@ -3758,13 +3744,13 @@ void main_menu()
 	for (;;)
 	{
 		vdc_init(VDC_TEXT_80x25_Mono_PAL, 1);
-		// Recalibrate -- this mode's colorlines differ from whatever mode
-		// last ran (e.g. VDC_TEXT_80x25_PAL for the diagnostic/info
-		// screens, or a hires mode for a just-finished demo section),
-		// matching idi8b_logo_demo()/mono_hires_xl_demo()'s own established
-		// pattern of recalibrating fresh after every genuinely different
-		// vdc_init().
-		raster_calibrate();
+		// Attention point: deliberately no raster_calibrate() here.
+		// system_diagnostic_screen()'s single early calibration (main(),
+		// before the demo proper starts) is accurate enough for every
+		// mode's own raster effects -- recalibrating on every return to
+		// the menu (this loop re-enters here after every demo section)
+		// would hold interrupts off for ~1.3s each time, an audible music
+		// pause on every single return.
 		// Attribute mode off means no per-character ALTCHAR bit -- without
 		// this, mixed-case text falls back to the uppercase-only charset
 		// (see idi8b_logo_demo()'s own identical fix and its comment /
@@ -4067,9 +4053,14 @@ void system_diagnostic_screen()
 	char vdc_rev = detect_vdc_revision();
 	g_is_ntsc = is_ntsc; // cached for vdc_row_to_rasterline()
 
-	// Calibrate now, in this text mode, before showing the numbers below --
-	// same call site raster_bar_*() users elsewhere already depend on this
-	// running from (main(), before the first hires mode).
+	// Calibrate now, in this text mode, before showing the numbers below.
+	// Attention point: this is the ONLY raster_calibrate() call in the
+	// entire program -- one early value, read back live from the VDC's
+	// own registers (see raster_calibrate()'s own comment), stays
+	// accurate enough for every later mode's own raster effects, so
+	// nothing else in this file recalibrates. Don't add a recalibration
+	// call elsewhere without good reason: each one holds interrupts off
+	// for ~1.3s, an audible music pause.
 	raster_calibrate();
 
 	vdc_cls();
