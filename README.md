@@ -69,6 +69,11 @@ prints and CC-licensed photographs, each with a full attribution/licence
 note in `include/defines.h`'s own credit block. None of Tokra's original
 converted images are used.
 
+**On music**: the resident background tune is "Maniac" (Michael Sembello,
+from *Flashdance*, 1983), in a SID cover by Antti Hannula (Flex), 2010,
+Artline Designs -- credited in full in `include/defines.h`'s own credit
+block and in the demo's own end-credits scroller.
+
 ## Screenshots
 
 Captured in VICE (x128). VDC pixels are not square, so a raw capture

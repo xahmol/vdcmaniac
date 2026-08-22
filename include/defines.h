@@ -229,6 +229,18 @@ et al in src/main.c), converted via tools/vdc_convert.py:
     colour-index statistics only, no copyrighted picture content
     reproduced. See project history/TODO.md for the fuller writeup.
 
+-   Music: "Maniac" (Michael Sembello, from Flashdance, 1983), SID cover
+    by Antti Hannula (Flex), 2010, Artline Designs -- the resident
+    background tune, played throughout the demo and credited on the same
+    terms in its own end-credits scroller:
+
+    https://csdb.dk/release/?id=94553 (source release) /
+    https://deepsid.chordian.net/?file=/MUSICIANS/H/Hannula_Antti/Maniac.sid
+
+    Relocated for this project's own memory layout via sidreloc (Linus
+    Akesson, MIT licence) -- see tools/sidreloc/CREDIT.md and the loading
+    comment above SIDINIT/SIDPLAY in this file for the technical detail.
+
 -   Scott Hutter - VDC Core functions inspiration:
 
     https://github.com/Commodore64128/vdc_gui/blob/master/src/vdc_core.c
@@ -274,8 +286,10 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 #define MEM_SCREEN 0x4000
 #define MEM_CHARSET 0xC000
 
-// "Maniac" by Antti Hannula (Flex), 2010, Artline Designs -- a PAL-
-// native/VBI-tempo composition (see SID_TUNE_USES_CIA_SPEED below),
+// "Maniac" (Michael Sembello, from Flashdance, 1983), SID cover by Antti
+// Hannula (Flex), 2010, Artline Designs -- see this file's own credit
+// block above for the full attribution. A PAL-native/VBI-tempo
+// composition (see SID_TUNE_USES_CIA_SPEED below),
 // needing no software tempo-rate correction. Attention point for any
 // future tune swap: a tune that DOES need correction (a CIA-timer tune,
 // not VBI-tempo) risks an occasional extra SIDPLAY tick from the rate
