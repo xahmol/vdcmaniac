@@ -35,7 +35,7 @@ https://csdb.dk/release/?id=234174
 A second main inspiration: Peter Hulstede's "VDC-Intromaker: Perfektes
 Rasterzeilen-Timing", **64'er Sonderheft 95**, p.45 -- its example CIA-timer
 VDC raster-sync routine (SYNC / WAITLINE / WAITJUMP / LINEND, 6502 listing) is
-the basis this project's own `raster_synch()`/`raster_waitline()`
+the basis this project's own `raster_synch()` / `raster_waitline()`
 (`include/vdc_raster.c`) are translated from into C, driving every
 raster-bar effect in the demo -- see that file's own credit comment for
 the full technical mapping.
@@ -199,7 +199,7 @@ ULTIP1 = 192.168.1.xx       # IP of your primary Ultimate II+
 # ULTIP3 = 192.168.1.zz    # optional real-hardware test machine (make deploy3)
 ```
 
-The Makefile constructs the FTP path for `deploy`/`deploy2` as
+The Makefile constructs the FTP path for `deploy` / `deploy2` as
 `ftp://$(ULTIP1)/usb1/temp/`. Override `ULTUSB ?= usb1` in `.env` if your
 USB port is numbered differently. `deploy3` uses its own dedicated path
 (`ULTPATH3`, default `/USB1/idi8b/dev/`) instead -- override that in
@@ -212,7 +212,7 @@ USB port is numbered differently. `deploy3` uses its own dedicated path
 | `make` / `make all` | Build the program, boot sector and the Krill-fastloader D81 disk image (see `krill_manual.md`) |
 | `make krill` | Same D81 build, invokable on its own |
 | `make clean` | Remove all build artefacts |
-| `make vice` | Launch VICE x128 with the D81 -- **needs True Drive Emulation enabled** (VICE Settings -> Drive, or `x128 -drive8truedrive`); Krill's loader runs drive-side install code (`M-E`/`M-R`) that silently hangs at the "loading assets" screen without it |
+| `make vice` | Launch VICE x128 with the D81 -- **needs True Drive Emulation enabled** (VICE Settings -> Drive, or `x128 -drive8truedrive`); Krill's loader runs drive-side install code (`M-E` / `M-R`) that silently hangs at the "loading assets" screen without it |
 | `make z64k` | Launch [z64k](https://www.z64k.com/) with the D81 (downloads `Z64K.jar` on first use; Java 8+ required) -- a second, independently-implemented C128/VDC emulator, useful when VICE doesn't reproduce a real-hardware issue |
 | `make deploy` | Upload build to primary Ultimate II+ (requires `ULTIP1` in `.env`) |
 | `make deploy2` | Upload to second Ultimate II+ (requires `ULTIP2` in `.env`) |

@@ -3,6 +3,15 @@
 % microtype's font expansion/protrusion can absorb a bit of that overflow
 % that a plain LaTeX line break can't.
 \usepackage{microtype}
+
+% Pandoc's own fenced-code-block environment (Shaded/Verbatim, from the
+% highlighting package) does not wrap long lines by default -- a single
+% long line in a ```-fenced block (e.g. the .env example) overflows the
+% page margin instead. fvextra's breaklines/breakanywhere makes it wrap
+% like everything else, matching pandoc's own documented fix for this.
+\usepackage{fvextra}
+\fvset{breaklines=true, breakanywhere=true}
+
 \usepackage{fancyhdr}
 \pagestyle{fancy}
 \fancyhf{}
