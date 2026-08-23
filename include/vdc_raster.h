@@ -36,6 +36,16 @@ Code and resources from others used:
     point, same CIA Timer A/B chaining, same self-modifying NOP-jump-table
     for sub-line precision.
 
+-   "Risen from Oblivion VDC v2" (Crest/Oxyron, 2006, code by Graham):
+    raster_calibrate() (vdc_raster.c) independently reimplements the idea
+    behind this demo's own VDC-timing "system analysis" screen -- a
+    free-running CIA timer measured against the VDC status register's
+    sync edge, to get real cycles-per-VDC-rasterline on the running
+    machine rather than a hardcoded value. No code from this release is
+    used -- see that function's own credit comment for the full mapping:
+
+    https://csdb.dk/release/?id=44983
+
 -   Tokra: For the optimal VDC registry settings for 80x50 and 80x70 textmodes
 
 -   Scott Hutter - VDC Core functions inspiration:

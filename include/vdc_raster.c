@@ -226,9 +226,11 @@ void raster_calibrate()
 //
 // Technique (independently reimplemented from first principles after
 // reverse-engineering the idea from a VDC-timing "system analysis" screen
-// seen in a 2006 C128 demo, which measures the same ratio the same way --
-// CIA timer as a free-running cycle counter, VDC status register as the
-// synchronization edge -- this is not a transplant of any external code):
+// seen in "Risen from Oblivion VDC v2" (Crest/Oxyron, 2006,
+// https://csdb.dk/release/?id=44983), which measures the same ratio the
+// same way -- CIA timer as a free-running cycle counter, VDC status
+// register as the synchronization edge -- this is not a transplant of any
+// external code):
 //
 // CIA1 Timer A/B are chained (B counts A's underflows), both started at
 // $FFFF, and left running freely across 64 consecutive VDC VBlank pulses

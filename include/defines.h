@@ -33,16 +33,27 @@ Code and resources from others used:
 
     https://github.com/xahmol/vdcmodemania-oscar64/tree/main/original/v12
 
-    Also for "VDC SpectruMania" (2021), used as a reference for VDC
-    Spectrum mode (spectrum_demo()/convert_spectrum()): disassembling his
-    scr-copy.bin conversion routine confirmed it writes no VDC horizontal/
-    vertical timing registers at all, validating vdcmaniac's own choice to
-    reuse VDC_HIRES_640x200_Color_PAL's already-proven timing unchanged
-    rather than inventing new register values. No code or assets from this
-    release are used -- own independent implementation, verified against
-    the disassembly rather than copied from it:
+    Also for "VDC SpectruMania" (2021, Akronyme Analogiker), used as a
+    reference for VDC Spectrum mode (spectrum_demo()/convert_spectrum()):
+    disassembling his scr-copy.bin conversion routine confirmed it writes
+    no VDC horizontal/vertical timing registers at all, validating
+    vdcmaniac's own choice to reuse VDC_HIRES_640x200_Color_PAL's
+    already-proven timing unchanged rather than inventing new register
+    values. No code or assets from this release are used -- own
+    independent implementation, verified against the disassembly rather
+    than copied from it:
 
-    https://www.tokra.de/c128/vdcspectrumania.zip
+    https://www.tokra.de/c128/vdcspectrumania.zip (conversion routine
+    disassembled) / https://csdb.dk/release/?id=206013 (CSDb release)
+
+-   "Colour Spectrum" (2021, Crest -- concept by Tokra, code by JackAsser,
+    loader by Krill), 2nd place in the Mixed Demo Competition at
+    Underground Conference 11: a second reference point for the idea of
+    showing ZX Spectrum-sourced graphics on the C128's VDC, alongside
+    VDC SpectruMania above, ahead of VDC Spectrum's own from-scratch real-
+    .scr-dump decode. No code or assets from this release are used:
+
+    https://csdb.dk/release/?id=205653
 
 -   Michael Kircher: dithering/colour-cell technique (per-8-pixel-cell
     brute-force background/foreground search with Floyd-Steinberg error

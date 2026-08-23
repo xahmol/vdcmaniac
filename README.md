@@ -40,6 +40,14 @@ the basis this project's own `raster_synch()` / `raster_waitline()`
 raster-bar effect in the demo -- see that file's own credit comment for
 the full technical mapping.
 
+A third: **"Risen from Oblivion VDC v2"** (Crest/Oxyron, 2006,
+https://csdb.dk/release/?id=44983) -- its own VDC-timing "system analysis"
+screen is where this project's `raster_calibrate()` (also
+`include/vdc_raster.c`) got the idea of measuring real cycles-per-VDC-
+rasterline with a free-running CIA timer against the VDC status register's
+sync edge, rather than hardcoding a value. Independently reimplemented from
+that idea, not a code transplant -- see the function's own credit comment.
+
 `vdcmaniac` is **not a port** of that BASIC codebase. It's a from-scratch
 reimplementation in C, targeting the same family of rare VDC modes but built
 around this project's own tooling and techniques:
@@ -139,6 +147,17 @@ it per picture.
 |---|---|---|
 | ![np](screenshots/28_spectrum_np_prof4d.jpg) | ![Prisoner of Time](screenshots/29_spectrum_prisoner_of_time_pheel.jpg) | ![Cursed Eighth](screenshots/30_spectrum_cursed_eighth_piesiu.jpg) |
 | "np" (2015), prof4d, 1st place at CC Winter - DiHalt Lite 2015 | "Prisoner of Time" (2001), PheeL, 1st place at Chaos Constructions 2001 | "Cursed Eighth" (2010), Piesiu, 1st place at the Chaos Constructions 2010 ZX Graphics compo |
+
+Two earlier Akronyme Analogiker/Crest C128 releases were reference points
+for the idea of showing ZX Spectrum-sourced graphics on the C128's VDC,
+ahead of this section's own from-scratch real-`.scr`-dump decode --
+**"VDC SpectruMania"** (Tokra, Akronyme Analogiker, 2021,
+https://csdb.dk/release/?id=206013) and **"Colour Spectrum"** (Crest,
+concept by Tokra, code by JackAsser, loader by Krill, 2021,
+https://csdb.dk/release/?id=205653), 2nd place in the Mixed Demo
+Competition at Underground Conference 11. See `include/defines.h`'s own
+credit block for the technical detail on what was verified against
+SpectruMania's conversion routine.
 
 ### End demo + credits
 
