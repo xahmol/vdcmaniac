@@ -48,6 +48,16 @@ rasterline with a free-running CIA timer against the VDC status register's
 sync edge, rather than hardcoding a value. Independently reimplemented from
 that idea, not a code transplant -- see the function's own credit comment.
 
+A fourth, specific to VDC Spectrum: **"VDC SpectruMania"** (Tokra,
+Akronyme Analogiker, 2021, https://csdb.dk/release/?id=206013) and
+**"Colour Spectrum"** (Crest, concept by Tokra, code by JackAsser, loader
+by Krill, 2021, https://csdb.dk/release/?id=205653) -- both C128 VDC
+slideshows of reimagined ZX Spectrum graphics, and the reference points
+for the idea of showing Spectrum-sourced pictures on the C128's VDC ahead
+of this project's own from-scratch real-`.scr`-dump decode. See
+`include/defines.h`'s own credit block for the technical detail on what
+was verified against SpectruMania's conversion routine.
+
 `vdcmaniac` is **not a port** of that BASIC codebase. It's a from-scratch
 reimplementation in C, targeting the same family of rare VDC modes but built
 around this project's own tooling and techniques:
