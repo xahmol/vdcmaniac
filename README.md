@@ -32,32 +32,6 @@ converted picture assets and BASIC-based viewers. The original demo,
 including its BASIC source and image converters, is available from CSDb:
 https://csdb.dk/release/?id=234174
 
-A second main inspiration: Peter Hulstede's "VDC-Intromaker: Perfektes
-Rasterzeilen-Timing", **64'er Sonderheft 95**, p.45 -- its example CIA-timer
-VDC raster-sync routine (SYNC / WAITLINE / WAITJUMP / LINEND, 6502 listing) is
-the basis this project's own `raster_synch()` / `raster_waitline()`
-(`include/vdc_raster.c`) are translated from into C, driving every
-raster-bar effect in the demo -- see that file's own credit comment for
-the full technical mapping.
-
-A third: **"Risen from Oblivion VDC v2"** (Crest/Oxyron, 2006,
-https://csdb.dk/release/?id=44983) -- its own VDC-timing "system analysis"
-screen is where this project's `raster_calibrate()` (also
-`include/vdc_raster.c`) got the idea of measuring real cycles-per-VDC-
-rasterline with a free-running CIA timer against the VDC status register's
-sync edge, rather than hardcoding a value. Independently reimplemented from
-that idea, not a code transplant -- see the function's own credit comment.
-
-A fourth, specific to VDC Spectrum: **"VDC SpectruMania"** (Tokra,
-Akronyme Analogiker, 2021, https://csdb.dk/release/?id=206013) and
-**"Colour Spectrum"** (Crest, concept by Tokra, code by JackAsser, loader
-by Krill, 2021, https://csdb.dk/release/?id=205653) -- both C128 VDC
-slideshows of reimagined ZX Spectrum graphics, and the reference points
-for the idea of showing Spectrum-sourced pictures on the C128's VDC ahead
-of this project's own from-scratch real-`.scr`-dump decode. See
-`include/defines.h`'s own credit block for the technical detail on what
-was verified against SpectruMania's conversion routine.
-
 `vdcmaniac` is **not a port** of that BASIC codebase. It's a from-scratch
 reimplementation in C, targeting the same family of rare VDC modes but built
 around this project's own tooling and techniques:
@@ -80,6 +54,33 @@ The set of VDC modes being brought back is the same one VDC Mode Mania
 demonstrated (see the original's own README, linked above, for the full
 list and Tokra's own notes on real-hardware/monitor compatibility per
 mode); the techniques driving them are new.
+
+Three further releases fed into specific techniques along the way:
+
+- Peter Hulstede's "VDC-Intromaker: Perfektes Rasterzeilen-Timing",
+  **64'er Sonderheft 95**, p.45 -- its example CIA-timer VDC raster-sync
+  routine (SYNC / WAITLINE / WAITJUMP / LINEND, 6502 listing) is the basis
+  this project's own `raster_synch()` / `raster_waitline()`
+  (`include/vdc_raster.c`) are translated from into C, driving every
+  raster-bar effect in the demo -- see that file's own credit comment for
+  the full technical mapping.
+- **"Risen from Oblivion VDC v2"** (Crest/Oxyron, 2006,
+  https://csdb.dk/release/?id=44983) -- its own VDC-timing "system
+  analysis" screen is where this project's `raster_calibrate()` (also
+  `include/vdc_raster.c`) got the idea of measuring real
+  cycles-per-VDC-rasterline with a free-running CIA timer against the VDC
+  status register's sync edge, rather than hardcoding a value.
+  Independently reimplemented from that idea, not a code transplant --
+  see the function's own credit comment.
+- **"VDC SpectruMania"** (Tokra, Akronyme Analogiker, 2021,
+  https://csdb.dk/release/?id=206013) and **"Colour Spectrum"** (Crest,
+  concept by Tokra, code by JackAsser, loader by Krill, 2021,
+  https://csdb.dk/release/?id=205653) -- both C128 VDC slideshows of
+  reimagined ZX Spectrum graphics, and the reference points for the idea
+  of showing Spectrum-sourced pictures on the C128's VDC ahead of this
+  project's own from-scratch real-`.scr`-dump decode. See
+  `include/defines.h`'s own credit block for the technical detail on what
+  was verified against SpectruMania's conversion routine.
 
 **On pictures**: every showcase section uses this project's own sourced
 artwork, converted via `tools/vdc_convert.py` -- public-domain paintings/
