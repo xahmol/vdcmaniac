@@ -106,7 +106,7 @@ canvas.paste(logo_scaled, (logo_x, logo_y))
 
 # --- Text ---
 draw.text((TEXT_X, TITLE_Y),  "vdcmaniac",             font=font_title, fill=C_CYAN)
-draw.text((TEXT_X, VERS_Y),   "v1.0.0",                font=font_vers,  fill=C_YELLOW)
+draw.text((TEXT_X, VERS_Y),   "v1.0.1",                font=font_vers,  fill=C_YELLOW)
 draw.text((TEXT_X, DESC_Y),        "Commodore 128 VDC demo --", font=font_desc, fill=C_WHITE)
 draw.text((TEXT_X, DESC_Y + 34),   "rare 64KB-VDC-RAM bitmap",  font=font_desc, fill=C_WHITE)
 draw.text((TEXT_X, DESC_Y + 68),   "modes, from scratch in C",  font=font_desc, fill=C_WHITE)
