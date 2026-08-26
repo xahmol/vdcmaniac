@@ -416,16 +416,24 @@ That extrapolation turned out to be unreliable: a real-hardware report
 from Tokra (RGBtoHDMI interlace fields swapped for the mono modes,
 2026-08-24) led to a live `io d600` comparison against his own
 `vdcmodemania.bas` DATA statements, which found `VTOTAL − VADJUST`
-undershooting Tokra's actual value by exactly 1 for both VDC-IMONO
-(`0x64` vs the real `0x65`) and VDC-IM800 (`0x56` vs the real `0x57`) —
-IHFLI's own `0x81` matched exactly, and ITFLI's extrapolated `0x63` also
-checked out against his own live register dump, so the formula isn't
-wrong everywhere, just not reliable enough to trust without confirming
-each mode individually. Both wrong values are now fixed to Tokra's own
-literal constants. **Takeaway for any new interlaced mode**: don't leave
-`VSYNC` unset/inherited, and don't trust `VTOTAL − VADJUST` on its own —
+undershooting Tokra's actual value by exactly 1 for **three** of the four
+modes he checked: VDC-IMONO (`0x64` vs the real `0x65`), VDC-IM800
+(`0x56` vs the real `0x57`), and VDC-ITFLI (`0x63`/99 decimal vs the real
+`0x62`/98 decimal, per Tokra's own words: "you use 99 while I use 98 for
+reg 7, decimal"). Only IHFLI's own `0x81` genuinely matched exactly — the
+formula is wrong for every interlaced mode this project has except the
+one it happened to be reverse-engineered from in the first place.
+
+The ITFLI fix above was initially missed in the first fix pass
+(2026-08-24/26 mistakenly recorded it as "already checked out against his
+own live register dump," which the transcript doesn't actually support)
+and only caught on a 2026-08-26 re-audit of the full Messenger thread. All
+three wrong values are now fixed to Tokra's own literal constants.
+**Takeaway for any new interlaced mode**: don't leave `VSYNC`
+unset/inherited, and don't trust `VTOTAL − VADJUST` on its own —
 transcribe the source demo's own literal value if known, and confirm live
-either way.
+either way; don't assume a formula that worked for one mode generalizes to
+the rest without checking each one.
 
 Even a correct transcribed value isn't universally correct across every
 monitor, per Tokra's own note: "interlace is super fiddly, some displays

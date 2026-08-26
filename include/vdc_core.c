@@ -262,9 +262,16 @@ struct VDCModeSet vdc_modes[22] =
         // bottom-field literals (0x4100 bitmap, 0x0000 colour) belong in
         // the demo function. Tightest fit of the whole set: picture data
         // alone is 61440 of 65536 bytes, ~4KB spare -- no charset room
-        // either. VDCR_VSYNC=0x63 follows the same VTOTAL-VADJUST formula
-        // as VDC-IHFLI above: VTOTAL(0x68=104) - VADJUST(5) = 99 = 0x63.
-        {640, 576, 1, 8, 1, 0xa280, 0x2080, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_HSYNC, 0x68, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x68, VDCR_VADJUST, 0x05, VDCR_VDISPLAY, 0x68, VDCR_VSYNC, 0x63, VDCR_LACE, 0x03, VDCR_CSIZE, 0x05, VDCR_DISP_ADDRH, 0x40, VDCR_DISP_ADDRL, 0x10, VDCR_ATTR_ADDRH, 0x00, VDCR_ATTR_ADDRL, 0x00, VDCR_HSCROLL, 0xc7, VDCR_CHAR_ADDRH, 0xff, VDCR_REFRESH, 0x02, 255}},
+        // either. VDCR_VSYNC=0x62 -- Tokra's own literal value ("you use
+        // 99 while I use 98 for reg 7, decimal"), confirmed live
+        // 2026-08-24. This project's own VTOTAL-VADJUST formula
+        // (0x68-0x05=0x63=99) undershoots Tokra's real value by 1, same
+        // off-by-one class as VDC-IMONO/VDC-IM800's own VSYNC fixes above
+        // -- this one was missed in the initial fix pass (2026-08-24/26)
+        // and only caught on a 2026-08-26 re-audit of the full Messenger
+        // thread; see "VSYNC and interlace field alignment" in
+        // vdc_reference_manual.md.
+        {640, 576, 1, 8, 1, 0xa280, 0x2080, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_HSYNC, 0x68, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x68, VDCR_VADJUST, 0x05, VDCR_VDISPLAY, 0x68, VDCR_VSYNC, 0x62, VDCR_LACE, 0x03, VDCR_CSIZE, 0x05, VDCR_DISP_ADDRH, 0x40, VDCR_DISP_ADDRL, 0x10, VDCR_ATTR_ADDRH, 0x00, VDCR_ATTR_ADDRL, 0x00, VDCR_HSCROLL, 0xc7, VDCR_CHAR_ADDRH, 0xff, VDCR_REFRESH, 0x02, 255}},
         // VDC-HFLI: 640x400, non-interlace, 8x2 colour cells (Tokra's
         // vdcmodemania.bas line 89). Simplest of the three remaining colour
         // modes -- single static bitmap+colour plane, no dual-field

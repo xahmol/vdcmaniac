@@ -287,12 +287,13 @@ comments at each specific fix, and here as a full, explicit thank-you for
 the time spent testing and the precision of the reports (register-level
 `io d600` comparisons, not just "it looks wrong"):
 
-- **VSYNC (register 7) off-by-one, VDC-IMONO/VDC-IM800**: Tokra reported
-  RGBtoHDMI interlace fields swapped for the mono modes; a live VICE
-  monitor register-dump comparison against his own working build (his own
-  idea) found this project's `VTOTAL - VADJUST` derivation undershooting
-  his real literal values by exactly 1 for both modes. Fixed to his own
-  constants.
+- **VSYNC (register 7) off-by-one, VDC-IMONO/VDC-IM800/VDC-ITFLI**: Tokra
+  reported RGBtoHDMI interlace fields swapped for the mono modes; a live
+  VICE monitor register-dump comparison against his own working build
+  (his own idea) found this project's `VTOTAL - VADJUST` derivation
+  undershooting his real literal values by exactly 1 for three of the
+  four interlaced modes he checked (VDC-IHFLI's own value already
+  matched). Fixed to his own constants.
 - **REFRESH (register 36) boot-baseline leak**: Tokra noticed register 36
   deviating between the two builds during the same comparison pass;
   turned out to be this project's own well-known "boot-baseline register
