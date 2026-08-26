@@ -278,7 +278,7 @@ pictures" above.
 
 ## Changelog
 
-### v1.0.1
+### [v1.0.1](https://github.com/xahmol/vdcmaniac/releases/tag/v1.0.1)
 
 A real-hardware feedback pass, entirely prompted by **Tokra** (Akronyme
 Analogiker) live-testing v1.0.0 on his own C128 and RGBtoHDMI setup after
