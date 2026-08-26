@@ -107,6 +107,13 @@ unsigned multab[72];
 // that row's own comment) -- panorama_demo() already resets VDCR_ROWINC
 // to 0 explicitly before returning as the primary guarantee, but this
 // covers any future exit path that misses that explicit reset.
+// REFRESH (register 36): added 2026-08-24 after a live `io d600`
+// comparison against Tokra's original found it deviating between builds.
+// Same leak pattern as HSCROLL/HEND (see "Boot-baseline register leaks"
+// in vdc_reference_manual.md): IHFLI/ITFLI explicitly set it (0x02,
+// matching Tokra's own DATA statements), but IMONO/IM800 don't (neither
+// does Tokra's own code for those two modes) -- so without capturing it
+// here, whichever mode ran last leaks its value forward into them.
 struct VDCBootBaseline
 {
     char captured;
@@ -122,6 +129,7 @@ struct VDCBootBaseline
     char attraddrl;
     char hstart;
     char rowinc;
+    char refresh;
 };
 static struct VDCBootBaseline vdc_boot;
 
@@ -222,12 +230,15 @@ struct VDCModeSet vdc_modes[22] =
         // 0x87 (bits 7/6 bitmap/attribute enable, already applied
         // generically by vdc_set_mode(); bits 0-3 = horizontal
         // smooth-scroll amount = 7, same nibble as VDC-FLI above).
-        // Attention point: VDCR_VSYNC=0x64 follows VTOTAL-VADJUST
-        // (0x6a-0x06=0x64) -- see "VSYNC and interlace field alignment" in
-        // vdc_reference_manual.md for why this relationship matters for
-        // interlaced modes specifically (IHFLI/ITFLI below use the same
-        // formula).
-        {720, 700, 1, 0, 1, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_HDISPLAY, 0x5a, VDCR_HSYNC, 0x6b, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x6a, VDCR_VADJUST, 0x06, VDCR_VDISPLAY, 0x6a, VDCR_VSYNC, 0x64, VDCR_LACE, 0x03, VDCR_CSIZE, 0x06, VDCR_HSCROLL, 0x87, 255}},
+        // Attention point: VDCR_VSYNC=0x65 -- Tokra's own literal value
+        // (vdcmodemania.bas line 110, "7,101"), confirmed live via VICE
+        // monitor `io d600` register-dump comparison (2026-08-24). The
+        // VTOTAL-VADJUST formula this project used to derive it
+        // (0x6a-0x06=0x64) undershoots by exactly 1 for this mode -- see
+        // "VSYNC and interlace field alignment" in vdc_reference_manual.md.
+        // That off-by-one was the direct cause of a real-hardware
+        // interlace-field swap reported via RGBtoHDMI.
+        {720, 700, 1, 0, 1, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_HDISPLAY, 0x5a, VDCR_HSYNC, 0x6b, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x6a, VDCR_VADJUST, 0x06, VDCR_VDISPLAY, 0x6a, VDCR_VSYNC, 0x65, VDCR_LACE, 0x03, VDCR_CSIZE, 0x06, VDCR_HSCROLL, 0x87, 255}},
         // VDC-IHFLI: 640x480, interlace, 8x2 colour cells, near-NTSC (Tokra's
         // original/v12/source/vdcmodemania.bas line 42). Genuinely
         // interlaced dual-field encoding: separate top/bottom bitmap AND
@@ -275,9 +286,11 @@ struct VDCModeSet vdc_modes[22] =
         // the demo function, same convention as VDC-IMONO. COLOR (register
         // 26) = 32 here is just Tokra's initial ink/paper default -- the
         // original lets the user retune it live with cursor keys, optional
-        // for a first pass. VDCR_VSYNC=0x56 follows the same VTOTAL-VADJUST
-        // formula as VDC-IMONO above (0x5c-0x06=0x56).
-        {800, 600, 1, 0, 1, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_HDISPLAY, 0x64, VDCR_HSYNC, 0x70, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x5c, VDCR_VADJUST, 0x06, VDCR_VDISPLAY, 0x5c, VDCR_VSYNC, 0x56, VDCR_LACE, 0x03, VDCR_CSIZE, 0x06, VDCR_HSCROLL, 0x87, VDCR_COLOR, 0x20, VDCR_CHAR_ADDRH, 0xff, VDCR_HEND, 0x6a, 255}},
+        // for a first pass. VDCR_VSYNC=0x57 -- Tokra's own literal value
+        // (vdcmodemania.bas line 158, "7,87"), confirmed live via VICE
+        // monitor `io d600` (2026-08-24). Same VTOTAL-VADJUST off-by-one
+        // as VDC-IMONO above (0x5c-0x06=0x56 undershoots by 1).
+        {800, 600, 1, 0, 1, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, {VDCR_HTOTAL, 0x7f, VDCR_HDISPLAY, 0x64, VDCR_HSYNC, 0x70, VDCR_SYNCSIZE, 0x89, VDCR_VTOTAL, 0x5c, VDCR_VADJUST, 0x06, VDCR_VDISPLAY, 0x5c, VDCR_VSYNC, 0x57, VDCR_LACE, 0x03, VDCR_CSIZE, 0x06, VDCR_HSCROLL, 0x87, VDCR_COLOR, 0x20, VDCR_CHAR_ADDRH, 0xff, VDCR_HEND, 0x6a, 255}},
         // VDC-IM960: 960x540, interlace, monochrome (Tokra's vdcmodemania.bas
         // line 181) -- Tokra's own readme note: "specifically designed for
         // the RGBtoHDMI-device. It will probably not work otherwise" --
@@ -423,6 +436,23 @@ void fastmode(char set)
         POKE(0xd011, PEEK(0xd011) | (1 << 4));    // Enable the 5th bit of the SCROLY register to blank VIC screen
         POKE(0xd011, PEEK(0xd011) & (~(1 << 7))); // Disable the 8th bit of the SCROLY register to avoid accidentally setting raster interrupt to high
     }
+}
+
+void vdc_vsync_nudge(signed char delta)
+// Nudges VDCR_VSYNC (register 7) by delta (+1/-1), live, for interlaced
+// modes whose real-monitor field alignment can still be off by one even
+// after each mode's own vdc_modes[] value has been corrected against
+// Tokra's own literal constants -- Tokra's own words, from a real-hardware
+// report: "interlace is super fiddly. Some displays may actually need the
+// +1 value." His original demo lets the user retune this live with the
+// cursor keys; this is the same idea, wired up per-mode by each
+// interlaced picture-showcase section's own keypress-wait loop
+// (fli_ihfli_demo()/fli_itfli_demo()/mono_color_cycle_wait() in main.c).
+// Runtime-only: not persisted, resets to the mode's own regset value the
+// next time that mode is entered. See "VSYNC and interlace field
+// alignment" in vdc_reference_manual.md.
+{
+    vdc_reg_write(VDCR_VSYNC, vdc_reg_read(VDCR_VSYNC) + delta);
 }
 
 char pet2screen(char p)
@@ -616,6 +646,7 @@ static void vdc_reset_boot_registers()
     vdc_reg_write(VDCR_ATTR_ADDRH, vdc_boot.attraddrh);
     vdc_reg_write(VDCR_ATTR_ADDRL, vdc_boot.attraddrl);
     vdc_reg_write(VDCR_ROWINC, vdc_boot.rowinc);
+    vdc_reg_write(VDCR_REFRESH, vdc_boot.refresh);
 }
 
 void vdc_init(char mode, char extmem)
@@ -640,6 +671,7 @@ void vdc_init(char mode, char extmem)
         vdc_boot.attraddrl = vdc_reg_read(VDCR_ATTR_ADDRL);
         vdc_boot.hstart = vdc_reg_read(VDCR_HSTART);
         vdc_boot.rowinc = vdc_reg_read(VDCR_ROWINC);
+        vdc_boot.refresh = vdc_reg_read(VDCR_REFRESH);
         vdc_boot.captured = 1;
     }
     else

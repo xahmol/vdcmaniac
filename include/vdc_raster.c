@@ -227,10 +227,13 @@ void raster_calibrate()
 // Technique (independently reimplemented from first principles after
 // reverse-engineering the idea from a VDC-timing "system analysis" screen
 // seen in "Risen from Oblivion VDC v2" (Crest/Oxyron, 2006,
-// https://csdb.dk/release/?id=44983), which measures the same ratio the
-// same way -- CIA timer as a free-running cycle counter, VDC status
-// register as the synchronization edge -- this is not a transplant of any
-// external code):
+// https://csdb.dk/release/?id=44983) -- own CIA1-Timer-A/B-chained
+// free-running-counter mechanism, not a transplant of any external code;
+// a 2026-08-26 disassembly pass against a local copy suggests the
+// original actually measures via a software loop-iteration counter
+// polling $D600 rather than a CIA timer, so this is a different technique
+// reaching the same idea, not even the same mechanism -- see
+// vdc_raster.h's own credit entry for the fuller note):
 //
 // CIA1 Timer A/B are chained (B counts A's underflows), both started at
 // $FFFF, and left running freely across 64 consecutive VDC VBlank pulses
@@ -255,6 +258,27 @@ void raster_calibrate()
     char underflows;
 
     __asm { sei }
+
+    // Establish a known starting point -- just past the end of a VBlank --
+    // BEFORE the CIA timers below start counting. Without this, the timer
+    // start can land anywhere inside a frame; if it happens to land mid-
+    // VBlank, the loop's very first vdc_wait_vblank() returns immediately
+    // (already true), so that iteration only measures a partial frame
+    // instead of a whole one. Averaged over the 64-frame sample window
+    // this slop is small (up to one frame, ~0.5 on average), but it was
+    // large enough to land on either side of the reload value's 62/63
+    // rounding boundary depending on where in the frame calibration
+    // happened to start -- diagnosed 2026-08-26 (Tokra, live-hardware
+    // review of this exact loop) after real-hardware runs kept reporting
+    // a reload of 63 instead of the expected ~62.x. Cross-validated the
+    // same day: "Risen from Oblivion VDC v2" (Crest/Oxyron, 2006, this
+    // routine's own inspiration -- see vdc_raster.h's credit comment)
+    // measures 63.049 cycles/line on the exact same real hardware this
+    // fixed routine also measured 63.049 on -- independent confirmation
+    // this fix now measures the true value accurately, not just "less
+    // wrong."
+    vdc_wait_vblank();
+    vdc_wait_no_vblank();
 
     cia1.cra = 0x00;
     cia1.crb = 0x00;
@@ -289,7 +313,34 @@ void raster_calibrate()
     cpl_x1000 = (elapsed * 1000UL) / (64UL * linesperframe);
 
     raster_cycles_per_line_x1000 = (unsigned)cpl_x1000;
-    raster_timer_reload = (char)((cpl_x1000 + 500UL) / 1000UL);
+
+    // raster_timer_reload feeds raster_synch()'s own CIA2 Timer A reload
+    // for cycle-exact per-line waits, and needs to be a little LESS than
+    // the raw calibrated cycles/line above, not equal to it --
+    // raster_waitline()'s own polling/branch instructions (Peter
+    // Hulstede's original routine, see vdc_raster.h's credit comment)
+    // consume part of every line's budget, so a literal 1:1 reload
+    // overruns by a small but consistent margin. This is a downstream
+    // overhead correction, NOT a measurement correction -- the raw
+    // cycles/line above is independently confirmed accurate (see
+    // raster_calibrate()'s own sync-point-fix comment above, cross-
+    // validated 2026-08-26 against "Risen from Oblivion VDC v2" measuring
+    // the identical 63.049 on the same real hardware). This project's own
+    // pre-fix "sane default" constants already encoded the needed gap by
+    // hand: raster_timer_reload=62 was hardcoded against a
+    // raster_cycles_per_line_x1000 default of 63056, which the exact same
+    // rounding rule below would round to 63 on its own -- a full cycle of
+    // slack that was never implemented as an actual formula, just baked
+    // into a guessed default. The 2026-08-26 raster_calibrate() sync-
+    // point fix above made that gap directly visible for the first time:
+    // three live measurements taken right after it (VICE 63.055, Z64K
+    // 63.809, real hardware 63.049 cycles/line) all landed roughly a full
+    // cycle above the previously-known-good reload of 62 -- subtracting
+    // one whole cycle before rounding reproduces 62 for VICE/hardware and
+    // comes close for Z64K (which has its own known small timing
+    // deviations from real hardware elsewhere in this project -- see
+    // memory: vdcmaniac_z64k_emulator_added).
+    raster_timer_reload = (char)((cpl_x1000 - 1000UL + 500UL) / 1000UL);
 }
 
 // --- CIA1-driven raster colour + music IRQ ---

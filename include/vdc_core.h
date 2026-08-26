@@ -105,6 +105,7 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 char screen_width();
 void screen_setmode(char mode);
 void fastmode(char set);
+void vdc_vsync_nudge(signed char delta);
 char pet2screen(char p);
 void vdc_set_disp_address(unsigned text, unsigned attr);
 void vdc_set_charset_address(unsigned address);

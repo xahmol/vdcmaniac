@@ -410,11 +410,30 @@ leftover wasn't.
 The value that worked, `0x81`, turned out to equal `VTOTAL(0x84) −
 VADJUST(3)` exactly for that mode. ITFLI's own `VSYNC` (`0x63`) was set
 using the same relationship (`VTOTAL(0x68) − VADJUST(5) = 0x63`),
-extrapolated rather than independently confirmed the same way — worth a
-register-dump comparison of its own if a future change ever breaks it
-again. **Takeaway for any new interlaced mode**: don't leave `VSYNC`
-unset/inherited — either transcribe the source demo's own literal value if
-known, or try `VTOTAL − VADJUST` as a starting point, and confirm live.
+extrapolated rather than independently confirmed the same way.
+
+That extrapolation turned out to be unreliable: a real-hardware report
+from Tokra (RGBtoHDMI interlace fields swapped for the mono modes,
+2026-08-24) led to a live `io d600` comparison against his own
+`vdcmodemania.bas` DATA statements, which found `VTOTAL − VADJUST`
+undershooting Tokra's actual value by exactly 1 for both VDC-IMONO
+(`0x64` vs the real `0x65`) and VDC-IM800 (`0x56` vs the real `0x57`) —
+IHFLI's own `0x81` matched exactly, and ITFLI's extrapolated `0x63` also
+checked out against his own live register dump, so the formula isn't
+wrong everywhere, just not reliable enough to trust without confirming
+each mode individually. Both wrong values are now fixed to Tokra's own
+literal constants. **Takeaway for any new interlaced mode**: don't leave
+`VSYNC` unset/inherited, and don't trust `VTOTAL − VADJUST` on its own —
+transcribe the source demo's own literal value if known, and confirm live
+either way.
+
+Even a correct transcribed value isn't universally correct across every
+monitor, per Tokra's own note: "interlace is super fiddly, some displays
+may actually need the +1 value" — his original demo lets the user nudge
+VSYNC ±1 live with the cursor keys for exactly this reason. `vdcmaniac`
+now offers the same adjustment (see `vsync_nudge` in `vdc_core.c`/
+`main.c`'s interlaced-mode sections) rather than relying on one hardcoded
+constant being right for every display.
 
 ### Boot-baseline register leaks
 
@@ -429,7 +448,7 @@ even added to the codebase, which is exactly what made this bug class so
 disruptive to track down (a change to mode A silently breaking mode C,
 with no direct connection between them in the source).
 
-Two concrete, live-confirmed incidents:
+Three concrete, live-confirmed incidents:
 - **HSCROLL**: `VDC_HIRES_640x200_Color_PAL`'s row initially omitted
   `HSCROLL` entirely, then a fix attempt set it to `0x00` on an unverified
   assumption ("no scroll offset must be correct") — actually wrong; a
@@ -442,6 +461,13 @@ Two concrete, live-confirmed incidents:
   `main()`), which needed the boot default `0x64` instead. This was the
   long-parked "isolated shifted fragment" bug — see memory:
   `rotate_demo_shift_bug` for the full diagnostic history.
+- **REFRESH** (register 36): IHFLI/ITFLI both explicitly set it (`0x02`,
+  matching Tokra's own DATA statements), but IMONO/IM800 don't — and
+  neither does Tokra's own code for those two modes. A live `io d600`
+  comparison against Tokra's build (2026-08-24) found it deviating
+  between the two programs, purely because each program's own execution
+  history left a different value sitting there. Added to the capture/
+  restore set below.
 
 **This project's fix**: `vdc_reset_boot_registers()` (`vdc_core.c`)
 captures a set of registers once, on the very first `vdc_init()` call
@@ -449,10 +475,10 @@ captures a set of registers once, on the very first `vdc_init()` call
 the start of *every* `vdc_init()` and at `vdc_exit()` — so no mode
 transition can inherit a leaked value regardless of what ran before it.
 Currently covers `HDISPLAY`, `HSYNC`, `SYNCSIZE`, `HSCROLL`, `VSCROLL`,
-`HEND`, `DISP_ADDRH/L`, `ATTR_ADDRH/L` (plus `HSTART`, handled the same way
-but restored specifically by `vdc_enable_display()` since it's also the
-screen-blanking register). **If a new mode ever explicitly sets a register
-that isn't in this list**, and a later mode doesn't set its own value for
+`HEND`, `DISP_ADDRH/L`, `ATTR_ADDRH/L`, `REFRESH` (plus `HSTART`, handled
+the same way but restored specifically by `vdc_enable_display()` since
+it's also the screen-blanking register). **If a new mode ever explicitly
+sets a register that isn't in this list**, and a later mode doesn't set its own value for
 that register either, expect exactly this bug — add the register to
 `vdc_reset_boot_registers()`'s capture/restore pair (bundled in `struct
 VDCBootBaseline`) rather than hand-fixing it in the affected mode's own
@@ -461,7 +487,7 @@ row.
 **How to actually find one of these, fast**: don't reason about it
 statically — dump live VDC registers (`io d600` in VICE's monitor) at the
 same point in both a known-working build and the broken one, and diff.
-This found both incidents above in one pass each, after static analysis
+This found all three incidents above in one pass each, after static analysis
 alone (register-table comparisons against BASIC source, exhaustive
 `Screen[]`/VDC-memory content scans) had failed to find the
 `rotate_demo_shift_bug` for an entire prior session.

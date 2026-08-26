@@ -38,10 +38,18 @@ Code and resources from others used:
 
 -   "Risen from Oblivion VDC v2" (Crest/Oxyron, 2006, code by Graham):
     raster_calibrate() (vdc_raster.c) independently reimplements the idea
-    behind this demo's own VDC-timing "system analysis" screen -- a
-    free-running CIA timer measured against the VDC status register's
-    sync edge, to get real cycles-per-VDC-rasterline on the running
-    machine rather than a hardcoded value. No code from this release is
+    behind this demo's own VDC-timing "system analysis" screen -- measure
+    real cycles-per-VDC-rasterline on the running machine, against the VDC
+    status register's own sync edge, rather than hardcoding a value.
+    (2026-08-26: a quick disassembly pass against a local copy of this
+    release, prompted by cross-validating raster_calibrate()'s own fixed
+    measurement -- see that function's own credit comment -- suggests the
+    original demo actually reaches that goal via a software loop-iteration
+    counter polling $D600, not a free-running CIA timer chain; this
+    project's own CIA1-Timer-A/B-chained implementation is a different
+    mechanism achieving the same idea, not a transplant, so this doesn't
+    change what's owed here -- kept as a "same idea, own mechanism" credit
+    either way, corrected only for accuracy.) No code from this release is
     used -- see that function's own credit comment for the full mapping:
 
     https://csdb.dk/release/?id=44983

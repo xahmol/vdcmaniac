@@ -280,6 +280,19 @@ et al in src/main.c), converted via tools/vdc_convert.py:
 
 -   Bart van Leeuwen: For inspiration and advice while coding. Also for providing the excellent Device Manager ROM to make testing on real hardware very easy
 
+-   Tokra: For extensive real-hardware testing and feedback on this
+    project after the v1.0.0 release -- live VICE-monitor register-dump
+    comparisons against his own working "VDC Mode Mania" build that found
+    a VSYNC (register 7) off-by-one on VDC-IMONO/VDC-IM800 and a REFRESH
+    (register 36) boot-baseline leak, a direct screenshot review of
+    raster_calibrate() that found its CIA-timer sync-point bug, and the
+    real-monitor observation ("interlace is super fiddly -- some displays
+    may actually need the +1 value") behind this project's own live
+    VSYNC-nudge feature. See vdc_core.c's/vdc_raster.c's own credit
+    comments at each specific fix, and the v1.0.1 changelog entry in
+    README.md for the full writeup. Thank you for the time and the
+    precision of the reports.
+
 -   Original windowing system code on Commodore 128 by unknown author.
    
 -   Tested using real hardware (C128D and C128DCR) plus VICE.

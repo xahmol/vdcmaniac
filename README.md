@@ -68,10 +68,12 @@ Three further releases fed into specific techniques along the way:
   https://csdb.dk/release/?id=44983) -- its own VDC-timing "system
   analysis" screen is where this project's `raster_calibrate()` (also
   `include/vdc_raster.c`) got the idea of measuring real
-  cycles-per-VDC-rasterline with a free-running CIA timer against the VDC
-  status register's sync edge, rather than hardcoding a value.
-  Independently reimplemented from that idea, not a code transplant --
-  see the function's own credit comment.
+  cycles-per-VDC-rasterline on the running machine against the VDC status
+  register's sync edge, rather than hardcoding a value. Independently
+  reimplemented from that idea via a different mechanism (this project's
+  own CIA1-timer-based measurement, not a code transplant) -- see the
+  function's own credit comment for a note on what the original actually
+  does internally.
 - **"VDC SpectruMania"** (Tokra, Akronyme Analogiker, 2021,
   https://csdb.dk/release/?id=206013) and **"Colour Spectrum"** (Crest,
   concept by Tokra, code by JackAsser, loader by Krill, 2021,
@@ -275,6 +277,46 @@ licence noted in `include/defines.h`'s credit block -- see "On
 pictures" above.
 
 ## Changelog
+
+### v1.0.1
+
+A real-hardware feedback pass, entirely prompted by **Tokra** (Akronyme
+Analogiker) live-testing v1.0.0 on his own C128 and RGBtoHDMI setup after
+release and reporting back in detail -- credited throughout the code's own
+comments at each specific fix, and here as a full, explicit thank-you for
+the time spent testing and the precision of the reports (register-level
+`io d600` comparisons, not just "it looks wrong"):
+
+- **VSYNC (register 7) off-by-one, VDC-IMONO/VDC-IM800**: Tokra reported
+  RGBtoHDMI interlace fields swapped for the mono modes; a live VICE
+  monitor register-dump comparison against his own working build (his own
+  idea) found this project's `VTOTAL - VADJUST` derivation undershooting
+  his real literal values by exactly 1 for both modes. Fixed to his own
+  constants.
+- **REFRESH (register 36) boot-baseline leak**: Tokra noticed register 36
+  deviating between the two builds during the same comparison pass;
+  turned out to be this project's own well-known "boot-baseline register
+  leak" bug class (see `vdc_reference_manual.md`) recurring on a register
+  that hadn't been added to the capture/restore set yet.
+- **Live VSYNC nudge (cursor up/down)**: added directly on Tokra's own
+  observation, from real-monitor testing, that "interlace is super
+  fiddly -- some displays may actually need the +1 value," and that his
+  own original demo already offers exactly this live adjustment.
+- **`raster_calibrate()` sync-point bug**: Tokra reviewed a screenshot of
+  the calibration loop directly and identified that the CIA timer started
+  counting before any known VBlank-aligned reference point, letting the
+  first sample land anywhere in a frame. Fixed by establishing that
+  reference point before the timer starts; cross-validated afterward
+  against an independent measurement (Risen from Oblivion VDC v2, on the
+  same real hardware) landing on the identical value.
+- **Title screen raster bar retuned** for the small timing shift the
+  calibration fix introduced.
+
+Also in this release, unrelated to Tokra's feedback: on-screen key hints
+for the VSYNC-nudge/colour-cycle keys, the running build version+timestamp
+now shown on the system diagnostics screen, and a genuine diagonal leg
+(not just alternating vertical/horizontal edges) added to VDC-PANORAMA
+2D's own scripted tour.
 
 ### [v1.0.0](https://github.com/xahmol/vdcmaniac/releases/tag/v1.0.0)
 

@@ -606,7 +606,12 @@ void vdc_mode_info_screen(const char *modename, const char *line1, const char *l
 // own bnk_load() calls -- so this text is what's actually on screen while
 // the (comparatively slow) disk load happens, instead of a blank/wiped
 // screen with nothing to look at. line1-4 are optional (pass 0/NULL for
-// unused ones); modename and line1 are expected to always be given.
+// unused ones); modename and line1 are expected to always be given. line4
+// doubles as a keyboard-shortcut hint for the four interlaced-colour/mono
+// sections that offer a live VSYNC nudge (and, for IMONO/IM800, colour
+// cycling too) via CH_CURS_UP/CH_CURS_DOWN -- see vdc_vsync_nudge()'s own
+// comment in vdc_core.c -- since nothing on screen otherwise reveals those
+// keys exist.
 {
 	vdc_init(VDC_TEXT_80x25_PAL, 0);
 	vdc_cls();
@@ -849,15 +854,23 @@ void title_screen()
 	vdc_disable_display();
 
 	// Deliberately NOT recalibrating here: this function's bar-position
-	// constants (182, 181, 176..117, 114, 85, 84 below) were hand-tuned
-	// against the static default raster_timer_reload (62, see
-	// vdc_raster.c), not against a live measurement. Attention point:
-	// this mode's interlace flag (the "1" above) throws off
+	// constants (186, 185, 184..118, 87, 86 below) were hand-tuned against
+	// main()'s own one-time text-mode calibration result, not against a
+	// fresh live measurement taken in this mode. Attention point: this
+	// mode's interlace flag (the "1" above) throws off
 	// raster_calibrate()'s VTOTAL/CSIZE-based lines-per-frame math,
 	// producing a value that doesn't match what these constants assume --
-	// don't recalibrate here. main()'s own one-time text-mode calibration
-	// (62.218, confirmed via raster_place_test()) stays close enough to
-	// the hand-tuned default not to matter here.
+	// don't recalibrate here.
+	//
+	// 2026-08-26: shifted -2 lines (was 188/187/186..120/89/88; confirmed
+	// live -- for these raster_bar_line()/raster_bar_segment() calls, a
+	// LOWER line number moves the bar further DOWN the screen, not
+	// higher) after fixing raster_calibrate()'s own sync-point bug and
+	// adding raster_timer_reload's downstream-overhead correction (see
+	// vdc_raster.c) -- both changes affect raster_synch()'s own per-line
+	// timing, and the accumulated drift across this bar's ~180-line span
+	// moved the picture-aligned gaps by 2 lines. Re-tune live (VICE/real
+	// hardware) if the picture content or calibration ever changes again.
 
 	// Copy data to VDC
 	bnk_cpytovdc(vdc_state.base_text, BNK_1_FULL, (char *)MEM_SCREEN, 0x8000);
@@ -883,20 +896,20 @@ void title_screen()
 		start++;
 		start &= 0xf;
 
-		// Bar positions (188/187/186/120/89/88) are tuned to the
+		// Bar positions (186/185/184/118/87/86) are tuned to the
 		// vdce-scrtit.eve/.odd picture's own near-blank content gaps (top
 		// art / "VDC Maniac" text / "Experiments with..." text / bottom
 		// art) -- find those gaps by measuring per-row pixel density, then
 		// map row to raster-line and fine-tune live in VICE if the picture
 		// content ever changes.
 		raster_bar_begin();
-		raster_bar_line(188, VDC_DRED);
-		raster_bar_line(187, 16 * VDC_LYELLOW + VDC_DGREY);
-		line = 186;
+		raster_bar_line(186, VDC_DRED);
+		raster_bar_line(185, 16 * VDC_LYELLOW + VDC_DGREY);
+		line = 184;
 		line = raster_bar_segment(line, &rastercolors[start], 60);
-		raster_bar_line(120, 16 * VDC_LCYAN + VDC_DGREY);
-		raster_bar_line(89, VDC_DRED);
-		raster_bar_line(88, 16 * VDC_WHITE + VDC_BLACK);
+		raster_bar_line(118, 16 * VDC_LCYAN + VDC_DGREY);
+		raster_bar_line(87, VDC_DRED);
+		raster_bar_line(86, 16 * VDC_WHITE + VDC_BLACK);
 		raster_bar_end();
 		joy_poll(0);
 	} while (!vdcwin_checkch() && !joyb[0]);
@@ -1254,6 +1267,36 @@ char wait_keypress_or_fire()
 	return key;
 }
 
+char wait_keypress_or_fire_vsync()
+// Same as wait_keypress_or_fire() above, for the two colour interlaced
+// modes (VDC-IHFLI/VDC-ITFLI) whose own VSYNC (register 7) fidelity can
+// still be monitor-dependent even after correcting each mode's own
+// vdc_modes[] constant against Tokra's own values -- see
+// vdc_vsync_nudge()'s own comment in vdc_core.c. CH_CURS_UP/CH_CURS_DOWN
+// nudge it live instead of ending the wait; every other key (including
+// joystick fire) behaves exactly as in the plain version.
+{
+	char key;
+
+	while (vdcwin_checkch())
+	{
+	}
+	do
+	{
+		joy_poll(0);
+		key = vdcwin_checkch();
+		if (key == CH_CURS_UP)
+		{
+			vdc_vsync_nudge(1);
+		}
+		else if (key == CH_CURS_DOWN)
+		{
+			vdc_vsync_nudge(-1);
+		}
+	} while ((key == 0 || key == CH_CURS_UP || key == CH_CURS_DOWN) && !joyb[0]);
+	return key;
+}
+
 char fli_color_demo()
 // Returns 1 if the user exited early (STOP/ESC/error), 0 if all 3
 // pictures ran to completion -- menu_fli_family() checks this to decide
@@ -1500,7 +1543,7 @@ char fli_ihfli_demo()
 	{
 		vdc_wipe_transition();
 
-		vdc_mode_info_screen("VDC-IHFLI", "640 x 480 pixels (interlace)", "colour resolution: 8x2", descr[pic], 0);
+		vdc_mode_info_screen("VDC-IHFLI", "640 x 480 pixels (interlace)", "colour resolution: 8x2", descr[pic], "cursor up/down: adjust field sync");
 
 		// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
 		// KRILL_COMPRESSED_ASSETS comment.
@@ -1533,8 +1576,10 @@ char fli_ihfli_demo()
 
 		// ESC/STOP returns to the main menu immediately instead of only
 		// advancing to the next picture -- see wait_keypress_or_fire()'s
+		// own comment. The _vsync variant (not the plain one) since this is
+		// an interlaced colour mode -- see wait_keypress_or_fire_vsync()'s
 		// own comment.
-		key = wait_keypress_or_fire();
+		key = wait_keypress_or_fire_vsync();
 		if (key == CH_ESC || key == CH_STOP)
 		{
 			vdc_wipe_transition();
@@ -1573,7 +1618,7 @@ char fli_itfli_demo()
 	{
 		vdc_wipe_transition();
 
-		vdc_mode_info_screen("VDC-ITFLI", "640 x 576 pixels (interlace)", "colour resolution: 8x3", descr[pic], 0);
+		vdc_mode_info_screen("VDC-ITFLI", "640 x 576 pixels (interlace)", "colour resolution: 8x3", descr[pic], "cursor up/down: adjust field sync");
 
 		// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
 		// KRILL_COMPRESSED_ASSETS comment.
@@ -1606,8 +1651,10 @@ char fli_itfli_demo()
 
 		// ESC/STOP returns to the main menu immediately instead of only
 		// advancing to the next picture -- see wait_keypress_or_fire()'s
+		// own comment. The _vsync variant (not the plain one) since this is
+		// an interlaced colour mode -- see wait_keypress_or_fire_vsync()'s
 		// own comment.
-		key = wait_keypress_or_fire();
+		key = wait_keypress_or_fire_vsync();
 		if (key == CH_ESC || key == CH_STOP)
 		{
 			vdc_wipe_transition();
@@ -1788,8 +1835,12 @@ char mono_color_cycle_wait()
 // picture's foreground colour instead of ending the wait. Starts at white
 // every time a new picture is shown; VDC_BLACK is deliberately excluded
 // from the cycle entirely (a black "1" plane would make the whole picture
-// invisible against the black background). Returns the first non-cycling
-// key pressed -- the caller's own "advance to next picture" signal.
+// invisible against the black background). CH_CURS_UP/CH_CURS_DOWN nudge
+// VDCR_VSYNC live instead of ending the wait too -- see vdc_vsync_nudge()'s
+// own comment; both this function's callers (mono_hires_xl_demo()/
+// mono_im800_demo()) are interlaced modes where this matters. Returns the
+// first non-cycling, non-nudging key pressed -- the caller's own "advance
+// to next picture" signal.
 {
 	char key;
 	char idx = 0; // mono_cycle_colors[0] == VDC_WHITE
@@ -1816,6 +1867,14 @@ char mono_color_cycle_wait()
 		{
 			idx = (idx == 0) ? 14 : idx - 1;
 			vdc_fgcolor(mono_cycle_colors[idx]);
+		}
+		else if (key == CH_CURS_UP)
+		{
+			vdc_vsync_nudge(1);
+		}
+		else if (key == CH_CURS_DOWN)
+		{
+			vdc_vsync_nudge(-1);
 		}
 		else
 		{
@@ -1872,7 +1931,7 @@ char mono_hires_xl_demo()
 	{
 		vdc_wipe_transition();
 
-		vdc_mode_info_screen("VDC-IMONO", "720 x 700 pixels (interlace)", "monochrome", descr[pic], 0);
+		vdc_mode_info_screen("VDC-IMONO", "720 x 700 pixels (interlace)", "monochrome", descr[pic], "cursor up/down: sync, +/-: colour");
 
 		// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
 		// KRILL_COMPRESSED_ASSETS comment.
@@ -1984,7 +2043,7 @@ char mono_im800_demo()
 	{
 		vdc_wipe_transition();
 
-		vdc_mode_info_screen("VDC-IM800", "800 x 600 pixels (interlace)", "monochrome", descr[pic], 0);
+		vdc_mode_info_screen("VDC-IM800", "800 x 600 pixels (interlace)", "monochrome", descr[pic], "cursor up/down: sync, +/-: colour");
 
 		// TSCrunch-compressed via krill_loadcompd() -- see Makefile's
 		// KRILL_COMPRESSED_ASSETS comment.
@@ -2615,15 +2674,19 @@ char panorama2d_demo()
 //
 // VDC-PANORAMA 2D: combines vscroll_demo()'s vertical DISP_ADDR-only
 // stepping and panorama_demo()'s horizontal DISP_ADDR+HSCROLL stepping
-// into a single diagonal glide across a bitmap both WIDER and TALLER
-// than the 640x200 display, touring all four corners of the stored
-// picture in one scripted loop. Vertical motion needs no VSCROLL
-// companion (same finding as vscroll_demo()); horizontal motion needs
-// VDCR_HSCROLL for sub-byte smoothness (same as panorama_demo()) -- both
-// axes recompute a SINGLE combined DISP_ADDR each frame
-// (base_text + row*PN2D_STRIDE + byte_offset) rather than issuing two
-// separate address writes, and that one write always happens before any
-// same-frame VDCR_HSCROLL write, per the ordering rule below.
+// across a bitmap both WIDER and TALLER than the 640x200 display, touring
+// all four corners of the stored picture in one scripted loop -- two of
+// its four legs are genuine simultaneous-axis diagonal glides the full
+// width and height of the image (see the waypoints array's own comment
+// below for the exact tour and why 2026-08-26's reordering finally makes
+// this a real diagonal, not just alternating vertical/horizontal edge
+// traces). Vertical motion needs no VSCROLL companion (same finding as
+// vscroll_demo()); horizontal motion needs VDCR_HSCROLL for sub-byte
+// smoothness (same as panorama_demo()) -- both axes recompute a SINGLE
+// combined DISP_ADDR each frame (base_text + row*PN2D_STRIDE +
+// byte_offset) rather than issuing two separate address writes, and that
+// one write always happens before any same-frame VDCR_HSCROLL write, per
+// the ordering rule below.
 //
 // CRITICAL: VDCR_ROWINC is written via an explicit vdc_reg_write() call
 // below, strictly AFTER vdc_set_disp_address() has already set the real
@@ -2650,14 +2713,25 @@ char panorama2d_demo()
         // 2-point bounces.
         LOOP_COUNT = 2
     };
-    // Tour all four corners of the stored picture -- top-left, top-right,
-    // bottom-right, bottom-left, back to top-left -- so the whole
-    // composition is visited, not just a single diagonal streak across
-    // it. hold_frames: ~1.2s pause at each corner (50Hz PAL).
+    // Tour all four corners of the stored picture in a "bowtie" order --
+    // top-left, bottom-right, top-right, bottom-left, back to top-left --
+    // rather than the rectangle's own perimeter (top-left, top-right,
+    // bottom-right, bottom-left), so the whole composition is still
+    // visited but two of the four legs are GENUINE simultaneous-axis
+    // diagonal streaks the full width and height of the image (one each
+    // direction: "\" then "/"), not just vertical/horizontal edge traces.
+    // The other two legs (bottom-right-to-top-right, bottom-left-to-
+    // top-left) are pure vertical, kept for pacing/contrast against the
+    // diagonal legs. No logic change needed for this below -- the
+    // per-frame stepping loop below already advances pan_x/pan_y
+    // independently every frame, so simultaneous diagonal motion falls
+    // out of picking waypoints that differ in both axes at once; only the
+    // waypoint data changed (2026-08-26). hold_frames: ~1.2s pause at
+    // each corner (50Hz PAL).
     static const struct PanWaypoint2D waypoints[WAYPOINT_COUNT] = {
         {0, 0, 60},
-        {PN2D_MAX_XSTEP, 0, 60},
         {PN2D_MAX_XSTEP, PN2D_MAX_YOFFSET, 60},
+        {PN2D_MAX_XSTEP, 0, 60},
         {0, PN2D_MAX_YOFFSET, 60}};
     unsigned pan_x, pan_y;
     unsigned hold_counter;
@@ -2967,11 +3041,12 @@ void credits_screen()
     static const char chunk2[] = "fast loading via Krill     ";
     static const char chunk3[] = "artwork: Van Gogh, Hokusai, Hiroshige, Wikimedia Commons     ";
     static const char chunk4[] = "music: Maniac by Michael Sembello, 1983, SID cover by Antti Hannula (Flex), 2010, Artline Designs     ";
-    static const char chunk5[] = "thanks for watching!     ";
-    static const char *const chunks[] = {chunk0, chunk1, chunk2, chunk3, chunk4, chunk5};
+    static const char chunk5[] = "thanks to Tokra for real-hardware testing and feedback after v1.0.0     ";
+    static const char chunk6[] = "thanks for watching!     ";
+    static const char *const chunks[] = {chunk0, chunk1, chunk2, chunk3, chunk4, chunk5, chunk6};
     enum
     {
-        CHUNK_COUNT = 6,
+        CHUNK_COUNT = 7,
         // Wide enough for vdc_state.width (the on-screen window) plus a
         // long comfortable lookahead margin for the background fill to
         // stay ahead of the scroll consuming it -- well inside the range
@@ -4064,7 +4139,14 @@ void system_diagnostic_screen()
 	raster_calibrate();
 
 	vdc_cls();
-	vdc_header_bar("System diagnostics");
+	// VERSION (v<major>.<minor>.<patch>-<build timestamp>) comes from the
+	// Makefile's own -dVERSION build flag -- this is the only place it's
+	// used in the source, so the running demo always shows exactly which
+	// build produced it. linebuffer is safe to reuse for the diag_line()
+	// calls right below: vdc_header_bar() copies this text straight to
+	// VDC memory before returning, it doesn't keep the pointer.
+	sprintf(linebuffer, "System diagnostics -- build %s", VERSION);
+	vdc_header_bar(linebuffer);
 
 	sprintf(linebuffer, "%u KB", vdc_state.memsize);
 	diag_line(5, "VDC RAM", vdc_state.memsize == 64 ? "[ OK ]" : "[FAIL]",
