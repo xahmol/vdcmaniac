@@ -278,6 +278,27 @@ pictures" above.
 
 ## Changelog
 
+### v1.0.2 (not yet released -- pending real-hardware verification)
+
+Two further cycle-precision refinements to `raster_calibrate()`, again
+from Tokra reviewing the routine directly -- this time against his own
+cycle-exact PET-code VDC sync routine:
+
+- **A third VBlank-edge check added before the routine's own sync
+  point.** Entering the routine at an arbitrary point in the frame, the
+  first `vdc_wait_vblank()` call could land within a few cycles of the
+  vblank-to-display edge, making its result marginally late -- matches
+  the "3 checks, since raster could be in vblank when checking or at end
+  of non-vblank area" reasoning in Tokra's own sync routine.
+- **CIA1 Timer B now configured/started before Timer A**, not after --
+  Timer B (in "count Timer A underflows" mode) is harmless to start
+  before Timer A has begun, so starting Timer A last means none of Timer
+  B's own setup cycles leak into the measured elapsed time.
+
+Both are small precision tightenings ("nearly academic," Tokra's own
+words) rather than a systematic bias like v1.0.1's sync-point fix --
+pending a live real-hardware re-test before release.
+
 ### [v1.0.1](https://github.com/xahmol/vdcmaniac/releases/tag/v1.0.1)
 
 A real-hardware feedback pass, entirely prompted by **Tokra** (Akronyme

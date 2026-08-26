@@ -277,6 +277,20 @@ void raster_calibrate()
     // fixed routine also measured 63.049 on -- independent confirmation
     // this fix now measures the true value accurately, not just "less
     // wrong."
+    //
+    // Leading vdc_wait_no_vblank() (2026-08-26, Tokra, reviewing his own
+    // cycle-exact PET-code sync routine -- see that routine's own comment,
+    // "need to do 3 checks, since raster could be in vblank when checking
+    // or at end of non-vblank area"): entering this function at an
+    // arbitrary point in the frame, the very first vdc_wait_vblank() call
+    // right below can land within a few cycles of the vblank-to-display
+    // edge, making its own result a few cycles late. One extra
+    // vdc_wait_no_vblank() first guarantees the first real
+    // vdc_wait_vblank() call always starts from a clean "currently in
+    // display" state. Nearly academic in Tokra's own words -- a few
+    // cycles, not a systematic bias like the missing presync above -- but
+    // cheap to close off.
+    vdc_wait_no_vblank();
     vdc_wait_vblank();
     vdc_wait_no_vblank();
 
@@ -284,8 +298,16 @@ void raster_calibrate()
     cia1.crb = 0x00;
     cia1.ta = 0xffff;
     cia1.tb = 0xffff;
-    cia1.cra = 0x11; // start, force load, continuous
+    // Timer B configured/started BEFORE Timer A (2026-08-26, Tokra): B is
+    // in "count Timer A underflows" mode, so starting it before A has even
+    // begun is harmless -- it just sits idle until A's first real
+    // underflow. Starting A LAST instead means nothing executes between
+    // A's own start and the measurement loop beginning, so the few cycles
+    // this store itself costs are never counted as part of the measured
+    // elapsed time (they were, when A started first and B's own setup ran
+    // afterward).
     cia1.crb = 0x51; // start, force load, continuous, count Timer A underflows
+    cia1.cra = 0x11; // start, force load, continuous
 
     for (i = 0; i < 64; i++)
     {
