@@ -4088,9 +4088,17 @@ char detect_ntsc()
 	while (vic_rasterline() != 0)
 	{
 	}
-	cia1.cra = 0x00;
+	// cia1_cra_write() (vdc_raster.c), not a plain `cia1.cra = ...` -- CIA1
+	// CRA bit 6 (SPMODE) stops being this project's to set the moment
+	// krill_init() runs, and this function runs after it (main() ->
+	// krill_init() -> system_diagnostic_screen() -> here). Krill's own C-128
+	// block-receive code re-reads that bit on every downloaded block to pick
+	// its transfer path, so clearing it here would override krill_install()'s
+	// own decision about what the attached drive can actually do. See
+	// CIA1_CRA_SPMODE's comment in vdc_raster.h for the full mechanism.
+	cia1_cra_write(0x00);
 	cia1.ta = 0xffff;
-	cia1.cra = 0x11; // start, force load, continuous
+	cia1_cra_write(0x11); // start, force load, continuous
 	while (vic_rasterline() == 0)
 	{
 	}
@@ -4098,7 +4106,7 @@ char detect_ntsc()
 	{
 	}
 	elapsed = 0xffff - cia1.ta;
-	cia1.cra = 0x00; // stop -- leaves CIA1 idle for raster_calibrate()/etc. below
+	cia1_cra_write(0x00); // stop -- leaves CIA1 idle for raster_calibrate()/etc. below
 
 	return elapsed < 18375; // midpoint of 19656 (PAL) and 17095 (NTSC)
 }

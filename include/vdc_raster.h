@@ -100,6 +100,24 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 // -- see banking.h's identical comment for why.
 #include "defines.h"
 
+// CIA1 Control Register A bit 6 (SPMODE): 0 = serial port INPUT, 1 = OUTPUT.
+// On the C128 this bit is NOT free for this project to set as it likes while
+// Krill's loader is installed -- Krill's own C-128 RECEIVE macro
+// (krill/loader/src/hal/hal-c64-c128.inc, `bit CIA1_CRA` / `bvs noburst`)
+// tests exactly this bit, every single block, to decide between the fast
+// hardware burst-transfer path (SPMODE=0, byte-ready polled via CIA1's
+// serial-interrupt flag and read out of CIA1's shift register) and the
+// slower software two-bit protocol (SPMODE=1). krill_install()
+// (krill/loader/src/install.s, its DISABLE_BURST_MODE call) is what sets the
+// bit to 1 for a drive that cannot do burst at all; a whole-byte write to
+// CIA1 CRA anywhere after krill_init() silently clears that decision and
+// forces Krill down the burst path regardless of what the drive can
+// actually do. See cia1_cra_write() (vdc_raster.c) for the read-modify-write
+// every CIA1-timer user in this project goes through instead.
+#define CIA1_CRA_SPMODE 0x40
+
+void cia1_cra_write(char value);
+
 void raster_waitline(char rasterline);
 void raster_synch();
 void raster_time();

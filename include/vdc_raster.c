@@ -11,6 +11,37 @@
 __zeropage char raster_timer_reload = 62;
 unsigned raster_cycles_per_line_x1000 = 63056;
 
+void cia1_cra_write(char value)
+// Writes `value` to CIA1's Control Register A, preserving bit 6 (SPMODE)
+// exactly as it already stands. Every CIA1-timer user in this project goes
+// through this instead of assigning cia1.cra directly.
+//
+// Attention point: this exists purely because CIA1 CRA bit 6 does not belong
+// to this project once krill_init() has run -- it belongs to Krill's loader,
+// which re-reads it on every downloaded block to choose its transfer path
+// (see CIA1_CRA_SPMODE's own comment in vdc_raster.h for the exact mechanism
+// and the source lines in Krill's own tree). Nothing here needs bit 6 for
+// anything: this project only ever uses CIA1's Timer A/Timer B (bits 0-5)
+// for cycle counting and for the Mechanism-2 raster interrupt, so a
+// read-modify-write costs a handful of cycles in code that is not
+// cycle-critical (raster_calibrate()'s own measurement window deliberately
+// starts the timers *before* the loop it measures, and detect_ntsc() measures
+// a whole VIC frame) and removes a whole class of "works in an emulator whose
+// default drive happens to be burst-capable, hangs or crawls on someone
+// else's real drive" failure.
+//
+// Deliberately NOT applied to raster_irq_worker()'s own `cia1.cra = 0x19`
+// rearm below: that runs inside a cycle-tuned interrupt handler, and its only
+// caller (Mechanism 2, raster_music_irq_start()) banks the KERNAL out for its
+// whole active window, so no Krill load can be in flight while it runs
+// anyway. If Mechanism 2 is ever revived for a section that also loads
+// assets, that rearm needs the same treatment (cheapest form: precompute
+// `0x19 | (cia1.cra & CIA1_CRA_SPMODE)` once in raster_music_irq_start() and
+// store that, so the handler itself still writes a single value).
+{
+    cia1.cra = (cia1.cra & CIA1_CRA_SPMODE) | (value & ~CIA1_CRA_SPMODE);
+}
+
 // raster_waitline()/raster_synch() (below): C translation of the CIA-timer
 // VDC raster sync routine from "64'er Sonderheft 95", "VDC-Intromaker:
 // Perfektes Rasterzeilen-Timing" (p.45) -- see the credits at the top of
@@ -294,7 +325,22 @@ void raster_calibrate()
     vdc_wait_vblank();
     vdc_wait_no_vblank();
 
-    cia1.cra = 0x00;
+    // CIA1 CRA bit 6 (SPMODE) is captured once here and OR'd back into every
+    // CRA store below, instead of routing them through cia1_cra_write() --
+    // that bit belongs to Krill's loader from krill_init() onwards, and this
+    // function runs after it (main() -> system_diagnostic_screen() -> here),
+    // so a plain whole-byte `cia1.cra = ...` would silently clear it (see
+    // cia1_cra_write()'s own comment above for the full mechanism). Captured
+    // into a local rather than read back per store so that each store below
+    // stays a single inline instruction, preserving the exact cycle profile
+    // the timer-start ordering right underneath was tuned for -- the extra
+    // load/ORA all happens *before* the store, never between a timer's start
+    // and the loop being measured. cia1.crb is stored plain: CRB bit 6 is
+    // Timer B's INMODE, not a serial-port mode bit, so Krill has no stake in
+    // it.
+    char cra_spmode = cia1.cra & CIA1_CRA_SPMODE;
+
+    cia1.cra = cra_spmode;
     cia1.crb = 0x00;
     cia1.ta = 0xffff;
     cia1.tb = 0xffff;
@@ -307,7 +353,7 @@ void raster_calibrate()
     // elapsed time (they were, when A started first and B's own setup ran
     // afterward).
     cia1.crb = 0x51; // start, force load, continuous, count Timer A underflows
-    cia1.cra = 0x11; // start, force load, continuous
+    cia1.cra = 0x11 | cra_spmode; // start, force load, continuous
 
     for (i = 0; i < 64; i++)
     {
@@ -315,7 +361,7 @@ void raster_calibrate()
         vdc_wait_no_vblank();
     }
 
-    cia1.cra = 0x00;
+    cia1.cra = cra_spmode;
     cia1.crb = 0x00;
 
     __asm { cli }
