@@ -117,6 +117,8 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 #define CIA1_CRA_SPMODE 0x40
 
 void cia1_cra_write(char value);
+void cia1_delay_cycles(unsigned reload);
+void cia1_delay_frames(char frames);
 
 void raster_waitline(char rasterline);
 void raster_synch();

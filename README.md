@@ -278,11 +278,14 @@ pictures" above.
 
 ## Changelog
 
-### v1.0.2 (not yet released -- pending real-hardware verification)
+### [v1.0.2](https://github.com/xahmol/vdcmaniac/releases/tag/v1.0.2)
 
-Two further cycle-precision refinements to `raster_calibrate()`, again
-from Tokra reviewing the routine directly -- this time against his own
-cycle-exact PET-code VDC sync routine:
+Two threads: further `raster_calibrate()` cycle-precision refinements
+from Tokra, and a real-hardware-only VDC-IHFLI stall found and fixed via
+live diagnosis on the same Ultimate II+L test setup.
+
+**`raster_calibrate()` precision, from Tokra reviewing the routine
+directly against his own cycle-exact PET-code VDC sync routine:**
 
 - **A third VBlank-edge check added before the routine's own sync
   point.** Entering the routine at an arbitrary point in the frame, the
@@ -296,8 +299,34 @@ cycle-exact PET-code VDC sync routine:
   B's own setup cycles leak into the measured elapsed time.
 
 Both are small precision tightenings ("nearly academic," Tokra's own
-words) rather than a systematic bias like v1.0.1's sync-point fix --
-pending a live real-hardware re-test before release.
+words), not a systematic bias like v1.0.1's sync-point fix.
+
+**VDC-IHFLI ~15s real-hardware-only picture-transition stall, fixed:**
+
+- **Root cause**: `vdc_set_mode()` restored the destination mode's
+  character set (`vdc_restore_charsets()`, a 512-byte, per-byte
+  VDC-ready-polled push) *before* applying that mode's own timing
+  registers -- so the push ran while the *outgoing* mode's timing was
+  still live on the chip. VDC-IHFLI has the narrowest real
+  vertical-blanking window of any mode in this project's whole mode
+  table, narrow enough that real 8563/8568 silicon (never VICE or z64k)
+  could stall the push for real seconds. VDC-ITFLI, IHFLI's closest
+  sibling, has a window nearly twice as wide -- almost certainly why
+  only IHFLI ever showed it. Full technical write-up, including the
+  live-diagnosis method used to isolate it, in `vdc_reference_manual.md`.
+- **Fix**: the charset restore now runs after the mode's own timing
+  registers are applied, so it always executes under safe (destination)
+  timing regardless of what the outgoing mode was.
+- **Also fixed along the way** (real, kept regardless of the above):
+  CIA1 Control Register A's SPMODE bit (bit 6) -- which belongs to
+  Krill's fastloader once it's installed, not this project -- was being
+  silently clobbered by a couple of whole-byte CIA1 timer writes in
+  `detect_ntsc()`/`raster_calibrate()`, which could have forced burst
+  transfers on a drive that can't do them; and a redundant 64KB VDC
+  memory wipe was removed from every picture-showcase section's own
+  loop-top transition (`vdc_blank_pause()`, replacing
+  `vdc_wipe_transition()` there), since `vdc_init()`'s own blank-then-
+  clear-then-enable sequence already made it unnecessary.
 
 ### [v1.0.1](https://github.com/xahmol/vdcmaniac/releases/tag/v1.0.1)
 

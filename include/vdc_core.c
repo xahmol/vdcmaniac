@@ -73,6 +73,7 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 #include <c64/kernalio.h>
 #include <c128/vdc.h>
 #include "vdc_core.h"
+#include "vdc_raster.h"
 #include "banking.h"
 #include "peekpoke.h"
 
@@ -549,23 +550,43 @@ char vdc_set_mode(char mode)
     // Set VDC addresses
     vdc_disable_display();
     vdc_set_disp_address(vdc_modes[mode].base_text, vdc_modes[mode].base_attr);
-    // Attention point: gate this on char_std==0, not on !vdc_state.bitmap
-    // -- several bitmap modes (e.g. title_screen()'s
-    // VDC_HIRES_640x400_Mono_PAL, char_std=0xe000) DO reserve/populate a
-    // real charset area and rely on this call to do it; only
-    // VDC_HIRES_480x252_Color_PAL and VDC_HIRES_720x700_Mono_PAL
-    // (char_std=0x0000) genuinely have no charset room to set up.
-    if (vdc_modes[mode].char_std != 0)
-    {
-        vdc_set_charset_address(vdc_modes[mode].char_std);
-        vdc_restore_charsets();
-    }
 
     index = 0;
     do
     {
         vdc_reg_write(vdc_modes[mode].regset[index++], vdc_modes[mode].regset[index++]);
     } while (vdc_modes[mode].regset[index] != 255);
+
+    // Attention point: gate this on char_std==0, not on !vdc_state.bitmap
+    // -- several bitmap modes (e.g. title_screen()'s
+    // VDC_HIRES_640x400_Mono_PAL, char_std=0xe000) DO reserve/populate a
+    // real charset area and rely on this call to do it; only
+    // VDC_HIRES_480x252_Color_PAL and VDC_HIRES_720x700_Mono_PAL
+    // (char_std=0x0000) genuinely have no charset room to set up.
+    //
+    // Deliberately placed AFTER the regset loop above, not before (as it
+    // originally was) -- vdc_restore_charsets() pushes a real 512-byte
+    // charset into VDC memory (bnk_redef_charset(), per-byte ready-polled,
+    // real non-trivial time), and doing that while the OUTGOING mode's own
+    // timing registers are still active on the chip live-hung real
+    // hardware when that outgoing mode was VDC-IHFLI (VTOTAL==VDISPLAY, a
+    // near-zero real vertical-blanking window -- the narrowest of any mode
+    // in this project's vdc_modes[] table) -- confirmed live via
+    // Ultimate II+L REST API elapsed-time instrumentation, 2026-08-28; not
+    // reproduced in VICE. Same root-cause class as VDC-FLI's own
+    // static-CSIZE real-hardware hang (fli_color_demo()'s comment) and
+    // VDC-IHFLI's own vdc_modes[] row narrow-vblank note. Safe to move
+    // unconditionally: every mode with char_std!=0 (where this block
+    // actually runs) has no VDCR_CHAR_ADDRH entry in its own regset row
+    // (only char_std==0 modes -- IHFLI/ITFLI/HFLI/IM800/IM960 -- use that
+    // register for their own addressing purposes, and this block never
+    // runs for them), so the regset loop above never overwrites what this
+    // sets.
+    if (vdc_modes[mode].char_std != 0)
+    {
+        vdc_set_charset_address(vdc_modes[mode].char_std);
+        vdc_restore_charsets();
+    }
 
     // Check if extended memory is required and not yet set. If so, set.
     if (vdc_modes[mode].extmem && !vdc_state.memextended)
@@ -916,19 +937,64 @@ void vdc_wipe_transition()
 // uses for its own internal wipe) and then holding the resulting blank
 // screen for a fixed, perceptible pause once display comes back gives an
 // unambiguous flash-to-black instead.
+//
+// The hold below is a CIA1-timer busy-wait (cia1_delay_frames(),
+// vdc_raster.c/.h), not vdc_pass_vblank() x15 as it was originally --
+// this function runs at the top of every picture-showcase loop
+// iteration, while the VDC is still in whatever mode the JUST-SHOWN
+// picture used (the next vdc_init() hasn't run yet), and vdc_pass_vblank()
+// polls that still-active mode's own vertical-blank status bit. For
+// VDC-IHFLI specifically (vdc_modes[] row: VDISPLAY==VTOTAL, a
+// near-zero blanking window -- the same real-hardware-only narrow-
+// vblank-duty-cycle class of bug already documented for VDC-FLI's
+// static CSIZE in fli_color_demo()'s comment, src/main.c), that poll
+// was live-confirmed to stall for ~15 real seconds per picture
+// transition, only on real hardware -- not reproduced in VICE. A
+// CIA1-timer hold has no dependency on the active VDC mode's own timing
+// at all, so it can't be affected by this class of bug regardless of
+// which mode was just showing.
 {
-    char i;
-
     vdc_disable_display();
     vdc_wipe_mem();
     vdc_enable_display();
 
     // ~15 frames (~0.3s at 50Hz PAL) -- long enough to register as a
     // deliberate pause, short enough not to feel like a stall.
-    for (i = 0; i < 15; i++)
-    {
-        vdc_pass_vblank();
-    }
+    cia1_delay_frames(15);
+}
+
+void vdc_blank_pause()
+// Same visible black pause as vdc_wipe_transition(), for the specific
+// case where the caller is about to hand off to vdc_mode_info_screen()
+// (src/main.c) -- i.e. the very next thing that runs is a plain
+// vdc_init(VDC_TEXT_80x25_PAL, ...) call. Deliberately skips
+// vdc_wipe_mem()'s own 256 triggered VDC block-fills entirely, unlike
+// vdc_wipe_transition(): while blanked, VDC memory content is already
+// invisible regardless of what it holds, and vdc_init()'s own
+// vdc_set_mode() (for any !bitmap destination) already does
+// disable->apply new (safe) timing->vdc_cls()->enable as one atomic,
+// already-safe sequence before mode_info_screen() ever draws anything --
+// see that function's own vdc_init() call. So there is no flash window
+// left for a wipe here to protect against; touching VDC memory at this
+// call site was pure overhead every picture-showcase section paid on
+// every picture transition.
+//
+// This one specific wipe, unlike the one right before each section's own
+// vdc_init() into its OWN bitmap mode (which vdc_set_mode() does NOT
+// auto-clear, and which genuinely still needs a real vdc_wipe_transition()),
+// runs while the OUTGOING picture's own mode/timing is still fully
+// active -- for VDC-IHFLI specifically (vdc_modes[] row: VDISPLAY==VTOTAL,
+// VADJUST=3, the narrowest real vertical-blanking window of any mode in
+// this project), that made vdc_wipe_transition()'s 256 triggered block-
+// fills stall for ~15 real seconds per picture on real hardware only (not
+// reproduced in VICE) -- live-confirmed root cause, 2026-08-28. Applying
+// this lighter pause project-wide (not just to VDC-IHFLI) removes the
+// same always-redundant work from every other picture-showcase section's
+// identical loop-top transition, whether or not their own timing was
+// narrow enough to make the cost perceptible before.
+{
+    vdc_disable_display();
+    cia1_delay_frames(15);
 }
 
 void vdc_set_extended_memsize()

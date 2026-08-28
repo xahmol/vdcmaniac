@@ -1336,12 +1336,16 @@ char fli_color_demo()
 
 	for (pic = 0; pic < 3; pic++)
 	{
-		// Wipe first every pass (harmless on pic==0, coming from the text-mode
-		// menu; clears the *previous* picture's bitmap on later passes before
-		// vdc_mode_info_screen() below draws text over it -- see the 3-picture
-		// loop's own comment convention, mono_hires_xl_demo()/mono_im800_demo()
-		// use the same pattern).
-		vdc_wipe_transition();
+		// Black pause first every pass (harmless on pic==0, coming from the
+		// text-mode menu) -- vdc_blank_pause() (vdc_core.c), not
+		// vdc_wipe_transition(): the next call, vdc_mode_info_screen(), does
+		// its own vdc_init(VDC_TEXT_80x25_PAL, ...), which already blanks,
+		// applies safe text-mode timing, clears, then re-enables as one
+		// atomic sequence -- so there is no leftover-bitmap flash for a real
+		// memory wipe to protect against here; see vdc_blank_pause()'s own
+		// comment for why, and the 3-picture loop's own comment convention,
+		// mono_hires_xl_demo()/mono_im800_demo() use the same pattern).
+		vdc_blank_pause();
 
 		vdc_mode_info_screen("VDC-FLI", "480 x 252 pixels, non-interlace", "colour resolution: 8x1", descr[pic], 0);
 
@@ -1541,7 +1545,7 @@ char fli_ihfli_demo()
 
 	for (pic = 0; pic < 3; pic++)
 	{
-		vdc_wipe_transition();
+		vdc_blank_pause();
 
 		vdc_mode_info_screen("VDC-IHFLI", "640 x 480 pixels (interlace)", "colour resolution: 8x2", descr[pic], "cursor up/down: adjust field sync");
 
@@ -1616,7 +1620,7 @@ char fli_itfli_demo()
 
 	for (pic = 0; pic < 3; pic++)
 	{
-		vdc_wipe_transition();
+		vdc_blank_pause();
 
 		vdc_mode_info_screen("VDC-ITFLI", "640 x 576 pixels (interlace)", "colour resolution: 8x3", descr[pic], "cursor up/down: adjust field sync");
 
@@ -1691,7 +1695,7 @@ char fli_hfli_demo()
 
 	for (pic = 0; pic < 3; pic++)
 	{
-		vdc_wipe_transition();
+		vdc_blank_pause();
 
 		vdc_mode_info_screen("VDC-HFLI", "640 x 400 pixels, non-interlace", "colour resolution: 8x2", descr[pic], 0);
 
@@ -1775,7 +1779,7 @@ void spectrum_demo()
 
 	for (pic = 0; pic < 3; pic++)
 	{
-		vdc_wipe_transition();
+		vdc_blank_pause();
 
 		vdc_mode_info_screen("VDC Spectrum", "256 x 192 ZX Spectrum picture, doubled to 512x192", "colour resolution: 8x8 (flat, whole-cell)", descr[pic], 0);
 
@@ -1929,7 +1933,7 @@ char mono_hires_xl_demo()
 
 	for (pic = 0; pic < 3; pic++)
 	{
-		vdc_wipe_transition();
+		vdc_blank_pause();
 
 		vdc_mode_info_screen("VDC-IMONO", "720 x 700 pixels (interlace)", "monochrome", descr[pic], "cursor up/down: sync, +/-: colour");
 
@@ -2041,7 +2045,7 @@ char mono_im800_demo()
 
 	for (pic = 0; pic < 3; pic++)
 	{
-		vdc_wipe_transition();
+		vdc_blank_pause();
 
 		vdc_mode_info_screen("VDC-IM800", "800 x 600 pixels (interlace)", "monochrome", descr[pic], "cursor up/down: sync, +/-: colour");
 

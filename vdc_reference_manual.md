@@ -529,6 +529,87 @@ real time proportional to whatever stale size it reads. Prefer
 operations that don't need current-mode geometry in that window; if one
 genuinely does, move it to after `vdc_set_mode()` runs instead.
 
+### Charset restore before the regset loop — a real-hardware-only, IHFLI-only stall
+
+**Symptom**: every VDC-IHFLI picture transition (advancing from photo 1
+to 2, or 2 to 3) hung on a black screen for ~15 real seconds, with no
+disk activity, right after the keypress and before the next info screen
+appeared. Real hardware only — never reproduced in VICE or z64k. No
+other mode showed it, including VDC-ITFLI, which is otherwise the
+closest sibling (same dual-field interlace structure, same loop shape).
+
+**Root cause**: `vdc_set_mode()` originally called `vdc_restore_charsets()`
+(for any destination mode with `char_std != 0`, which includes plain
+text modes like `VDC_TEXT_80x25_PAL`) *before* applying the destination
+mode's own `regset[]` table. `vdc_restore_charsets()` pushes a real
+512-byte charset into VDC memory — not via the hardware block-fill path
+(see "Hardware block copy/fill" above), but through
+`bnk_redef_charset()` (`banking.c`), which does 512 individual
+`vdc_write()` calls (one MMU bank-switch pair to read a ROM byte, one
+VDC-ready-polled write, repeat). Because this ran *before* the regset
+loop, all 512 of those polled writes happened while the **outgoing**
+mode's own timing registers — not the destination mode's — were still
+programmed into the chip.
+
+That only matters if the outgoing mode's timing is pathological enough
+for the VDC's own "ready for next register op" handshake to occasionally
+stall for a long real time under real silicon (never in emulation) — and
+VDC-IHFLI's own `vdc_modes[]` row is exactly that: `VDISPLAY == VTOTAL`
+(zero character-row vertical blanking) with `VADJUST = 3`, the
+**narrowest real vertical-blanking window of any mode in this project's
+whole mode table** (VDC-ITFLI's own row, by contrast, has `VADJUST = 5`
+— nearly twice as forgiving, which is almost certainly why ITFLI never
+showed this and IHFLI did). This is the same root-cause *class* already
+documented for VDC-FLI's own real-hardware hang (a static, narrow-vblank
+`CSIZE` held across two large `bnk_cpytovdc()` pushes — see
+`fli_color_demo()`'s own comment in `src/main.c`), just triggered by a
+different large per-byte-polled push (a charset restore instead of a
+picture load) landing inside the same class of narrow-vblank exposure
+window, inside `vdc_init()` this time rather than a demo function's own
+body.
+
+**The fix**: move the whole `if (vdc_modes[mode].char_std != 0) { ... }`
+charset-restore block to run *after* the regset loop, not before —
+`vdc_set_mode()`, `include/vdc_core.c`. By the time it runs, the
+*destination* mode's own (safe) timing is already active on the chip,
+regardless of how pathological the outgoing mode's timing was. This is
+safe unconditionally, for every mode in the table, not just
+`VDC_TEXT_80x25_PAL`: every mode row with `char_std != 0` (where this
+block actually executes) has no `VDCR_CHAR_ADDRH` entry in its own
+`regset[]` — only the `char_std == 0` modes (IHFLI/ITFLI/HFLI/IM800/
+IM960, which use that register for their own addressing purposes, per
+their own row comments) put `CHAR_ADDRH` in `regset[]`, and this block
+never runs for those. So the regset loop can never overwrite what
+`vdc_set_charset_address()` sets, in either order — reordering costs
+nothing and closes the exposure window for every current and future
+mode alike.
+
+**Diagnosis method** (worth reusing for the next real-hardware-only
+timing bug): guessing from source repeatedly failed here — three
+separate hypotheses (`vdc_pass_vblank()`'s own VDC-status-bit poll,
+`vdc_wipe_mem()`'s hardware block-fill, and CIA1 CRA's SPMODE bit) were
+each fixed as real (if ultimately unrelated) issues, live-tested, and
+ruled out before this was found. What actually worked was **bisecting
+with an in-code elapsed-time measurement, not step markers**: a CIA1
+dual-timer duration counter (Timer A free-running, Timer B counting
+Timer A's own underflows — the same technique `raster_calibrate()`
+already uses, ~65ms resolution, clamped to a `char` result) was wrapped
+around successively narrower spans, with the result read back once,
+after the fact, via the Ultimate II+L's REST API `readmem` — no
+fast/continuous external polling needed, unlike watching a live step
+marker (which this project's own size-constrained `-O2` build couldn't
+even afford: a handful of one-byte breadcrumb writes was enough to make
+the linker fail to place the stack/heap sections). Two real traps hit
+along the way, worth flagging for next time: (1) the measured span must
+not itself call anything that reprograms CIA1 Timer A/CRA (`vdc_blank_pause()`'s
+own `cia1_delay_frames()` did, silently invalidating an early
+measurement), and (2) a measurement placed inside a function called
+**more than once per loop iteration** (`vdc_init()` is called twice per
+picture — once for the text info screen, once for the mode's own
+bitmap) gets silently overwritten by whichever call happens to run
+last, unless explicitly gated to the specific destination mode being
+investigated.
+
 ### Narrow-field readback noise
 
 Several registers have fewer meaningful bits than a full byte —

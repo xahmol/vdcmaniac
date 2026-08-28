@@ -42,6 +42,45 @@ void cia1_cra_write(char value)
     cia1.cra = (cia1.cra & CIA1_CRA_SPMODE) | (value & ~CIA1_CRA_SPMODE);
 }
 
+void cia1_delay_cycles(unsigned reload)
+// Busy-waits `reload` CPU cycles via CIA1 Timer A, one-shot mode --
+// entirely independent of VDC hardware state. Unlike vdc_pass_vblank()
+// (vdc_core.c), which polls the VDC's own vertical-blank status bit
+// (register $D600 bit 5), this never depends on the currently active
+// VDC mode's own vertical-blank duty cycle -- see vdc_wipe_transition()'s
+// own comment for why that matters (VDC-IHFLI's vdc_modes[] row gives it
+// a near-zero blanking window, the same real-hardware-only "narrow
+// vblank duty cycle stalls the poll" class of bug already documented for
+// VDC-FLI's static CSIZE in fli_color_demo()'s comment, src/main.c).
+//
+// In one-shot mode (CRA bit 4 = 1), the 6526 clears CRA's own START bit
+// (bit 0) automatically on underflow -- polling that bit needs no ICR
+// read, so it can't ack/clear a pending interrupt flag Mechanism 2 or
+// Krill's own loader might care about, and needs no interrupts disabled.
+{
+    cia1_cra_write(0x00); // stop, in case a previous one-shot is still running
+    cia1.ta = reload;
+    cia1_cra_write(0x19); // force load, one-shot, start
+    while (cia1.cra & 0x01)
+    {
+    }
+}
+
+void cia1_delay_frames(char frames)
+// Approximately `frames` PAL video frames (19656 cycles/frame at 1MHz --
+// 63 cycles/line * 312 lines, the same PAL frame-cycle constant
+// detect_ntsc() compares its own measurement against). Deliberately not
+// NTSC-corrected: this only ever replaces a fixed-count cosmetic pause
+// (vdc_wipe_transition()'s black-screen hold), where being ~15% short on
+// real NTSC hardware is imperceptible -- not worth carrying g_is_ntsc
+// (main.c) as a cross-file dependency into this library for.
+{
+    while (frames--)
+    {
+        cia1_delay_cycles(19656);
+    }
+}
+
 // raster_waitline()/raster_synch() (below): C translation of the CIA-timer
 // VDC raster sync routine from "64'er Sonderheft 95", "VDC-Intromaker:
 // Perfektes Rasterzeilen-Timing" (p.45) -- see the credits at the top of

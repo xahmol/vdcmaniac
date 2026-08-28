@@ -132,6 +132,7 @@ void vdc_wipe_mem();
 // one broken then fixed" -- see title_screen()/fli_color_demo()/
 // mono_hires_xl_demo() in src/main.c.
 void vdc_wipe_transition();
+void vdc_blank_pause();
 void vdc_set_extended_memsize();
 void vdc_set_default_memsize();
 void vdc_bgcolor(char color);
