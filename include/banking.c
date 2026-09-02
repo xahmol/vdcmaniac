@@ -334,10 +334,6 @@ char sid_krill_irq_saved[2];
 // See its own comment in banking.h.
 unsigned sid_music_framecount;
 
-// See their own comments in banking.h.
-int sid_rate_accum;
-int sid_rate_inc;
-
 // See its own comment in banking.h.
 unsigned sid_expected_framecount;
 
@@ -374,7 +370,7 @@ sid_krill_chain:
     jmp $ff33
 }
 
-void sid_music_init(char is_ntsc)
+void sid_music_init()
 // Initialise SID music: bank to where the tune lives (matches
 // raster_irq_playframe()'s own bank-switch, defines.h's SIDINIT/SIDPLAY),
 // reset the SID chip, call the tune's init entry point (song 0), then chain
@@ -384,16 +380,15 @@ void sid_music_init(char is_ntsc)
 // krill_interrupt (krill.c) -- this saves whatever's there at that point
 // and chains onward to it, so ordering matters.
 //
-// is_ntsc is the host machine's own detected video standard (caller passes
-// g_is_ntsc, set earlier by system_diagnostic_screen()'s detect_ntsc()) --
-// used here, together with defines.h's SID_TUNE_USES_CIA_SPEED/
-// SID_TUNE_IS_NTSC (the tune's own PSID-header-derived tempo properties),
-// to pick the rate-accumulator delta raster_irq_playframe() (vdc_raster.c)
-// will consume every IRQ. A vsync-tempo tune (SID_TUNE_USES_CIA_SPEED==0)
-// always gets delta=0 regardless of is_ntsc -- it's designed to follow
-// whatever rate it's called at, correct on either host with no correction.
-// A CIA-tempo tune needs correction only when its own default rate doesn't
-// match this host's standard.
+// Deliberately makes no attempt to correct playback tempo for a PAL/NTSC
+// mismatch -- always exactly one SIDPLAY call per IRQ, whatever the host's
+// actual frame rate is (raster_irq_playframe(), vdc_raster.c). An earlier
+// rate-accumulator mechanism did attempt this (speeding up/slowing down
+// SIDPLAY calls to approximate the tune's native tempo); real-hardware/VICE
+// feedback on v1.0.2 (see project memory) found the corrected playback
+// audibly worse than simply letting a PAL-composed tune play ~19% fast on
+// NTSC -- removed by deliberate choice, not an oversight. Don't
+// reintroduce without a specific request.
 //
 // Attention point: sei/cli bracket the bank-switch below for the same
 // reason raster_irq_playframe() (vdc_raster.c) does -- BNK_1_IO banks out
@@ -414,16 +409,6 @@ void sid_music_init(char is_ntsc)
 	}
 	mmu.cr = old;
 	sid_music_framecount = 0;
-
-	sid_rate_accum = 0;
-	if (!SID_TUNE_USES_CIA_SPEED)
-		sid_rate_inc = 0;
-	else if (SID_TUNE_IS_NTSC == is_ntsc)
-		sid_rate_inc = 0;
-	else if (SID_TUNE_IS_NTSC)
-		sid_rate_inc = SID_RATE_DELTA_NTSC_ON_PAL;
-	else
-		sid_rate_inc = SID_RATE_DELTA_PAL_ON_NTSC;
 
 	// Save krill_interrupt's own address (already installed by krill_init()
 	// by this point), then chain sid_music_interrupt in ahead of it.
@@ -515,12 +500,11 @@ void sid_play_frame_foreground()
 // would prematurely re-enable interrupts before the caller's own, likely
 // carefully-timed, cli point).
 //
-// Deliberately NOT the rate-accumulator path raster_irq_playframe() uses
-// (plays 0/1/2 per call, banking.h's sid_rate_accum/sid_rate_inc) -- that
-// mechanism corrects a CIA-tempo tune's fixed rate against the host's
-// INTERRUPT-DRIVEN frame rate over many calls; a foreground call here
-// plays at most once per call, matching the caller's own loop cadence.
-// Shares sid_music_framecount/SID_RESTART_FRAMES with
+// Plays at most once per call, matching the caller's own loop cadence --
+// same as raster_irq_playframe() (vdc_raster.c), which also always plays
+// exactly once per IRQ with no PAL/NTSC tempo correction (see
+// sid_music_init()'s own comment for why). Shares
+// sid_music_framecount/SID_RESTART_FRAMES with
 // raster_irq_playframe() (the same underlying tune-restart safety net),
 // duplicating its small restart-check rather than refactoring
 // raster_irq_playframe() itself to share it -- that function is a
@@ -549,7 +533,6 @@ void sid_play_frame_foreground()
 			lda #$00
 			jsr SIDINIT
 		}
-		sid_rate_accum = 0;
 	}
 	else
 	{

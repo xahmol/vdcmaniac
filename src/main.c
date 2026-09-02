@@ -1013,7 +1013,7 @@ void idi8b_logo_demo()
 	// startup sequence, so starting playback right after it (instead of
 	// right before it) means its own ~1.3s SEI window never has a chance
 	// to land on top of already-started music and cause an audible pause.
-	sid_music_init(g_is_ntsc);
+	sid_music_init();
 
 	// Attention point: vdc_set_charset_address(char_alt) cannot select
 	// the lowercase charset in this non-attribute mode (see project memory

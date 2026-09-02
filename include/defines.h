@@ -313,13 +313,20 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 // "Maniac" (Michael Sembello, from Flashdance, 1983), SID cover by Antti
 // Hannula (Flex), 2010, Artline Designs -- see this file's own credit
 // block above for the full attribution. A PAL-native/VBI-tempo
-// composition (see SID_TUNE_USES_CIA_SPEED below),
-// needing no software tempo-rate correction. Attention point for any
-// future tune swap: a tune that DOES need correction (a CIA-timer tune,
-// not VBI-tempo) risks an occasional extra SIDPLAY tick from the rate
-// accumulator, which doesn't fit the FLI/MONO sections' own raster-time
-// budget (they hold interrupts disabled for nearly the whole frame) --
-// prefer a VBI-tempo tune if given a choice.
+// composition (PSID v2 "speed" field, song 1's bit clear -- see the HVSC
+// URL below): the tune just follows whatever rate raster_irq_playframe()
+// (vdc_raster.c) calls it at, exactly once per IRQ, no software tempo
+// correction of any kind. This project deliberately does NOT attempt to
+// correct playback tempo for a PAL/NTSC mismatch -- an earlier
+// rate-accumulator mechanism did (speeding up/slowing down SIDPLAY calls
+// to approximate the tune's native tempo on the "wrong" host standard);
+// real-hardware/VICE feedback on v1.0.2 found the corrected playback
+// audibly worse than simply letting the tune run ~19% fast on NTSC, so it
+// was removed by deliberate choice (see project memory). Attention point
+// for any future tune swap: a CIA-timer-tempo tune (PSID speed bit set)
+// will just play at its own fixed rate regardless of host standard --
+// same "no correction" policy applies, don't reintroduce rate-correction
+// machinery without a specific request.
 //
 // https://csdb.dk/release/?id=94553 (source release) /
 // https://deepsid.chordian.net/?file=/MUSICIANS/H/Hannula_Antti/Maniac.sid
@@ -353,29 +360,6 @@ THE PROGRAMS ARE DISTRIBUTED IN THE HOPE THAT THEY WILL BE USEFUL, BUT WITHOUT A
 #define SIDINIT 0x2000
 #define SIDPLAY 0x2003
 
-// Per-tune tempo properties, derived from Maniac.sid's own PSID v2 header
-// (fetched from the HVSC URL above and inspected directly -- the header is
-// stripped from assets/music.prg, so it can't answer this at runtime).
-// These drive sid_music_init()'s rate-accumulator setup (banking.c) so
-// playback tempo is correct regardless of tune/machine PAL-NTSC combination
-// -- see vdc_raster.c's raster_irq_playframe().
-//
-// Attention point for future tune swaps: derive these from the PSID
-// "speed" field (offset 0x12-0x15, one bit per subtune, song 1 = bit 0),
-// NOT the "flags" field's clock-standard bits (offset 0x76-0x77, bits
-// 2-3) -- the flags field can give a false negative for this purpose.
-// The speed field is authoritative: per the PSID v2 spec, a 0 bit means
-// "vertical blank interrupt" (the tune follows whatever rate it's
-// called at -- correct on any host, needs SID_TUNE_USES_CIA_SPEED=0 and
-// no further tuning), and a 1 bit means "CIA 1 timer interrupt" (a
-// fixed rate of its own, ignoring the host's actual vsync rate). This
-// tune's speed field is 0x00000000 (song 1's bit clear) -- VBI/vsync
-// tempo, needing zero rate compensation: sid_music_init() (banking.c)
-// sets sid_rate_inc=0 unconditionally when SID_TUNE_USES_CIA_SPEED==0,
-// and raster_irq_playframe() (vdc_raster.c) then always does exactly
-// one SIDPLAY call per IRQ.
-#define SID_TUNE_USES_CIA_SPEED 0 // 1=CIA-timer tempo (fixed, needs correction to match); 0=vsync tempo (follows host automatically, SID_TUNE_IS_NTSC below is then irrelevant)
-#define SID_TUNE_IS_NTSC 0        // inert while SID_TUNE_USES_CIA_SPEED==0 (this tune) -- only meaningful for a future CIA-timer tune
 
 // References to steering chars
 #define CH_CURS_UP 145    // Petscii control code for Cursor Up
